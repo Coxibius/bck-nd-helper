@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.env
+
+# Models (Optional: If models are >100MB, git will reject them without LFS)
+# Uncomment the line below if your model folders are huge and you want to ignore them for now
+# models/
+
+# IDE settings
+.vscode/
+.idea/
+
+# Distribution / Packaging
+dist/
+build/
+*.egg-info/
+
+models/
+
+
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.env
+.DS_Store
+dist/
+build/
+*.egg-info/

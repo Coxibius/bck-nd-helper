@@ -1,0 +1,329 @@
+import typer
+import sys
+from typing import Optional
+from bck_nd_hlpr.router import Router
+from bck_nd_hlpr.scanner import ProjectScanner
+from bck_nd_hlpr.narrator import Narrator
+from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
+from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
+from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
+from bck_nd_hlpr.todo_hunter import scan_for_todos, display_todos_table, get_todos_table_string
+
+app = typer.Typer(
+    name="bck-nd",
+    help="Backend Helper: Lightweight Architecture CLI",
+    add_completion=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+    epilog="""
+COMMAND MANUAL:
+
+Basic Scanning:
+  bck-nd scan .                       # Scan current directory and generate ASCII diagram
+  bck-nd scan src --depth 5           # Scan specific folder with increased depth
+
+Output Formats:
+  bck-nd scan . --format ascii        # Default ASCII output
+  bck-nd scan . --format mermaid      # Mermaid.js output (+ Visual Preview)
+  bck-nd scan . --uml                 # UML Class Diagram (uses AST for class/inheritance)
+  bck-nd scan . --er                  # Entity-Relationship Diagram (SQLAlchemy/Django)
+  bck-nd scan . --routes              # API Route Map (Flask/FastAPI Sequence Diagram)
+  bck-nd scan . --infra               # Infrastructure Diagram (Docker Compose)
+  bck-nd scan . --todo                # Technical Debt Scanner (TODO, FIXME, HACK, XXX, BUG)
+  bck-nd scan . --audit               # Security Audit (Detect Secrets, Keys, Hardcoded IPs) [NEW]
+  bck-nd scan . --impact              # Dependency Heatmap (What breaks if I code?) [NEW]
+
+Persistence:
+  bck-nd scan . --output report.txt   # Save output to file instead of stdout
+  bck-nd scan . --er -o schema.mmd    # Save Mermaid diagram to file
+
+Reporting & AI:
+  bck-nd scan . --explain             # Diagram + Local Text Report (Offline)
+  bck-nd scan . --ai                  # Diagram + AI Analysis (requires n8n)
+  
+Manual Diagrams:
+  bck-nd flow "User -> API -> DB"     # Generate quick ASCII flow from string
+"""
+
+)
+
+def save_or_print(content: str, output_path: Optional[str], title: str = "OUTPUT"):
+    """Helper to handle output persistence."""
+    if output_path:
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            typer.secho(f"💾 Output saved to: {output_path}", fg=typer.colors.GREEN, bold=True)
+        except Exception as e:
+            typer.secho(f"❌ Error saving file: {e}", fg=typer.colors.RED)
+    else:
+        # Standard stdout behavior
+        if "graph" in title or "diagram" in title.lower():
+             print(content)
+        else:
+             print(content)
+
+@app.command()
+def flow(
+    layout: str = typer.Argument(..., help="String de flujo manual.")
+):
+    """
+    📐 Genera un diagrama ASCII desde un string manual.
+    
+    Ejemplo: bck-nd flow "Client -> API -> Database"
+    """
+    try:
+        typer.secho("\n📐 GENERANDO DIAGRAMA MANUAL:", fg=typer.colors.CYAN, bold=True)
+        router = Router()
+        router.process(layout)
+    except Exception as e:
+        typer.secho(f"❌ Error: {e}", fg=typer.colors.RED)
+
+@app.command()
+def scan(
+    path: str = typer.Argument(".", help="Ruta a analizar"),
+    depth: int = typer.Option(3, "--depth", "-d", help="Profundidad de escaneo."),
+    graph: bool = typer.Option(True, "--graph/--no-graph", help="Mostrar dibujo ASCII."),
+    explain: bool = typer.Option(False, "--explain", "-e", help="Reporte de texto local."),
+    ai: bool = typer.Option(False, "--ai", help="Análisis IA (n8n)."),
+    style: str = typer.Option("pro", "--style", "-s", help="Personalidad: pro, hacker, soviet, ramsay, jarvis, eli5, doom."),
+    format: str = typer.Option("ascii", "--format", "-f", help="Formato de salida: ascii, mermaid."),
+    uml: bool = typer.Option(False, "--uml", "-u", help="Generar diagrama de clases UML."),
+    er: bool = typer.Option(False, "--er", help="Generar diagrama ER de base de datos (Mermaid)."),
+    routes: bool = typer.Option(False, "--routes", help="Generar mapa de rutas API (Mermaid Sequence)."),
+    infra: bool = typer.Option(False, "--infra", help="Generar diagrama de infraestructura (Docker Compose)."),
+    todo: bool = typer.Option(False, "--todo", help="Buscar deuda técnica (TODO, FIXME, HACK, XXX, BUG)."),
+    audit: bool = typer.Option(False, "--audit", help="Auditoría de Seguridad (Busca credenciales hardcodeadas)."),
+    impact: bool = typer.Option(False, "--impact", help="Mapa de calor de dependencias (High Impact Files)."),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Guardar resultado en archivo (desactiva stdout).")
+):
+    """
+    🕵️ Escanea un proyecto y detecta su arquitectura automáticamente.
+    
+    \b
+    Modos de uso:
+    • bck-nd scan .                    - Solo diagrama ASCII
+    • bck-nd scan . -o report.txt      - Guardar en archivo
+    • bck-nd scan . --uml              - Diagrama de Clases UML (Mermaid)
+    • bck-nd scan . --format mermaid   - Salida Mermaid.js
+    """
+    scanner = ProjectScanner()
+
+    # Helper para manejar salida condicional
+    def output_handler(content: str, context_msg: str):
+        if output:
+            try:
+                with open(output, "w", encoding="utf-8") as f:
+                    f.write(content)
+                typer.secho(f"💾 Resultado guardado en: {output}", fg=typer.colors.GREEN, bold=True)
+            except Exception as e:
+                typer.secho(f"❌ Error escribiendo archivo: {e}", fg=typer.colors.RED)
+        else:
+            # Imprimir en consola con decoraciones si es necesario
+            if context_msg:
+                # Si es bloque de codigo mermaid
+                if content.strip().startswith("classDiagram") or \
+                   content.strip().startswith("erDiagram") or \
+                   content.strip().startswith("sequenceDiagram") or \
+                   content.strip().startswith("graph"):
+                    print("```mermaid")
+                    print(content)
+                    print("```")
+                    typer.secho("Copia el bloque anterior en Mermaid.live", fg=typer.colors.BRIGHT_BLACK)
+                else:
+                    print(content)
+
+    # MODO UML EXCLUSIVO
+    if uml:
+        typer.secho(f"\n[UML] GENERANDO DIAGRAMA DE CLASES (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
+        uml_code = scanner.scan_uml(path, max_depth=depth)
+        output_handler(uml_code, "Mermaid Code")
+        return
+
+    # MODO ER (ENTITY-RELATIONSHIP)
+    if er:
+        typer.secho(f"\n[ER] GENERANDO DIAGRAMA ER (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
+        entities = parse_project_for_er(path, max_depth=depth)
+        er_code = generate_mermaid_er(entities)
+        
+        if not er_code or len(entities) == 0:
+            typer.secho("⚠️ No se detectaron modelos de base de datos (SQLAlchemy/Django).", fg=typer.colors.YELLOW)
+        else:
+            output_handler(er_code, "Mermaid Code")
+        return
+    
+    # MODO ROUTES (API MAP)
+    if routes:
+        typer.secho(f"\n[API] GENERANDO MAPA DE RUTAS (Mermaid Sequence):", fg=typer.colors.MAGENTA, bold=True)
+        detected_routes = parse_project_routes(path, max_depth=depth)
+        seq_code = generate_mermaid_sequence(detected_routes)
+        
+        if not seq_code:
+            typer.secho("⚠️ No se detectaron rutas API (Flask/FastAPI).", fg=typer.colors.YELLOW)
+        else:
+            output_handler(seq_code, "Mermaid Code")
+        return
+    
+    # MODO INFRA (DOCKER COMPOSE)
+    if infra:
+        typer.secho(f"\n[INFRA] GENERANDO DIAGRAMA DE INFRAESTRUCTURA (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
+        compose_file = parse_infra(path)
+        
+        if not compose_file:
+            typer.secho("⚠️ No se detectó docker-compose.yml en el directorio.", fg=typer.colors.YELLOW)
+            return
+        
+        typer.secho(f"📦 Encontrado: {compose_file}", fg=typer.colors.GREEN)
+        services = parse_docker_compose(compose_file)
+        
+        if not services:
+            typer.secho("⚠️ No se encontraron servicios en docker-compose.", fg=typer.colors.YELLOW)
+            return
+        
+        infra_code = generate_mermaid_infra(services)
+        output_handler(infra_code, "Mermaid Code")
+        return
+    
+    # MODO TODO HUNTER (TECHNICAL DEBT)
+    if todo:
+        typer.secho(f"\n[TODO] 🧹 ESCANEANDO DEUDA TÉCNICA:", fg=typer.colors.CYAN, bold=True)
+        typer.secho(f"Buscando: TODO, FIXME, HACK, XXX, BUG...\n", fg=typer.colors.BRIGHT_BLACK)
+        
+        todos = scan_for_todos(path, max_depth=depth)
+        
+        if not todos:
+            typer.secho("✨ ¡Increíble! No se encontró deuda técnica.", fg=typer.colors.GREEN, bold=True)
+            return
+
+        if output:
+            # User request: NO ANSI CODES in file output
+            table_str = get_todos_table_string(todos, plain=True)
+            output_handler(table_str, "")
+        else:
+            display_todos_table(todos)
+        return
+
+    # MODO AUDITOR SEGURIDAD (NEW)
+    if audit:
+        typer.secho(f"\n[AUDIT] 🚨 ESCANEANDO RIESGOS DE SEGURIDAD:", fg=typer.colors.RED, bold=True)
+        typer.secho(f"Buscando: Credenciales, Keys, IPs, Secrets...\n", fg=typer.colors.BRIGHT_BLACK)
+        
+        from bck_nd_hlpr.security_auditor import scan_security_risks, get_security_report_string
+        risks = scan_security_risks(path, max_depth=depth)
+        
+        report_str = get_security_report_string(risks, plain=(output is not None))
+        
+        if output:
+            output_handler(report_str, "")
+        else:
+            print(report_str)
+        return
+
+    # MODO IMPACTO (NEW)
+    if impact:
+        typer.secho(f"\n[IMPACT] 🕸️ ANALIZANDO DEPENDENCIA Y RIESGO DE CAMBIO:", fg=typer.colors.MAGENTA, bold=True)
+        
+        from bck_nd_hlpr.dependency_tracker import analyze_impact, get_impact_report_string
+        usage_map = analyze_impact(path)
+        report_str = get_impact_report_string(usage_map, plain=(output is not None))
+        
+        if output:
+            output_handler(report_str, "")
+        else:
+            print(report_str)
+        return
+
+
+    
+    # DETECTAR ARQUITECTURA PRIMERO
+    typer.secho(f"\n🔍 Analizando arquitectura de '{path}'...", fg=typer.colors.CYAN, bold=True)
+    arch_info = scanner.detect_architecture(path)
+    
+    if arch_info['framework'] != 'Unknown':
+        typer.secho(f"💻 Framework detectado: {arch_info['framework']}", fg=typer.colors.GREEN)
+    if arch_info['architecture']:
+        typer.secho(f"🏭 Arquitectura: {arch_info['architecture']}", fg=typer.colors.BLUE)
+    if arch_info['features']:
+        typer.secho(f"✨ Características: {', '.join(arch_info['features'])}", fg=typer.colors.YELLOW)
+    
+    # Resumen
+    if arch_info['summary']:
+        typer.secho(f"\n📝 {arch_info['summary']}", fg=typer.colors.WHITE)
+    
+    # ESCANEO DE ARCHIVOS
+    typer.secho(f"\n📂 Escaneando archivos (profundidad: {depth})...", fg=typer.colors.YELLOW)
+    flow_string = scanner.scan(path, max_depth=depth)
+    
+    if not flow_string:
+        typer.secho(f"\n❌ No se encontraron archivos en '{path}' con profundidad {depth}.", fg=typer.colors.RED)
+        typer.secho(f"💡 Intenta aumentar la profundidad: bck-nd scan {path} --depth {depth + 2}", fg=typer.colors.YELLOW)
+        return
+
+    # 1. DIBUJO (Solo si está activado)
+    if graph:
+        router = Router() 
+        
+        if format.lower() == 'mermaid':
+            typer.secho("\n🧜 GENERANDO MERMAID CODE:", fg=typer.colors.MAGENTA, bold=True)
+            mermaid_code = router.to_mermaid(flow_string)
+            if output:
+                output_handler(mermaid_code, "")
+            else:
+                # Si es standard out, mostramos ambos: visual preview y mermaid code
+                typer.secho("\n📊 VISUAL ARCHITECTURE PREVIEW:", fg=typer.colors.MAGENTA, bold=True)
+                router.process(flow_string) # Imprime ASCII
+                
+                print("```mermaid")
+                print(mermaid_code)
+                print("```")
+                typer.secho("💡 Copy above block to Notion, GitHub or Mermaid Live Editor.", fg=typer.colors.BRIGHT_BLACK)
+        else:
+            # ASCII por defecto
+            if output:
+                ascii_code = router.render_ascii(flow_string)
+                output_handler(ascii_code, "")
+            else:
+                typer.secho("\n📊 DIAGRAMA DE ARQUITECTURA:", fg=typer.colors.MAGENTA, bold=True)
+                router.process(flow_string) # Imprime ASCII directamente
+
+    narrator = Narrator()
+
+    # 2. LOCAL (Reporte de texto)
+    if explain:
+        typer.secho("\n📄 REPORTE LOCAL:", fg=typer.colors.CYAN, bold=True)
+        report = narrator.explain(flow_string, use_ai=False)
+        if output:
+             # Si ya guardamos el graph, tal vez queramos append?
+             # El flag -o sobrescribe. Si el usuario usa --explain Y --output, debería guardar el reporte.
+             # Si usa --graph Y --explain Y --output, ¿qué guardamos?
+             # Asumamos que si hay output, guardamos el reporte EXPLICATIVO si se pide explain.
+             output_handler(report, "")
+        else:
+             print(report)
+
+    # 3. IA CON PERSONALIDAD Y CONTEXTO
+    if ai:
+        # Recuperamos contexto (Docs) para enviar a la IA
+        docs = scanner.get_docs_content(path) 
+        
+        # Añadir información arquitectónica al contexto
+        arch_context = f"\n\n--- ARQUITECTURA DETECTADA ---\n"
+        arch_context += f"Framework: {arch_info.get('framework', 'Unknown')}\n"
+        arch_context += f"Tipo: {arch_info.get('architecture', 'Unknown')}\n"
+        arch_context += f"Features: {', '.join(arch_info.get('features', []))}\n"
+        
+        if docs:
+            full_context = flow_string + arch_context + "\n\n--- DOCUMENTACIÓN DEL PROYECTO ---\n" + docs
+        else:
+            full_context = flow_string + arch_context
+        
+        typer.secho(f"\n🤖 ANÁLISIS IA (Estilo: {style.upper()}):", fg=typer.colors.MAGENTA, bold=True)
+        ai_response = narrator.explain(full_context, use_ai=True, style=style)
+        
+        if output:
+            output_handler(ai_response, "")
+        else:
+            print(ai_response)
+
+if __name__ == "__main__":
+    app()
+

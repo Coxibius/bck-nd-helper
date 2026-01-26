@@ -1,0 +1,38 @@
+# 🛠️ Backend Helper (bck-nd) - Command Manual
+
+## Basic Scanning
+bck-nd scan .                       # Scan current directory and generate ASCII diagram
+bck-nd scan src --depth 5           # Scan specific folder with increased depth
+
+## Output Formats
+## Output Formats
+bck-nd scan . --format ascii        # Default ASCII output
+bck-nd scan . --format mermaid      # Mermaid.js output (copy-paste to Notion/GitHub)
+bck-nd scan . --uml                 # UML Class Diagram (uses AST for class/inheritance)
+bck-nd scan . --er                  # Entity-Relationship Diagram (SQLAlchemy/Django)
+bck-nd scan . --routes              # API Route Map (Flask/FastAPI Sequence Diagram)
+bck-nd scan . --infra               # Infrastructure Diagram (Docker Compose)
+bck-nd scan . --todo                # Technical Debt Scanner (TODO, FIXME, HACK, XXX, BUG)
+
+## Persistence (New!)
+bck-nd scan . -o structure.txt        # Save ASCII output to file
+bck-nd scan . --er -o schema.mmd      # Save Mermaid ER diagram to file
+bck-nd scan . --todo -o report.txt    # Save Technical Debt report to file
+
+
+## Reporting & AI
+bck-nd scan . --explain             # Diagram + Local Text Report (Offline)
+bck-nd scan . --ai                  # Diagram + AI Analysis (requires n8n)
+bck-nd scan . --ai --style ramsay   # AI Analysis with specific persona (styles: pro, hacker, ramsay, eli5, etc.)
+
+## Manual Diagrams
+bck-nd flow "User -> API -> DB"     # Generate quick ASCII flow from string
+
+## Configuration
+You can configure architecture detection by adding this to your `pyproject.toml`:
+
+[tool.bck-nd]
+controllers = ["handlers", "views"] # Your custom name for controller folders
+models = ["entities", "data"]       # Your custom name for model folders
+services = ["logic", "usecases"]    # Your custom name for service folders
+# routes = ["..."]
