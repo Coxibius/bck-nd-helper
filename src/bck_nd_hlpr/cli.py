@@ -8,6 +8,9 @@ from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
 from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
 from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
 from bck_nd_hlpr.todo_hunter import scan_for_todos, display_todos_table, get_todos_table_string
+from bck_nd_hlpr.doc_generator import DocGenerator
+from bck_nd_hlpr.ci_generator import generate_ci_workflow
+
 
 app = typer.Typer(
     name="bck-nd",
@@ -42,6 +45,9 @@ Reporting & AI:
   
 Manual Diagrams:
   bck-nd flow "User -> API -> DB"     # Generate quick ASCII flow from string
+
+DevOps & CI/CD:
+  bck-nd init-ci                      # Setup GitHub Actions for Auto-Docs [NEW]
 """
 
 )
@@ -94,7 +100,8 @@ def scan(
     todo: bool = typer.Option(False, "--todo", help="Buscar deuda técnica (TODO, FIXME, HACK, XXX, BUG)."),
     audit: bool = typer.Option(False, "--audit", help="Auditoría de Seguridad (Busca credenciales hardcodeadas)."),
     impact: bool = typer.Option(False, "--impact", help="Mapa de calor de dependencias (High Impact Files)."),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Guardar resultado en archivo (desactiva stdout).")
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Guardar resultado en archivo (desactiva stdout)."),
+    provider: Optional[str] = typer.Option(None, "--provider", help="Forzar proveedor IA (openai, anthropic, gemini, ollama, webhook).")
 ):
     """
     🕵️ Escanea un proyecto y detecta su arquitectura automáticamente.
@@ -132,21 +139,38 @@ def scan(
                 else:
                     print(content)
 
+    # DETECTAR ARQUITECTURA PRIMERO para rutear parsers
+    typer.secho(f"\n🔍 Analizando arquitectura de '{path}'...", fg=typer.colors.CYAN, bold=True)
+    arch_info = scanner.detect_architecture(path)
+
     # MODO UML EXCLUSIVO
     if uml:
         typer.secho(f"\n[UML] GENERANDO DIAGRAMA DE CLASES (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
-        uml_code = scanner.scan_uml(path, max_depth=depth)
+        if arch_info.get('framework') == '.NET Core / C#':
+            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_uml
+            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
+            classes = parse_project_for_csharp_uml(path, max_depth=depth)
+            uml_code = generate_mermaid_class_diagram(classes)
+        else:
+            uml_code = scanner.scan_uml(path, max_depth=depth)
+            
         output_handler(uml_code, "Mermaid Code")
         return
 
     # MODO ER (ENTITY-RELATIONSHIP)
     if er:
         typer.secho(f"\n[ER] GENERANDO DIAGRAMA ER (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
-        entities = parse_project_for_er(path, max_depth=depth)
+        
+        if arch_info.get('framework') == '.NET Core / C#':
+            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
+            entities = parse_project_for_csharp_er(path, max_depth=depth)
+        else:
+            entities = parse_project_for_er(path, max_depth=depth)
+            
         er_code = generate_mermaid_er(entities)
         
         if not er_code or len(entities) == 0:
-            typer.secho("⚠️ No se detectaron modelos de base de datos (SQLAlchemy/Django).", fg=typer.colors.YELLOW)
+            typer.secho("⚠️ No se detectaron modelos de base de datos.", fg=typer.colors.YELLOW)
         else:
             output_handler(er_code, "Mermaid Code")
         return
@@ -234,19 +258,15 @@ def scan(
 
 
     
-    # DETECTAR ARQUITECTURA PRIMERO
-    typer.secho(f"\n🔍 Analizando arquitectura de '{path}'...", fg=typer.colors.CYAN, bold=True)
-    arch_info = scanner.detect_architecture(path)
-    
     if arch_info['framework'] != 'Unknown':
         typer.secho(f"💻 Framework detectado: {arch_info['framework']}", fg=typer.colors.GREEN)
-    if arch_info['architecture']:
+    if arch_info.get('architecture'):
         typer.secho(f"🏭 Arquitectura: {arch_info['architecture']}", fg=typer.colors.BLUE)
-    if arch_info['features']:
+    if arch_info.get('features'):
         typer.secho(f"✨ Características: {', '.join(arch_info['features'])}", fg=typer.colors.YELLOW)
     
     # Resumen
-    if arch_info['summary']:
+    if arch_info.get('summary'):
         typer.secho(f"\n📝 {arch_info['summary']}", fg=typer.colors.WHITE)
     
     # ESCANEO DE ARCHIVOS
@@ -285,7 +305,7 @@ def scan(
                 typer.secho("\n📊 DIAGRAMA DE ARQUITECTURA:", fg=typer.colors.MAGENTA, bold=True)
                 router.process(flow_string) # Imprime ASCII directamente
 
-    narrator = Narrator()
+    narrator = Narrator(force_provider=provider)
 
     # 2. LOCAL (Reporte de texto)
     if explain:
@@ -311,10 +331,50 @@ def scan(
         arch_context += f"Tipo: {arch_info.get('architecture', 'Unknown')}\n"
         arch_context += f"Features: {', '.join(arch_info.get('features', []))}\n"
         
-        if docs:
-            full_context = flow_string + arch_context + "\n\n--- DOCUMENTACIÓN DEL PROYECTO ---\n" + docs
+        # Generar Diagramas Avanzados para dar más contexto a la IA
+        extra_diagrams = "\n\n--- DIAGRAMAS AVANZADOS (MERMAID) ---\n"
+        
+        # 1. Infra
+        from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
+        compose_file = parse_infra(path)
+        if compose_file:
+            services = parse_docker_compose(compose_file)
+            if services:
+                extra_diagrams += "Infraestructura (docker-compose):\n```mermaid\n" + generate_mermaid_infra(services) + "\n```\n"
+
+        # 2. Rutas API
+        from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
+        detected_routes = parse_project_routes(path, max_depth=depth)
+        if detected_routes:
+            extra_diagrams += "Rutas API (Sequence):\n```mermaid\n" + generate_mermaid_sequence(detected_routes) + "\n```\n"
+
+        # 3. ER y UML
+        if arch_info.get('framework') == '.NET Core / C#':
+            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er, parse_project_for_csharp_uml
+            from bck_nd_hlpr.er_parser import generate_mermaid_er
+            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
+            
+            entities = parse_project_for_csharp_er(path, max_depth=depth)
+            if entities:
+                extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
+            
+            classes = parse_project_for_csharp_uml(path, max_depth=depth)
+            if classes:
+                extra_diagrams += "UML Class Diagram:\n```mermaid\n" + generate_mermaid_class_diagram(classes) + "\n```\n"
         else:
-            full_context = flow_string + arch_context
+            from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
+            entities = parse_project_for_er(path, max_depth=depth)
+            if entities:
+                extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
+                
+            uml_code = scanner.scan_uml(path, max_depth=depth)
+            if uml_code and "note " not in uml_code.lower():
+                extra_diagrams += "UML Class Diagram:\n```mermaid\n" + uml_code + "\n```\n"
+
+        if docs:
+            full_context = flow_string + arch_context + extra_diagrams + "\n\n--- DOCUMENTACIÓN DEL PROYECTO ---\n" + docs
+        else:
+            full_context = flow_string + arch_context + extra_diagrams
         
         typer.secho(f"\n🤖 ANÁLISIS IA (Estilo: {style.upper()}):", fg=typer.colors.MAGENTA, bold=True)
         ai_response = narrator.explain(full_context, use_ai=True, style=style)
@@ -324,6 +384,146 @@ def scan(
         else:
             print(ai_response)
 
+@app.command()
+def docs(
+    path: str = typer.Argument(".", help="Ruta a analizar"),
+    output: str = typer.Option("docs", "--output", "-o", help="Directorio de salida para la documentación HTML")
+):
+    """
+    [WEB] Genera documentación web estática del proyecto con diagramas (index.html).
+    """
+    typer.secho(f"\n[WEB] GENERANDO DOCUMENTACIÓN WEB EN '{output}':", fg=typer.colors.CYAN, bold=True)
+    generator = DocGenerator()
+    try:
+        out_file = generator.generate(path, output)
+        typer.secho(f"[OK] Documentación generada con éxito en: {out_file}", fg=typer.colors.GREEN, bold=True)
+    except Exception as e:
+        typer.secho(f"[ERROR] Error al generar documentación: {e}", fg=typer.colors.RED)
+
+
+@app.command()
+def explore():
+    """🖥️ TUI: Lanza la interfaz gráfica de terminal."""
+    try:
+        from bck_nd_hlpr.tui_app import ArchitectureExplorer
+        explorer_app = ArchitectureExplorer()
+        explorer_app.run()
+    except ImportError as e:
+        typer.secho(f"❌ Error al iniciar TUI: {e}", fg=typer.colors.RED)
+        typer.secho("Asegúrate de haber instalado 'textual' (pip install textual).", fg=typer.colors.YELLOW)
+
+@app.command()
+def chat(
+    path: str = typer.Argument(".", help="Ruta a analizar para dar contexto"),
+    depth: int = typer.Option(3, "--depth", "-d", help="Profundidad de escaneo."),
+    style: str = typer.Option("pro", "--style", "-s", help="Personalidad del bot (pro, hacker, ramsay, etc.)."),
+    provider: Optional[str] = typer.Option(None, "--provider", help="Forzar proveedor IA (openai, anthropic, gemini, ollama, webhook).")
+):
+    """
+    💬 Inicia un chat interactivo con tu base de código usando IA (BYO-Key).
+    """
+    scanner = ProjectScanner()
+    
+    typer.secho(f"🔍 Escaneando arquitectura para inicializar el contexto (profundidad: {depth})...", fg=typer.colors.CYAN, bold=True)
+    arch_info = scanner.detect_architecture(path)
+    flow_string = scanner.scan(path, max_depth=depth)
+    
+    if not flow_string:
+        typer.secho(f"❌ No se pudo construir el contexto inicial. Carpeta vacía o faltan archivos clave.", fg=typer.colors.RED)
+        return
+        
+    # Construir mega-contexto arquitectónico
+    arch_context = f"\n\n--- ARQUITECTURA DETECTADA ---\n"
+    arch_context += f"Framework: {arch_info.get('framework', 'Unknown')}\n"
+    arch_context += f"Tipo: {arch_info.get('architecture', 'Unknown')}\n"
+    arch_context += f"Features: {', '.join(arch_info.get('features', []))}\n"
+    
+    extra_diagrams = "\n\n--- DIAGRAMAS AVANZADOS (MERMAID) ---\n"
+    
+    # 1. Infra
+    from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
+    compose_file = parse_infra(path)
+    if compose_file:
+        services = parse_docker_compose(compose_file)
+        if services:
+            extra_diagrams += "Infraestructura (docker-compose):\n```mermaid\n" + generate_mermaid_infra(services) + "\n```\n"
+
+    # 2. Rutas API
+    from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
+    detected_routes = parse_project_routes(path, max_depth=depth)
+    if detected_routes:
+        extra_diagrams += "Rutas API (Sequence):\n```mermaid\n" + generate_mermaid_sequence(detected_routes) + "\n```\n"
+
+    # 3. ER y UML
+    if arch_info.get('framework') == '.NET Core / C#':
+        from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er, parse_project_for_csharp_uml
+        from bck_nd_hlpr.er_parser import generate_mermaid_er
+        from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
+        
+        entities = parse_project_for_csharp_er(path, max_depth=depth)
+        if entities:
+            extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
+        
+        classes = parse_project_for_csharp_uml(path, max_depth=depth)
+        if classes:
+            extra_diagrams += "UML Class Diagram:\n```mermaid\n" + generate_mermaid_class_diagram(classes) + "\n```\n"
+    else:
+        from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
+        entities = parse_project_for_er(path, max_depth=depth)
+        if entities:
+            extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
+            
+        uml_code = scanner.scan_uml(path, max_depth=depth)
+        if uml_code and "note " not in uml_code.lower():
+            extra_diagrams += "UML Class Diagram:\n```mermaid\n" + uml_code + "\n```\n"
+
+    docs = scanner.get_docs_content(path)
+    
+    if docs:
+        full_context = flow_string + arch_context + extra_diagrams + "\n\n--- DOCUMENTACIÓN DEL PROYECTO ---\n" + docs
+    else:
+        full_context = flow_string + arch_context + extra_diagrams
+        
+    narrator = Narrator(force_provider=provider)
+    
+    typer.secho("\n✅ Contexto cargado con éxito.", fg=typer.colors.GREEN)
+    typer.secho(f"💬 INICIANDO CHAT INTERACTIVO (Estilo: {style.upper()}). Escribe 'salir' para terminar.\n", fg=typer.colors.MAGENTA, bold=True)
+    
+    history_text = ""
+    while True:
+        user_input = typer.prompt("Tú", type=str)
+        if user_input.strip().lower() in ["salir", "exit", "quit", "q"]:
+            typer.secho("👋 ¡Hasta luego!", fg=typer.colors.CYAN)
+            break
+            
+        history_text += f"\nUsuario: {user_input}\n"
+        
+        response = narrator.chat_turn(system_context=full_context, history_text=history_text, style=style)
+        
+        typer.secho(f"\n🤖 bck-nd: {response}\n", fg=typer.colors.YELLOW)
+        
+        history_text += f"\nbck-nd: {response}\n"
+
+@app.command()
+def init_ci(
+    path: str = typer.Argument(".", help="Ruta del proyecto para inicializar CI.")
+):
+    """
+    🤖 Configura GitHub Actions para auto-documentación en GitHub Pages.
+    """
+    typer.secho("\n[CI/CD] INICIALIZANDO PARA AUTO-DOCUMENTACIÓN:", fg=typer.colors.CYAN, bold=True)
+    
+    try:
+        workflow_path = generate_ci_workflow(path)
+        typer.secho(f"[OK] Archivo creado: {workflow_path}", fg=typer.colors.GREEN)
+        
+        typer.secho("\n[PASOS] PRÓXIMOS PASOS:", fg=typer.colors.YELLOW, bold=True)
+        typer.secho("1. Sube los cambios a GitHub: git add . && git commit -m 'ci: add auto-docs' && git push origin main")
+        typer.secho("2. Ve a tu repo en GitHub > Settings > Pages.")
+        typer.secho("3. En 'Build and deployment', elige 'GitHub Actions' como fuente.")
+        typer.secho("4. ¡Listo! Tu documentación se actualizará en cada push.", fg=typer.colors.CYAN)
+    except Exception as e:
+        typer.secho(f"❌ Error al configurar CI: {e}", fg=typer.colors.RED)
+
 if __name__ == "__main__":
     app()
-

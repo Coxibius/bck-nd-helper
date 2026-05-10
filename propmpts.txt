@@ -1,2 +1,0 @@
-lee  la documentacion, README, IA-charla, IA-context, ROADMAP CRITICAL_REVIEW
-y commands.txt para tener contexto del proyecto y aayudarme con esto

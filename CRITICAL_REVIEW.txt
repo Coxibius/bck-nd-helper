@@ -80,6 +80,7 @@ Basado en esto, este es el orden lógico para cerrar el proyecto con calidad Oro
 ✅ PERSISTENCIA: Ya no es un juguete de consola. Es integrable en Pipelines.
 ✅ SEGURIDAD: El Sanitizer nos salva de demandas. "Enterprise Ready".
 ✅ POLYGLOT REAL: Node.js (Express/NestJS) ya es ciudadano de primera clase.
+✅ DOCUMENTACIÓN VIVA: Generación de HTML Portal (`bck-nd docs`) implementada con éxito. Listo para Github Pages.
 
 Próxima Parada (Nice to have):
 - Binario (.exe) para usuarios Windows puros.

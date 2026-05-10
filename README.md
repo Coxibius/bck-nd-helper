@@ -14,12 +14,14 @@
 - � **Auto-Detection**: Identifies Flask, FastAPI, Django, Express.js, NestJS, Gin, Actix-web, and more
 - 🏭 **Architecture Recognition**: Detects MVC, Microservices, Layered Architecture patterns
 - � **Smart Diagrams**: Different visualizations for Controllers, Models, Services, Routes
-- 🧠 **Cloud AI Analysis**: 9 AI personalities via n8n webhooks (Professional, Hacker, Gordon Ramsay, etc.)
+- 🤖 **BYO-Key AI Analysis**: Directly integrate with OpenAI, Anthropic, Gemini, or local Ollama using API keys. No middleware needed!
+- 🌐 **Cloud AI Fallback**: Support for 9 AI personalities via n8n webhooks if no keys are provided.
 - 🛡️ **Dependency-Free Core**: No PyTorch, No Transformers. Installs in <3 seconds
 - 🪟 **OS-Safe Scanning**: Robust directory traversal ignoring `venv`, `node_modules`, and system restricted files
 - 🎨 **Visual & Mermaid**: Output Unicode diagrams or copy-paste Mermaid code
+- 🚀 **Auto-Documentation (CI/CD)**: One-command setup for GitHub Actions to host living docs on GitHub Pages (`init-ci`)
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
-- 🌍 **Polyglot Ready**: Python, JavaScript/TypeScript, Go, Rust, Docker, Terraform
+- 🌍 **Polyglot Ready**: C# (.NET Core / Entity Framework), Python, JavaScript/TypeScript, Go, Rust, Docker, Terraform
 
 ---
 
@@ -35,11 +37,70 @@ pip install -e .
 
 # Verify
 bck-nd --help
+
+# Optional: Set your preferred AI Provider key
+# set OPENAI_API_KEY=sk-... (Windows)
+# export OPENAI_API_KEY=sk-... (Mac/Linux)
 ```
 
 ---
 
 ## 📚 Command Manual
+
+### 🖥️ `explore` - Interactive TUI Mode (Explorer) 🆕
+
+Launch a full-screen Terminal User Interface (TUI) to interactively explore your project's architecture, powered by `textual`.
+
+#### **Usage**
+```bash
+bck-nd explore
+```
+
+**What you get:**
+- **Sidebar:** Directory tree to navigate your codebase.
+- **Main View:** Click on a `.py` file to instantly generate its ASCII diagram and Mermaid Sequence routes.
+- **Dynamic Analysis:** Click on a folder to see the high-level architecture of that specific directory.
+- **Shortcuts:** Press `D` to toggle dark/light mode, `Q` to quit.
+
+---
+
+### 🌐 `docs` - Static HTML Portal Generation 🆕
+
+Automatically generates a complete, static HTML documentation portal for your project. Perfect for CI/CD and GitHub Pages.
+
+#### **Usage**
+```bash
+# Generate docs in the current directory (output folder: 'docs')
+bck-nd docs . --output docs
+```
+
+**What you get in `docs/index.html`:**
+- **Infrastructure Map:** Visual representation of `docker-compose.yml`.
+- **API Routes:** Sequence diagrams of HTTP endpoints.
+- **UML Class Diagram:** Auto-generated class hierarchy with associations and dependencies.
+- **Entity-Relationship:** E-R diagrams for ORM models (Entity Framework, SQLAlchemy, Django).
+- **Technical Debt:** Actionable table of TODOs and FIXMEs.
+- Fully self-contained, using MermaidJS CDN for rendering. No heavy build tools required.
+
+---
+
+### 🚀 `init-ci` - GitHub Actions Automation 🆕
+
+Set up "Living Documentation" in seconds. This command injects a ready-to-use GitHub Action into your repository.
+
+#### **Usage**
+```bash
+bck-nd init-ci
+```
+
+**What it does:**
+- Creates `.github/workflows/bck-nd-docs.yml`.
+- Configures an automatic trigger on `push` to `main`.
+- Installs `bck-nd-hlpr` in the CI runner.
+- Generates the full HTML portal (UML, ER, Infra, Routes).
+- Deploys the result automatically to **GitHub Pages**.
+
+---
 
 ### 🕵️ `scan` - Automatic Architecture Detection
 
@@ -75,7 +136,6 @@ bck-nd scan . --format mermaid
 ```
 **Output:**
 - Generates `graph TD` code ready to copy-paste into Notion, GitHub, or Obsidian.
-- Generates `graph TD` code ready to copy-paste into Notion, GitHub, or Obsidian.
 - **Also shows** the specific visual diagram in the terminal for instant preview.
 - Perfect for documentation and presentations.
 
@@ -85,7 +145,8 @@ bck-nd scan . --uml
 ```
 **Output:**
 - Generates `classDiagram` code for Mermaid.js.
-- Uses AST parsing to find classes, methods, and inheritance.
+- Uses AST parsing (Tree-Sitter for C#) to find classes, methods, and properties.
+- Automatically infers relationships (`-->` Associations, `..>` Dependencies) and inheritance (`<|--`).
 
 ##### 3. **Diagram + Local Report**
 ```bash
@@ -97,16 +158,17 @@ bck-nd scan . --explain
 - List of Controllers, Models, Services
 - No AI required (100% offline)
 
-##### 4. **Entity-Relationship Diagram (ER) 🆕**
+##### 5. **Entity-Relationship Diagram (ER) 🆕**
 ```bash
 bck-nd scan . --er
 ```
 **Output:**
 - Generates `erDiagram` for Mermaid.js.
-- Scans `SQLAlchemy` and `Django` models.
-- Shows tables, columns, types, and FK relationships.
+- Scans `Entity Framework` (C#), `SQLAlchemy`, and `Django` models.
+- Bulletproof Mermaid Syntax: Safely handles Generics (e.g. `List<T>`) and special characters.
+- Detects properties, data annotations (`[Key]`, `[ForeignKey]`), and auto-generates bidirectional relationships (`||--o{`, `}o--||`) without needing the `virtual` keyword.
 
-##### 5. **API Route Map 🆕**
+##### 6. **API Route Map 🆕**
 ```bash
 bck-nd scan . --routes
 ```
@@ -115,7 +177,7 @@ bck-nd scan . --routes
 - Scans `Flask` and `FastAPI` endpoints.
 - Visualizes `Client -> API` interactions with methods and paths.
 
-##### 6. **Infrastructure Diagram 🆕**
+##### 7. **Infrastructure Diagram 🆕**
 ```bash
 bck-nd scan . --infra
 ```
@@ -125,7 +187,7 @@ bck-nd scan . --infra
 - Shows services, images, and dependencies.
 - Database services (postgres, redis, mysql, mongo) displayed as cylinders.
 
-##### 7. **Technical Debt Scanner 🆕**
+##### 8. **Technical Debt Scanner 🆕**
 ```bash
 bck-nd scan . --todo
 ```
@@ -137,7 +199,7 @@ bck-nd scan . --todo
 - Debt level assessment
 - Perfect for code reviews and sprint planning
 
-##### 8. **Security Audit 🆕**
+##### 9. **Security Audit 🆕**
 ```bash
 bck-nd scan . --audit
 ```
@@ -147,7 +209,7 @@ bck-nd scan . --audit
 - Reports "High/Warning" risks like DB passwords or hardcoded IPs
 - Essential for pre-commit checks
 
-##### 9. **Dependency Heatmap 🆕**
+##### 10. **Dependency Heatmap 🆕**
 ```bash
 bck-nd scan . --impact
 ```
@@ -156,7 +218,7 @@ bck-nd scan . --impact
 - Helps identify "Core" modules that are risky to refactor.
 - Sorts by Impact Score (High = Connected to everything).
 
-##### 10. **Diagram + AI Analysis**
+##### 11. **Diagram + AI Analysis**
 
 ```bash
 bck-nd scan . --ai
@@ -166,9 +228,18 @@ bck-nd scan . --ai
 - AI-powered architectural analysis
 - Design pattern recommendations
 - Code quality insights
-- Requires n8n webhook running
+- Detects API keys in your environment (OpenAI, Anthropic, Gemini, Ollama) or falls back to Webhook (n8n).
 
-##### 9. **AI Only (No Diagram)**
+##### 11. **Force Specific AI Provider 🆕**
+
+```bash
+bck-nd scan . --ai --provider openai
+```
+**Output:**
+- Supported providers: `openai`, `anthropic`, `gemini`, `ollama`, `webhook`.
+- Safely reports an error if the corresponding API key is missing.
+
+##### 12. **AI Only (No Diagram)**
 ```bash
 bck-nd scan . --no-graph --ai
 ```
@@ -190,7 +261,7 @@ bck-nd scan . --ai --style ramsay
 # Simple explanations
 bck-nd scan . --ai --style eli5
 
-#Available styles:
+# Available styles (Mostly optimized for the Webhook / n8n Mode):
 # pro, hacker, soviet, eli5, ramsay, jarvis, corporate, medieval, doom
 ```
 
@@ -333,21 +404,53 @@ bck-nd scan . --er --format mermaid -o db.mmd
 
 ---
 
-## 🧪 n8n Webhook Setup
+## 🧪 AI Providers Setup (BYO-Key)
 
+Backend Helper now supports direct integration with AI models using your own keys. By default, it checks environment variables in this order:
+`OPENAI_API_KEY` -> `ANTHROPIC_API_KEY` -> `GOOGLE_API_KEY` -> `OLLAMA_HOST` -> Webhook Fallback.
 
-### 1. Install n8n
+### Option 1: OpenAI
+```bash
+export OPENAI_API_KEY="sk-..."
+bck-nd scan . --ai
+```
+
+### Option 2: Anthropic (Claude)
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+bck-nd scan . --ai
+```
+
+### Option 3: Google Gemini
+```bash
+export GOOGLE_API_KEY="AIzaSy..."
+bck-nd scan . --ai
+```
+
+### Option 4: Ollama (Local)
+No API key required. Make sure Ollama is running on `http://localhost:11434`.
+```bash
+# Optionally customize the host
+export OLLAMA_HOST="http://localhost:11434"
+bck-nd scan . --ai --provider ollama
+```
+
+### Option 5: n8n Webhook Fallback
+
+If no keys are found, it falls back to the legacy webhook approach.
+
+#### 1. Install n8n
 ```bash
 npm install -g n8n
 ```
 
-### 2. Start n8n
+##### 2. Start n8n
 ```bash
 n8n start
 ```
 Access: `http://localhost:5678`
 
-### 3. Create Workflow
+##### 3. Create Workflow
 1. Add **Webhook** trigger
    - Method: `POST`
    - Path: `explain`
@@ -358,7 +461,7 @@ Access: `http://localhost:5678`
    - JSON: `{ "text": "{{ $json.output }}" }`
 4. Activate workflow
 
-### 4. Custom Webhook (Optional)
+##### 4. Custom Webhook (Optional)
 ```bash
 # Windows
 set BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
@@ -379,6 +482,8 @@ export BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
 | `bck-nd scan . --explain --ai` | ✅ | ✅ | ✅ | ✅ |
 | `bck-nd scan . --no-graph --ai` | ✅ | ❌ | ❌ | ✅ |
 | `bck-nd flow "A -> B"` | ❌ | ✅ | ❌ | ❌ |
+| `bck-nd explore` | ✅ | ✅ | ✅ | ❌ |
+| `bck-nd init-ci` | ✅ | ✅ | ✅ | ❌ |
 
 ---
 
@@ -459,6 +564,15 @@ bck-nd scan . --ai
 ## 📝 Real-World Usage
 
 ### CI/CD Integration
+
+#### **Option A: Automatic Setup (Recommended)**
+```bash
+# Run this once locally to inject the workflow
+bck-nd init-ci
+git add . && git commit -m "ci: add auto-documentation" && git push origin main
+```
+
+#### **Option B: Manual YAML**
 ```yaml
 # .github/workflows/arch-analysis.yml
 - name: Analyze Architecture

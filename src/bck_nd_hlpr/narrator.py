@@ -1,15 +1,10 @@
-import requests
-import json
 import os
 from bck_nd_hlpr.sanitizer import sanitize_text
+from bck_nd_hlpr.ai_providers import get_provider
 
 class Narrator:
-    def __init__(self):
-        # URL de PRODUCCIÓN (Configurable via variable de entorno)
-        self.webhook_url = os.getenv(
-            'BCK_ND_WEBHOOK_URL', 
-            'http://localhost:5678/webhook/explain'
-        )
+    def __init__(self, force_provider: str = None):
+        self.provider = get_provider(force_provider)
 
     # DICCIONARIO DE PERSONALIDADES
     PROMPTS = {
@@ -49,22 +44,24 @@ class Narrator:
         # Limpiamos tanto el texto de topología como cualquier contexto extra que venga
         safe_topology = sanitize_text(topology_text)
 
-        payload = {
-            "text": safe_topology,
-            "prompt": full_prompt 
-        }
-        
         try:
             print(f"📡 Llamando al Narrador (Modo: {style.upper()})...")
-            # print(f"DEBUG: Enviando payload seguro: {safe_topology[:100]}...")
-            resp = requests.post(self.webhook_url, json=payload, timeout=45)
-            if resp.status_code == 200:
-                try: 
-                    d = resp.json()
-                    # Intenta sacar el texto limpio
-                    return d.get('text', d.get('output', str(d)))
-                except: return resp.text
-            return f"Error n8n: {resp.status_code}"
+            # En la nueva arquitectura, usamos el provider
+            return self.provider.generate(system_prompt=full_prompt, user_prompt=safe_topology)
+        except Exception as e:
+            return f"Error conexión: {e}"
+
+    def chat_turn(self, system_context: str, history_text: str, style: str = "pro") -> str:
+        """
+        Ejecuta un turno interactivo de chat manteniendo el contexto.
+        """
+        persona_prompt = self.PROMPTS.get(style, self.PROMPTS["pro"])
+        
+        # El system_prompt contiene la personalidad y el mega-contexto (diagramas, topología)
+        full_system_prompt = f"{persona_prompt}\n\nContexto de la Arquitectura del Proyecto:\n{system_context}\n\nResponde a la última pregunta del usuario basándote en el contexto del proyecto y la conversación previa."
+        
+        try:
+            return self.provider.generate(system_prompt=full_system_prompt, user_prompt=history_text)
         except Exception as e:
             return f"Error conexión: {e}"
 

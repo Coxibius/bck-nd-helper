@@ -73,8 +73,8 @@ class ProjectScanner:
             dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith('.')]
             
             for f in files:
-                if f.endswith(".py"):
-                    self.allowed_files.add(f.replace(".py", ""))
+                if f.endswith(".py") or f.endswith(".cs") or f.endswith((".js", ".ts")):
+                    self.allowed_files.add(Path(f).stem)
 
         # FASE 2: CONEXIÓN
         for root_dir, dirs, files in os.walk(root):
@@ -128,9 +128,28 @@ class ProjectScanner:
                     connections.append(f"docker-compose.yml -> {folder_name} [App]")
 
                 # 🦀 RUST / JS / GO / ETC
-                elif file in ["Cargo.toml", "package.json", "go.mod", "pom.xml"]:
+                elif file in ["Cargo.toml", "package.json", "go.mod", "pom.xml", "tsconfig.json"]:
                     # Archivos de definición de proyecto = Nodos Centrales
                     connections.append(f"{folder_name} [DIR] -> {file}")
+                    
+                # 🔷 C# / .NET
+                elif file.endswith(".cs"):
+                    file_lower = file.lower()
+                    if 'controller' in file_lower:
+                        components['controllers'].append(file)
+                        connections.append(f"[Controller] {file} -> API")
+                    elif 'model' in file_lower or 'entity' in file_lower:
+                        components['models'].append(file)
+                        connections.append(f"[Model] {file} -> Database")
+                    elif 'service' in file_lower or 'repository' in file_lower:
+                        components['services'].append(file)
+                        connections.append(f"[Service] {file} -> Business_Logic")
+                    else:
+                        connections.append(f"{folder_name} [DIR] -> {file}")
+                    
+                # ⚙️ .NET PROJECTS
+                elif file.endswith(".csproj") or file.endswith(".sln"):
+                    connections.append(f"{folder_name} [Solution/Project] -> {file}")
 
                 # ☁️ INFRAESTRUCTURA
                 elif file.endswith(".tf"): # Terraform

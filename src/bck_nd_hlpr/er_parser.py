@@ -158,30 +158,47 @@ def generate_mermaid_er(entities: List[EREntity]) -> str:
     if not entities:
         return ""
 
-    entity_names = {e.name for e in entities}
+    import re
+    def sanitize(name: str) -> str:
+        # Reemplazar caracteres no alfanuméricos por guiones bajos
+        s = re.sub(r'[^A-Za-z0-9_]', '_', str(name).strip())
+        if not s: return "E_UNKNOWN"
+        if not s[0].isalpha():
+            s = 'E_' + s
+        return s
+
+    entity_names = {sanitize(e.name) for e in entities}
     
     # 1. Definir Entidades
     for entity in entities:
-        lines.append(f"    {entity.name} {{")
-        for col_name, col_type in entity.columns:
-            # Mermaid ER no soporta espacios en tipos, limpiamos un poco
-            clean_type = str(col_type).replace(" ", "_")
-            lines.append(f"        {clean_type} {col_name}")
-        lines.append("    }")
+        safe_entity_name = sanitize(entity.name)
+        if entity.columns:
+            lines.append(f"    {safe_entity_name} {{")
+            for col_name, col_type in entity.columns:
+                # Mermaid ER no soporta espacios, <, >, etc en tipos y nombres
+                clean_type = sanitize(col_type)
+                clean_col = sanitize(col_name)
+                lines.append(f"        {clean_type} {clean_col}")
+            lines.append("    }")
+        else:
+            lines.append(f"    {safe_entity_name}")
     
     # 2. Definir Relaciones
     for entity in entities:
+        safe_entity_name = sanitize(entity.name)
         for target, rel_type, label in entity.relationships:
+            safe_target = sanitize(target)
+            
             # Heurística para encontrar el nombre real de la clase destino
-            real_target = target
+            real_target = safe_target
             
             # Si target es 'users' (tabla) y tenemos clase 'User'
-            candidate_singular = target.capitalize()
+            candidate_singular = safe_target.capitalize()
             # Quitamos 's' final simple
-            candidate_singular_s = target[:-1].capitalize() if target.endswith('s') else target
+            candidate_singular_s = safe_target[:-1].capitalize() if safe_target.endswith('s') else safe_target
 
-            if target in entity_names:
-                real_target = target
+            if safe_target in entity_names:
+                real_target = safe_target
             elif candidate_singular in entity_names:
                 real_target = candidate_singular
             elif candidate_singular_s in entity_names:
@@ -189,6 +206,7 @@ def generate_mermaid_er(entities: List[EREntity]) -> str:
             
             # Solo dibujamos si el target existe (o lo forzamos si se prefiere)
             # Para robustez, dibujamos igual, Mermaid lo creará si no existe
-            lines.append(f"    {entity.name} {rel_type} {real_target} : \"{label}\"")
+            safe_label = str(label).replace('"', '').replace('\n', '')
+            lines.append(f"    {safe_entity_name} {rel_type} {real_target} : \"{safe_label}\"")
             
     return "\n".join(lines)

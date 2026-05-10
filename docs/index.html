@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Documentation</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: auto; }
+        h1 { color: #2c3e50; text-align: center; margin-bottom: 40px; }
+        .card { background: #fff; padding: 20px; margin-bottom: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .card h2 { margin-top: 0; border-bottom: 2px solid #eaeaea; padding-bottom: 10px; color: #2c3e50; }
+        
+        .editor-container { display: flex; gap: 20px; align-items: stretch; margin-top: 15px; }
+        .editor-pane { flex: 1; min-width: 300px; display: flex; flex-direction: column; }
+        .editor-pane textarea { 
+            flex-grow: 1; min-height: 250px; font-family: monospace; padding: 12px; 
+            border: 1px solid #ccc; border-radius: 4px; resize: vertical; white-space: pre; 
+        }
+        .preview-pane { 
+            flex: 2; overflow: auto; background: #fdfdfd; border: 1px dashed #ccc; 
+            padding: 20px; border-radius: 4px; display: flex; justify-content: center; align-items: center; min-height: 250px;
+        }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f8f9fa; font-weight: bold; }
+        tr:nth-child(even) { background-color: #fcfcfc; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Project Architecture Documentation 🛠️</h1>
+
+        <div class="card">
+            <h2>Infrastructure Map</h2>
+            <div class="editor-container">
+                <div class="editor-pane">
+                    <textarea id="infra-source" data-target="infra">graph LR
+    web["web (build: .)"]
+    db[("db (image: postgres:13)")]
+    redis[("redis (image: redis:alpine)")]
+    nginx["nginx (image: nginx:latest)"]
+
+    web --> db
+    web --> redis
+    nginx --> web</textarea>
+                </div>
+                <div class="preview-pane">
+                    <div id="infra-view"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>API Routes (Sequence)</h2>
+            <div class="editor-container">
+                <div class="editor-pane">
+                    <textarea id="seq-source" data-target="seq">sequenceDiagram
+    participant None
+    Note over None: No data detected</textarea>
+                </div>
+                <div class="preview-pane">
+                    <div id="seq-view"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>UML Class Diagram</h2>
+            <div class="editor-container">
+                <div class="editor-pane">
+                    <textarea id="uml-source" data-target="uml">classDiagram
+    note "No Python classes found in scanned directories."</textarea>
+                </div>
+                <div class="preview-pane">
+                    <div id="uml-view"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Entity-Relationship Diagram</h2>
+            <div class="editor-container">
+                <div class="editor-pane">
+                    <textarea id="er-source" data-target="er">erDiagram
+    EMPTY ||--|| EMPTY : "No data detected"</textarea>
+                </div>
+                <div class="preview-pane">
+                    <div id="er-view"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Technical Debt & TODOs</h2>
+            <table><tr><th>File</th><th>Line</th><th>Type</th><th>Message</th></tr>
+<tr><td>er_parser.py</td><td>120</td><td>TODO</td><td>Soportar Mapped[int] si es necesario en el futuro</td></tr>
+<tr><td>todo_hunter.py</td><td>132</td><td>TODO</td><td>message", "// FIXME message", "-- HACK: message"</td></tr>
+</table>
+        </div>
+    </div>
+
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: false, theme: 'default' });
+
+        async function updateDiagram(id) {
+            const sourceText = document.getElementById(id + '-source').value;
+            const viewElement = document.getElementById(id + '-view');
+            try {
+                // Render returns { svg, bindFunctions }
+                const { svg } = await mermaid.render('mermaid-' + id, sourceText);
+                viewElement.innerHTML = svg;
+                viewElement.style.color = 'inherit';
+            } catch (err) {
+                // Just visually indicate error, mermaid usually leaves an error SVG, but just in case
+                console.error("Mermaid syntax error:", err);
+            }
+        }
+
+        // Initialize all diagrams on load
+        ['infra', 'seq', 'er', 'uml'].forEach(id => {
+            updateDiagram(id);
+            // Listen to typing
+            document.getElementById(id + '-source').addEventListener('input', () => {
+                updateDiagram(id);
+            });
+        });
+    </script>
+</body>
+</html>

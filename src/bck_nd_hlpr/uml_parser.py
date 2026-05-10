@@ -142,4 +142,31 @@ def generate_mermaid_class_diagram(all_classes: List[UMLClassInfo]) -> str:
                 # Opcional: Mostrar herencia externa con estilo diferente o ignorar
                 pass
 
+    # Dibujar asociaciones y dependencias
+    import re
+    drawn_associations = set()
+    
+    # Primero dibujamos asociaciones fuertes (basadas en atributos/propiedades)
+    for cls in all_classes:
+        for attr in cls.attributes:
+            words = re.findall(r'\b[A-Z][a-zA-Z0-9_]*\b', attr)
+            for word in words:
+                if word in class_map and word != cls.name:
+                    rel_pair = (cls.name, word)
+                    if rel_pair not in drawn_associations:
+                        lines.append(f"    {cls.name} --> {word}")
+                        drawn_associations.add(rel_pair)
+                        
+    # Luego dibujamos dependencias débiles (basadas en parámetros de métodos)
+    for cls in all_classes:
+        for method in cls.methods:
+            words = re.findall(r'\b[A-Z][a-zA-Z0-9_]*\b', method)
+            for word in words:
+                if word in class_map and word != cls.name:
+                    if (cls.name, word) not in drawn_associations:
+                        dep_pair = f"{cls.name}_dep_{word}"
+                        if dep_pair not in drawn_associations:
+                            lines.append(f"    {cls.name} ..> {word}")
+                            drawn_associations.add(dep_pair)
+
     return "\n".join(lines)

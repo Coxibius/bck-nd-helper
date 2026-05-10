@@ -165,6 +165,11 @@ class ArchitectureDetector:
                 return 'Rust'
             except:
                 pass
+                
+        # C# / .NET
+        for file in root.iterdir():
+            if file.suffix == '.csproj' or file.suffix == '.sln':
+                return '.NET Core / C#'
         
         return 'Unknown'
     

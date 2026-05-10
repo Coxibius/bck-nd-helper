@@ -17,7 +17,10 @@ dependencies = [
     "rich",
     "requests",
     "tomli; python_version < '3.11'",
-    "pyyaml"
+    "pyyaml",
+    "textual",
+    "tree-sitter",
+    "tree-sitter-c-sharp"
 ]
 
 [project.scripts]
