@@ -44,7 +44,7 @@ class ProjectScanner:
         detector = ArchitectureDetector()
         return detector.detect(root_path)
     
-    def scan(self, root_path: str, max_depth: int = 1) -> str:
+    def scan(self, root_path: str, max_depth: int = 5) -> str:
         """Genera la topología (Grafo)."""
         root = Path(root_path).resolve()
         if not root.exists(): return "Error -> Path_Not_Found"
@@ -66,7 +66,7 @@ class ProjectScanner:
             depth_level = len(rel_path.parts)
             if str(rel_path) == ".": depth_level = 0
 
-            if depth_level >= max_depth:
+            if depth_level > max_depth:
                 del dirs[:] 
                 continue
             
@@ -82,7 +82,7 @@ class ProjectScanner:
             depth_level = len(rel_path.parts)
             if str(rel_path) == ".": depth_level = 0
 
-            if depth_level >= max_depth:
+            if depth_level > max_depth:
                 del dirs[:]
                 continue
             
@@ -164,7 +164,7 @@ class ProjectScanner:
         if not connections: return ""
         return " ; ".join(sorted(list(set(connections))))
 
-    def scan_uml(self, root_path: str, max_depth: int = 1) -> str:
+    def scan_uml(self, root_path: str, max_depth: int = 5) -> str:
         """Genera un diagrama de clases UML (Mermaid)."""
         root = Path(root_path).resolve()
         if not root.exists(): return "Error -> Path_Not_Found"
@@ -177,7 +177,7 @@ class ProjectScanner:
             depth_level = len(rel_path.parts)
             if str(rel_path) == ".": depth_level = 0
 
-            if depth_level >= max_depth:
+            if depth_level > max_depth:
                 del dirs[:] 
                 continue
             
