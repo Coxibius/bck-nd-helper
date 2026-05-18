@@ -20,7 +20,10 @@ dependencies = [
     "pyyaml",
     "textual",
     "tree-sitter",
-    "tree-sitter-c-sharp"
+    "tree-sitter-c-sharp",
+    "tree-sitter-javascript",
+    "tree-sitter-java",
+    "tree-sitter-php"
 ]
 
 [project.scripts]

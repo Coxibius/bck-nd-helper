@@ -44,10 +44,10 @@ Para usar la potencia de la IA sin riesgos:
 >
 > Acabo de liberar **Backend Helper**, una CLI open-source que convierte tu código en diagramas de arquitectura ASCII en <100ms.
 >
-> 🚫 Sin dependencias pesadas (Adiós Torch/Pandas).
+> 🚫 Sin dependencias pesadas de Machine Learning (Adiós Torch/Pandas).
 > ⚡ Instalación instantánea.
 > 🛡️ **Security Sanitizer** (Protege tus secretos).
-> 🌐 Soporte real para **Node.js (Express/NestJS)** y Python.
+> 🌐 Soporte nativo para **Express.js, Django, Spring Boot, Laravel y .NET** con Tree-Sitter y AST.
 > 💾 Exportación a archivos para CI/CD (`--output`).
 >
 > Lo construí porque estaba harto de abrir proyectos legacy y no saber dónde empezaba el flujo.

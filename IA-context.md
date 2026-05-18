@@ -39,7 +39,11 @@ Markdown
 ### E. The Parsers (AST & Tree-Sitter)
 - **`er_parser.py` & `route_parser.py`**: Python-native static analysis (AST) for ORMs and API Routes.
 - **`uml_parser.py`**: Generates full Class Diagrams (`classDiagram`) inferring inheritance and dependencies.
-- **`csharp_parser.py`**: Utilizes `tree-sitter` and `tree-sitter-c-sharp` to robustly extract Entities, Classes, and Methods from .NET Core / Entity Framework projects.
+- **`csharp_parser.py`**: Utilizes `tree-sitter-c-sharp` to robustly extract Entities, Classes, and Methods from .NET Core / Entity Framework projects.
+- **`js_parser.py`**: Utilizes `tree-sitter-javascript` for Node.js/Express (Mongoose/Sequelize).
+- **`java_parser.py`**: Utilizes `tree-sitter-java` for Spring Boot (JPA/Hibernate).
+- **`php_parser.py`**: Utilizes `tree-sitter-php` for Laravel (Eloquent).
+- **`django_parser.py`**: Uses Python's native `ast` specialized for Django models and classes.
 - **Logic:** Pure static analysis, zero runtime imports, safe execution across multiple languages.
 
 ### F. The Explorer TUI (`tui_app.py`)

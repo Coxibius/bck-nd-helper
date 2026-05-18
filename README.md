@@ -21,7 +21,7 @@
 - 🎨 **Visual & Mermaid**: Output Unicode diagrams or copy-paste Mermaid code
 - 🚀 **Auto-Documentation (CI/CD)**: One-command setup for GitHub Actions to host living docs on GitHub Pages (`init-ci`)
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
-- 🌍 **Polyglot Ready**: C# (.NET Core / Entity Framework), Python, JavaScript/TypeScript, Go, Rust, Docker, Terraform
+- 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Express.js), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform
 
 ---
 
@@ -350,8 +350,11 @@ Backend Helper automatically detects:
 ### **Frameworks**
 | Language | Frameworks |
 |----------|-----------|
-| Python | Flask, FastAPI, Django, Quart |
-| JavaScript/TypeScript | Express.js, Fastify, Koa, NestJS (Route Detection Support!) |
+| Python | Flask, FastAPI, Django (Specialized ER/UML), Quart |
+| JavaScript/TypeScript | Express.js (Specialized ER/UML), Fastify, Koa, NestJS (Route Detection) |
+| Java | Spring Boot (Specialized ER/UML), Maven, Gradle |
+| PHP | Laravel (Specialized ER/UML) |
+| C# / .NET | .NET Core, Entity Framework (Specialized ER/UML) |
 | Go | Gin, Fiber |
 | Rust | Actix-web, Rocket |
 

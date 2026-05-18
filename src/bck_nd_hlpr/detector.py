@@ -166,6 +166,41 @@ class ArchitectureDetector:
             except:
                 pass
                 
+        # PHP
+        composer_json = root / "composer.json"
+        if composer_json.exists():
+            try:
+                import json
+                data = json.loads(composer_json.read_text())
+                deps = {**data.get('require', {}), **data.get('require-dev', {})}
+                
+                if 'laravel/framework' in deps:
+                    return 'Laravel'
+                return 'PHP'
+            except:
+                pass
+                
+        # Java
+        pom_xml = root / "pom.xml"
+        if pom_xml.exists():
+            try:
+                content = pom_xml.read_text()
+                if 'spring-boot' in content:
+                    return 'Spring Boot'
+                return 'Java (Maven)'
+            except:
+                pass
+        
+        build_gradle = root / "build.gradle"
+        if build_gradle.exists():
+            try:
+                content = build_gradle.read_text()
+                if 'spring-boot' in content:
+                    return 'Spring Boot'
+                return 'Java (Gradle)'
+            except:
+                pass
+                
         # C# / .NET
         for file in root.iterdir():
             if file.suffix == '.csproj' or file.suffix == '.sln':

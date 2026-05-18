@@ -288,7 +288,12 @@ class DocGenerator:
     def generate(self, root_path: str, output_dir: str = "docs"):
         scanner = ProjectScanner()
         arch_info = scanner.detect_architecture(root_path)
-        is_csharp = arch_info.get('framework') == '.NET Core / C#'
+        framework = arch_info.get('framework', '')
+        is_csharp = framework == '.NET Core / C#'
+        is_express = framework == 'Express.js'
+        is_django = framework == 'Django'
+        is_spring = framework in ['Spring Boot', 'Java (Maven)', 'Java (Gradle)']
+        is_laravel = framework in ['Laravel', 'PHP']
         
         # 1. Infra
         compose_file = parse_infra(root_path)
@@ -313,6 +318,26 @@ class DocGenerator:
             classes = parse_project_for_csharp_uml(root_path)
             if classes:
                 uml_diagram = generate_mermaid_class_diagram(classes)
+        elif is_express:
+            from bck_nd_hlpr.js_parser import parse_project_for_js_uml
+            classes = parse_project_for_js_uml(root_path)
+            if classes:
+                uml_diagram = generate_mermaid_class_diagram(classes)
+        elif is_django:
+            from bck_nd_hlpr.django_parser import parse_project_for_django_uml
+            classes = parse_project_for_django_uml(root_path)
+            if classes:
+                uml_diagram = generate_mermaid_class_diagram(classes)
+        elif is_spring:
+            from bck_nd_hlpr.java_parser import parse_project_for_java_uml
+            classes = parse_project_for_java_uml(root_path)
+            if classes:
+                uml_diagram = generate_mermaid_class_diagram(classes)
+        elif is_laravel:
+            from bck_nd_hlpr.php_parser import parse_project_for_php_uml
+            classes = parse_project_for_php_uml(root_path)
+            if classes:
+                uml_diagram = generate_mermaid_class_diagram(classes)
         else:
             uml_code = scanner.scan_uml(root_path)
             if uml_code and "class Empty" not in uml_code:
@@ -323,6 +348,18 @@ class DocGenerator:
         if is_csharp:
             from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
             entities = parse_project_for_csharp_er(root_path)
+        elif is_express:
+            from bck_nd_hlpr.js_parser import parse_project_for_js_er
+            entities = parse_project_for_js_er(root_path)
+        elif is_django:
+            from bck_nd_hlpr.django_parser import parse_project_for_django_er
+            entities = parse_project_for_django_er(root_path)
+        elif is_spring:
+            from bck_nd_hlpr.java_parser import parse_project_for_java_er
+            entities = parse_project_for_java_er(root_path)
+        elif is_laravel:
+            from bck_nd_hlpr.php_parser import parse_project_for_php_er
+            entities = parse_project_for_php_er(root_path)
         else:
             entities = parse_project_for_er(root_path)
             

@@ -37,6 +37,7 @@
    🟣 Q5: POLYGLOT MASTERY & ROBUSTNESS
       Status: ✅ DONE
       - [x] Native C# / .NET Core Support via Tree-Sitter.
+      - [x] Native Python (Django), JS/TS (Express), Java (Spring Boot), PHP (Laravel) Support via Tree-Sitter and AST.
       - [x] Advanced UML Diagramming: Bi-directional associations and dependencies via Regex type matching.
       - [x] Bulletproof ER Diagrams: Smart property inference (no `virtual` required) and strict Mermaid syntax sanitization.
       - [x] Live HTML Portal Upgrade: Inject UML Class Diagrams natively into `bck-nd docs`.
