@@ -42,8 +42,50 @@ class JSUMLVisitor:
     def visit(self, node: tree_sitter.Node):
         if node.type == 'class_declaration':
             self._visit_class(node)
+        elif node.type == 'function_declaration':
+            self._visit_function_declaration(node)
+        elif node.type == 'lexical_declaration':
+            self._visit_lexical_declaration(node)
         else:
             for child in node.children: self.visit(child)
+
+    def _visit_function_declaration(self, node: tree_sitter.Node):
+        name_node = node.child_by_field_name('name')
+        if not name_node: return
+        name = get_node_text(name_node, self.source_bytes)
+        
+        is_component = name and name[0].isupper()
+        is_http_method = name in ('GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS')
+        
+        if is_component or is_http_method:
+            cls_info = UMLClassInfo(name, [], self.module_name)
+            params = node.child_by_field_name('parameters')
+            p_text = "()"
+            if params:
+                p_text = get_node_text(params, self.source_bytes)
+            
+            if is_component:
+                cls_info.methods.append(f"render{p_text}")
+            else:
+                cls_info.methods.append(f"handler{p_text}")
+                
+            self.classes.append(cls_info)
+
+    def _visit_lexical_declaration(self, node: tree_sitter.Node):
+        for child in node.children:
+            if child.type == 'variable_declarator':
+                name_node = child.child_by_field_name('name')
+                value_node = child.child_by_field_name('value')
+                if name_node and value_node:
+                    name = get_node_text(name_node, self.source_bytes)
+                    if name and name[0].isupper() and value_node.type in ('arrow_function', 'function_expression'):
+                        cls_info = UMLClassInfo(name, [], self.module_name)
+                        params = value_node.child_by_field_name('parameters')
+                        p_text = "()"
+                        if params:
+                            p_text = get_node_text(params, self.source_bytes)
+                        cls_info.methods.append(f"render{p_text}")
+                        self.classes.append(cls_info)
 
     def _visit_class(self, node: tree_sitter.Node):
         name_node = node.child_by_field_name('name')

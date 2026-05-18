@@ -99,9 +99,89 @@ class JSRouteExtractor:
                 self.routes.append(RouteInfo(method, path, self.filename, i))
 
 
+def parse_nextjs_routes(root_path: Path) -> List[RouteInfo]:
+    routes = []
+    
+    # 1. App Router (app or src/app)
+    app_dirs = [root_path / 'app', root_path / 'src' / 'app']
+    for app_dir in app_dirs:
+        if app_dir.exists() and app_dir.is_dir():
+            for root_dir, dirs, files in os.walk(app_dir):
+                for file in files:
+                    file_path = Path(root_dir) / file
+                    if file in ('page.tsx', 'page.jsx', 'page.js', 'page.ts'):
+                        rel = Path(root_dir).relative_to(app_dir)
+                        parts = []
+                        for part in rel.parts:
+                            if part.startswith('(') and part.endswith(')'):
+                                continue
+                            parts.append(part)
+                        
+                        route_path = "/" + "/".join(parts)
+                        route_path = route_path.replace("//", "/")
+                        routes.append(RouteInfo("GET", route_path, f"app/{rel.as_posix()}/{file}", 1))
+                        
+                    elif file in ('route.ts', 'route.js'):
+                        rel = Path(root_dir).relative_to(app_dir)
+                        parts = []
+                        for part in rel.parts:
+                            if part.startswith('(') and part.endswith(')'):
+                                continue
+                            parts.append(part)
+                        route_path = "/" + "/".join(parts)
+                        route_path = route_path.replace("//", "/")
+                        
+                        methods = []
+                        try:
+                            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                                content = f.read()
+                            matches = re.finditer(r'export\s+(async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b', content)
+                            for m in matches:
+                                methods.append(m.group(2))
+                        except Exception:
+                            pass
+                        
+                        if not methods:
+                            methods = ["GET"]
+                            
+                        for method in methods:
+                            routes.append(RouteInfo(method, route_path, f"app/{rel.as_posix()}/{file}", 1))
+                            
+    # 2. Pages Router (pages or src/pages)
+    pages_dirs = [root_path / 'pages', root_path / 'src' / 'pages']
+    for pages_dir in pages_dirs:
+        if pages_dir.exists() and pages_dir.is_dir():
+            for root_dir, dirs, files in os.walk(pages_dir):
+                for file in files:
+                    if file.startswith('_') or not file.endswith(('.js', '.jsx', '.ts', '.tsx')):
+                        continue
+                    
+                    file_path = Path(root_dir) / file
+                    rel = file_path.relative_to(pages_dir)
+                    parts = list(rel.parent.parts)
+                    stem = rel.stem
+                    if stem != 'index':
+                        parts.append(stem)
+                        
+                    route_path = "/" + "/".join(parts)
+                    route_path = route_path.replace("//", "/")
+                    
+                    if 'api' in parts:
+                        routes.append(RouteInfo("GET", route_path, f"pages/{rel.as_posix()}", 1))
+                        routes.append(RouteInfo("POST", route_path, f"pages/{rel.as_posix()}", 1))
+                    else:
+                        routes.append(RouteInfo("GET", route_path, f"pages/{rel.as_posix()}", 1))
+                        
+    return routes
+
 def parse_project_routes(root_path: str, max_depth: int = 3) -> List[RouteInfo]:
     all_routes = []
     root = Path(root_path)
+    
+    # Next.js Routing
+    nextjs_routes = parse_nextjs_routes(root)
+    if nextjs_routes:
+        all_routes.extend(nextjs_routes)
     ignore_dirs = {'venv', 'env', '.venv', '__pycache__', '.git', 'node_modules', 'dist', 'build'}
     
     for root_dir, dirs, files in os.walk(root):

@@ -291,6 +291,7 @@ class DocGenerator:
         framework = arch_info.get('framework', '')
         is_csharp = framework == '.NET Core / C#'
         is_express = framework == 'Express.js'
+        is_nextjs = framework == 'Next.js'
         is_django = framework == 'Django'
         is_spring = framework in ['Spring Boot', 'Java (Maven)', 'Java (Gradle)']
         is_laravel = framework in ['Laravel', 'PHP']
@@ -318,7 +319,7 @@ class DocGenerator:
             classes = parse_project_for_csharp_uml(root_path)
             if classes:
                 uml_diagram = generate_mermaid_class_diagram(classes)
-        elif is_express:
+        elif is_express or is_nextjs:
             from bck_nd_hlpr.js_parser import parse_project_for_js_uml
             classes = parse_project_for_js_uml(root_path)
             if classes:
@@ -348,7 +349,7 @@ class DocGenerator:
         if is_csharp:
             from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
             entities = parse_project_for_csharp_er(root_path)
-        elif is_express:
+        elif is_express or is_nextjs:
             from bck_nd_hlpr.js_parser import parse_project_for_js_er
             entities = parse_project_for_js_er(root_path)
         elif is_django:

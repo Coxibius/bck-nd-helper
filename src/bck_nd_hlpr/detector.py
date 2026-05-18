@@ -129,6 +129,8 @@ class ArchitectureDetector:
                 data = json.loads(package_json.read_text())
                 deps = {**data.get('dependencies', {}), **data.get('devDependencies', {})}
                 
+                if 'next' in deps:
+                    return 'Next.js'
                 if 'express' in deps:
                     return 'Express.js'
                 if 'fastify' in deps:
@@ -210,6 +212,13 @@ class ArchitectureDetector:
     
     def _detect_architecture_type(self, root: Path) -> str:
         """Detecta el patrón arquitectónico."""
+        if self.framework == 'Next.js':
+            if (root / 'app').exists() or (root / 'src' / 'app').exists():
+                return 'Next.js App Router'
+            elif (root / 'pages').exists() or (root / 'src' / 'pages').exists():
+                return 'Next.js Pages Router'
+            return 'Next.js Project'
+
         has_controllers = False
         has_models = False
         has_services = False

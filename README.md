@@ -11,9 +11,9 @@
 
 ## ⚡ Key Features
 
-- � **Auto-Detection**: Identifies Flask, FastAPI, Django, Express.js, NestJS, Gin, Actix-web, and more
+- 🔍 **Auto-Detection**: Identifies Flask, FastAPI, Django, Next.js, Express.js, NestJS, Gin, Actix-web, and more
 - 🏭 **Architecture Recognition**: Detects MVC, Microservices, Layered Architecture patterns
-- � **Smart Diagrams**: Different visualizations for Controllers, Models, Services, Routes
+-  **Smart Diagrams**: Different visualizations for Controllers, Models, Services, Routes
 - 🤖 **BYO-Key AI Analysis**: Directly integrate with OpenAI, Anthropic, Gemini, or local Ollama using API keys. No middleware needed!
 - 🌐 **Cloud AI Fallback**: Support for 9 AI personalities via n8n webhooks if no keys are provided.
 - 🛡️ **Dependency-Free Core**: No PyTorch, No Transformers. Installs in <3 seconds
@@ -21,7 +21,7 @@
 - 🎨 **Visual & Mermaid**: Output Unicode diagrams or copy-paste Mermaid code
 - 🚀 **Auto-Documentation (CI/CD)**: One-command setup for GitHub Actions to host living docs on GitHub Pages (`init-ci`)
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
-- 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Express.js), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform
+- 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Next.js/Express.js), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform
 
 ---
 
@@ -351,7 +351,7 @@ Backend Helper automatically detects:
 | Language | Frameworks |
 |----------|-----------|
 | Python | Flask, FastAPI, Django (Specialized ER/UML), Quart |
-| JavaScript/TypeScript | Express.js (Specialized ER/UML), Fastify, Koa, NestJS (Route Detection) |
+| JavaScript/TypeScript | Next.js (Filesystem Routes & React UML), Express.js (Specialized ER/UML), Fastify, Koa, NestJS (Route Detection) |
 | Java | Spring Boot (Specialized ER/UML), Maven, Gradle |
 | PHP | Laravel (Specialized ER/UML) |
 | C# / .NET | .NET Core, Entity Framework (Specialized ER/UML) |
