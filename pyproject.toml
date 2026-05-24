@@ -10,6 +10,20 @@ readme = "README.md"
 authors = [
   { name = "Coxibius", email = "tu_email@example.com" },
 ]
+license = { text = "MIT" }
+keywords = ["mcp", "architecture", "diagrams", "mermaid", "cli", "reverse-engineering", "backend"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13"
+]
 requires-python = ">=3.9"
 dependencies = [
     "typer",
@@ -23,11 +37,18 @@ dependencies = [
     "tree-sitter-c-sharp",
     "tree-sitter-javascript",
     "tree-sitter-java",
-    "tree-sitter-php"
+    "tree-sitter-php",
+    "mcp"
 ]
 
 [project.scripts]
 bck-nd = "bck_nd_hlpr.cli:app"
+bck-nd-mcp = "bck_nd_hlpr.mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/Coxibius/bck-nd-helper"
+Repository = "https://github.com/Coxibius/bck-nd-helper"
+"Bug Tracker" = "https://github.com/Coxibius/bck-nd-helper/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

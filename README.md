@@ -475,7 +475,49 @@ export BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
 
 ---
 
-## � Comparison: Different Commands
+## 🤖 Integración MCP (Claude Desktop / Cursor)
+
+Backend Helper incluye un servidor compatible con el **Model Context Protocol (MCP)**. Esto permite a cualquier cliente de IA compatible (como **Claude Desktop** o **Cursor**) interactuar directamente con tu base de código usando nuestras herramientas locales de ingeniería inversa y diagramado sin necesidad de enviar todo tu código a la nube o consumir valiosos tokens de contexto al transferir archivos completos.
+
+La IA llamará a las herramientas locales bajo demanda para analizar la arquitectura, generar diagramas, buscar deudas técnicas o auditar la seguridad.
+
+### Cómo Configurar
+
+#### 1. Claude Desktop
+Añade el siguiente bloque de configuración a tu archivo `claude_desktop_config.json`:
+
+* **Ruta en Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+* **Ruta en Mac/Linux:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "backend-helper": {
+      "command": "python",
+      "args": [
+        "c:/bck-nd-hlpr/mcp_server.py"
+      ],
+      "env": {
+        "OPENAI_API_KEY": "tu-api-key-opcional",
+        "ANTHROPIC_API_KEY": "tu-api-key-opcional"
+      }
+    }
+  }
+}
+```
+
+#### 2. Cursor
+1. Ve a **Cursor Settings** > **Features** > **MCP**.
+2. Haz clic en **+ Add New MCP Server**.
+3. Configura los siguientes parámetros:
+   - **Name**: `backend-helper`
+   - **Type**: `stdio`
+   - **Command**: `python c:/bck-nd-hlpr/mcp_server.py`
+4. Guarda y haz clic en **Refresh**. ¡Listo! Tendrás 11 herramientas de arquitectura disponibles instantáneamente para tu IA.
+
+---
+
+##  Comparison: Different Commands
 
 | Command | Architecture Detection | Diagram | Text Report | AI Analysis |
 |---------|----------------------|---------|-------------|-------------|
