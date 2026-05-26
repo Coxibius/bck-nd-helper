@@ -21,7 +21,7 @@
 - 🎨 **Visual & Mermaid**: Output Unicode diagrams or copy-paste Mermaid code
 - 🚀 **Auto-Documentation (CI/CD)**: One-command setup for GitHub Actions to host living docs on GitHub Pages (`init-ci`)
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
-- 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Next.js/Express.js), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform
+- 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Next.js/Express.js/Drizzle ORM), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform, Prisma schemas (`schema.prisma`), and SQL migrations (`.sql`)
 
 ---
 
@@ -143,10 +143,9 @@ bck-nd scan . --format mermaid
 ```bash
 bck-nd scan . --uml
 ```
-**Output:**
 - Generates `classDiagram` code for Mermaid.js.
-- Uses AST parsing (Tree-Sitter for C#) to find classes, methods, and properties.
-- Automatically infers relationships (`-->` Associations, `..>` Dependencies) and inheritance (`<|--`).
+- Uses a unified multi-language parser combining AST (Python) and Tree-Sitter (C#, Java, JS/TS, PHP) to extract classes, methods, properties, and constructors automatically.
+- Automatically infers relationships (`-->` Associations, `..>` Dependencies) and inheritance (`<|--`) across all files.
 
 ##### 3. **Diagram + Local Report**
 ```bash
@@ -164,9 +163,11 @@ bck-nd scan . --er
 ```
 **Output:**
 - Generates `erDiagram` for Mermaid.js.
-- Scans `Entity Framework` (C#), `SQLAlchemy`, and `Django` models.
-- Bulletproof Mermaid Syntax: Safely handles Generics (e.g. `List<T>`) and special characters.
-- Detects properties, data annotations (`[Key]`, `[ForeignKey]`), and auto-generates bidirectional relationships (`||--o{`, `}o--||`) without needing the `virtual` keyword.
+- Scans modern schema configurations, migrations, and ORMs across languages:
+  - **Modern Configs**: Prisma Schemas (`schema.prisma`), Drizzle ORM schemas (`.ts/.js`), and raw SQL migrations (`.sql`)
+  - **Traditional ORMs**: Entity Framework (C#), Spring Boot / JPA (Java), Laravel / Eloquent (PHP), SQLAlchemy / Django models (Python), and Sequelize / Mongoose (JS/TS)
+- Bulletproof Mermaid Syntax: Safely handles Generics (e.g. `List<T>`), table brackets, and special characters.
+- Detects database columns, primary keys (`PK`), data annotations, and auto-generates bidirectional relationships (`||--o{`, `}o--||`) with intelligent schema deduplication and merging.
 
 ##### 6. **API Route Map 🆕**
 ```bash

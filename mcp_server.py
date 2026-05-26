@@ -2,6 +2,16 @@
 import os
 import sys
 
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+
 # Add the 'src' directory to sys.path to resolve bck_nd_hlpr package imports correctly
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "src"))
 sys.path.insert(0, src_path)

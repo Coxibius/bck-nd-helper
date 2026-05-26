@@ -2,7 +2,30 @@ import os
 import sys
 import traceback
 from typing import Optional
+from functools import wraps
 from mcp.server.fastmcp import FastMCP
+
+# Reconfigure stdout/stderr on Windows to support emojis and UTF-8 characters
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+
+def redirect_stdout_to_stderr(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        original_stdout = sys.stdout
+        sys.stdout = sys.stderr
+        try:
+            return func(*args, **kwargs)
+        finally:
+            sys.stdout = original_stdout
+    return wrapper
 
 # Ensure the package modules are in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -21,6 +44,7 @@ from bck_nd_hlpr.doc_generator import DocGenerator
 mcp = FastMCP("Backend Helper MCP Server")
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def scan_project(path: str = ".", depth: int = 3, format: str = "ascii") -> str:
     """Scan a project's architecture and return detected framework and structural diagram.
 
@@ -66,6 +90,7 @@ def scan_project(path: str = ".", depth: int = 3, format: str = "ascii") -> str:
         return f"❌ Error scanning project: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def get_uml_diagram(path: str = ".", depth: int = 3) -> str:
     """Generate a Mermaid.js UML class diagram for the project's codebase.
 
@@ -75,15 +100,7 @@ def get_uml_diagram(path: str = ".", depth: int = 3) -> str:
     """
     try:
         scanner = ProjectScanner()
-        arch_info = scanner.detect_architecture(path)
-        
-        if arch_info.get('framework') == '.NET Core / C#':
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_uml
-            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
-            classes = parse_project_for_csharp_uml(path, max_depth=depth)
-            uml_code = generate_mermaid_class_diagram(classes)
-        else:
-            uml_code = scanner.scan_uml(path, max_depth=depth)
+        uml_code = scanner.scan_uml(path, max_depth=depth)
             
         if not uml_code:
             return "⚠️ No classes detected to generate a UML diagram."
@@ -93,6 +110,7 @@ def get_uml_diagram(path: str = ".", depth: int = 3) -> str:
         return f"❌ Error generating UML diagram: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def get_er_diagram(path: str = ".", depth: int = 3) -> str:
     """Generate a Mermaid.js Entity-Relationship (ER) diagram for project database models.
 
@@ -101,14 +119,7 @@ def get_er_diagram(path: str = ".", depth: int = 3) -> str:
         depth: Traversal depth for locating database model definitions (default: 3).
     """
     try:
-        scanner = ProjectScanner()
-        arch_info = scanner.detect_architecture(path)
-        
-        if arch_info.get('framework') == '.NET Core / C#':
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
-            entities = parse_project_for_csharp_er(path, max_depth=depth)
-        else:
-            entities = parse_project_for_er(path, max_depth=depth)
+        entities = parse_project_for_er(path, max_depth=depth)
             
         er_code = generate_mermaid_er(entities)
         if not er_code or len(entities) == 0:
@@ -119,6 +130,7 @@ def get_er_diagram(path: str = ".", depth: int = 3) -> str:
         return f"❌ Error generating ER diagram: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def get_routes_diagram(path: str = ".", depth: int = 3) -> str:
     """Generate a Mermaid.js Sequence diagram showing Flask/FastAPI routes mapping.
 
@@ -137,6 +149,7 @@ def get_routes_diagram(path: str = ".", depth: int = 3) -> str:
         return f"❌ Error generating routes map: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def get_infra_diagram(path: str = ".") -> str:
     """Parse docker-compose.yml files and return a Mermaid.js infrastructure layout diagram.
 
@@ -158,6 +171,7 @@ def get_infra_diagram(path: str = ".") -> str:
         return f"❌ Error generating infrastructure diagram: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def scan_todos(path: str = ".", depth: int = 3) -> str:
     """Scan the project for technical debt comments (TODO, FIXME, HACK, XXX, BUG) and return a debt table.
 
@@ -176,6 +190,7 @@ def scan_todos(path: str = ".", depth: int = 3) -> str:
         return f"❌ Error scanning technical debt: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def audit_security(path: str = ".", depth: int = 3) -> str:
     """Audit the project for security risks such as hardcoded API keys, private keys, databases and secrets.
 
@@ -191,6 +206,7 @@ def audit_security(path: str = ".", depth: int = 3) -> str:
         return f"❌ Error executing security audit: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def analyze_impact(path: str = ".") -> str:
     """Analyze imports across files and return a heatmap report highlighting high-impact core modules.
 
@@ -205,6 +221,7 @@ def analyze_impact(path: str = ".") -> str:
         return f"❌ Error analyzing dependency impact: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def generate_html_docs(path: str = ".", output: str = "docs") -> str:
     """Generate a static self-contained HTML documentation portal with live Mermaid diagrams.
 
@@ -220,6 +237,7 @@ def generate_html_docs(path: str = ".", output: str = "docs") -> str:
         return f"❌ Error generating documentation portal: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def render_flow_diagram(layout: str) -> str:
     """Translate a manual flow string (e.g. 'Client -> Gateway -> Service') into a beautiful ASCII diagram.
 
@@ -240,6 +258,7 @@ def render_flow_diagram(layout: str) -> str:
         return f"❌ Error rendering manual flow: {str(e)}\n{traceback.format_exc()}"
 
 @mcp.tool()
+@redirect_stdout_to_stderr
 def explain_architecture_with_ai(path: str = ".", depth: int = 3, style: str = "pro", provider: Optional[str] = None) -> str:
     """Assemble all project contexts and query the active AI provider for a comprehensive architectural audit report.
 
@@ -278,25 +297,13 @@ def explain_architecture_with_ai(path: str = ".", depth: int = 3, style: str = "
             extra_diagrams += "API Routes:\n```mermaid\n" + generate_mermaid_sequence(detected_routes) + "\n```\n"
 
         # ER/UML
-        if arch_info.get('framework') == '.NET Core / C#':
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er, parse_project_for_csharp_uml
+        entities = parse_project_for_er(path, max_depth=depth)
+        if entities:
+            extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
             
-            entities = parse_project_for_csharp_er(path, max_depth=depth)
-            if entities:
-                extra_diagrams += "Entity-Relationship (EF Models):\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
-            
-            classes = parse_project_for_csharp_uml(path, max_depth=depth)
-            if classes:
-                from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
-                extra_diagrams += "UML Class Diagram:\n```mermaid\n" + generate_mermaid_class_diagram(classes) + "\n```\n"
-        else:
-            entities = parse_project_for_er(path, max_depth=depth)
-            if entities:
-                extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
-                
-            uml_code = scanner.scan_uml(path, max_depth=depth)
-            if uml_code and "note " not in uml_code.lower():
-                extra_diagrams += "UML Class Diagram:\n```mermaid\n" + uml_code + "\n```\n"
+        uml_code = scanner.scan_uml(path, max_depth=depth)
+        if uml_code and "note " not in uml_code.lower():
+            extra_diagrams += "UML Class Diagram:\n```mermaid\n" + uml_code + "\n```\n"
 
         docs = scanner.get_docs_content(path)
         if docs:

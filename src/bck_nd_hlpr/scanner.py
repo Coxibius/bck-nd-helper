@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from pathlib import Path
 from bck_nd_hlpr.detector import ArchitectureDetector
 from bck_nd_hlpr.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram, UMLClassInfo
@@ -165,13 +166,13 @@ class ProjectScanner:
         return " ; ".join(sorted(list(set(connections))))
 
     def scan_uml(self, root_path: str, max_depth: int = 5) -> str:
-        """Genera un diagrama de clases UML (Mermaid)."""
+        """Genera un diagrama de clases UML (Mermaid) multi-lenguaje."""
         root = Path(root_path).resolve()
         if not root.exists(): return "Error -> Path_Not_Found"
         
         all_classes: list[UMLClassInfo] = []
         
-        # Recorremos archivos
+        # 1. Python (via AST)
         for root_dir, dirs, files in os.walk(root):
             rel_path = Path(root_dir).relative_to(root)
             depth_level = len(rel_path.parts)
@@ -181,7 +182,6 @@ class ProjectScanner:
                 del dirs[:] 
                 continue
             
-            # Filtrar directorios ignorados
             dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith('.')]
             
             for file in files:
@@ -190,8 +190,36 @@ class ProjectScanner:
                     classes = parse_file_for_uml(full_path, root)
                     all_classes.extend(classes)
         
+        # 2. C# UML Parser
+        try:
+            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_uml
+            all_classes.extend(parse_project_for_csharp_uml(root_path, max_depth=max_depth))
+        except Exception as e:
+            print(f"Error parseando UML C#: {e}", file=sys.stderr)
+            
+        # 3. Java UML Parser
+        try:
+            from bck_nd_hlpr.java_parser import parse_project_for_java_uml
+            all_classes.extend(parse_project_for_java_uml(root_path, max_depth=max_depth))
+        except Exception as e:
+            print(f"Error parseando UML Java: {e}", file=sys.stderr)
+            
+        # 4. JS/TS UML Parser
+        try:
+            from bck_nd_hlpr.js_parser import parse_project_for_js_uml
+            all_classes.extend(parse_project_for_js_uml(root_path, max_depth=max_depth))
+        except Exception as e:
+            print(f"Error parseando UML JS/TS: {e}", file=sys.stderr)
+            
+        # 5. PHP UML Parser
+        try:
+            from bck_nd_hlpr.php_parser import parse_project_for_php_uml
+            all_classes.extend(parse_project_for_php_uml(root_path, max_depth=max_depth))
+        except Exception as e:
+            print(f"Error parseando UML PHP: {e}", file=sys.stderr)
+
         if not all_classes:
-            return "classDiagram\n    note \"No Python classes found in scanned directories.\""
+            return "classDiagram\n    note \"No classes found in scanned directories.\""
 
         return generate_mermaid_class_diagram(all_classes)
 
@@ -202,7 +230,7 @@ class ProjectScanner:
         root = Path(root_path).resolve()
         docs_buffer = []
         
-        print("📚 [Scanner] Buscando documentación para contexto...")
+        print("📚 [Scanner] Buscando documentación para contexto...", file=sys.stderr)
         
         # Buscamos en la raíz y en una carpeta docs/ si existe
         search_paths = [root, root / "docs"]

@@ -37,14 +37,14 @@ Markdown
 - **`narrator.py`**: Orchestrates sending queries to the active AI provider, handles fallbacks, constructs complete system prompts from personalities, and returns the analysis.
 
 ### E. The Parsers (AST & Tree-Sitter)
-- **`er_parser.py` & `route_parser.py`**: Python-native static analysis (AST) for ORMs and API Routes.
-- **`uml_parser.py`**: Generates full Class Diagrams (`classDiagram`) inferring inheritance and dependencies.
+- **`er_parser.py` & `route_parser.py`**: Python-native static analysis for ORMs, API Routes, and modern schemas. `er_parser.py` has been enhanced with custom high-speed regex/AST-based parsers to ingest **Prisma schemas (`schema.prisma`)**, **Drizzle ORMs (`.ts/.js`)**, and **raw SQL migrations/schemas (`.sql`)**.
+- **`uml_parser.py`**: Generates full Class Diagrams (`classDiagram`) using a unified multi-language aggregator within `scanner.scan_uml()`.
 - **`csharp_parser.py`**: Utilizes `tree-sitter-c-sharp` to robustly extract Entities, Classes, and Methods from .NET Core / Entity Framework projects.
 - **`js_parser.py`**: Utilizes `tree-sitter-javascript` for Node.js/Express (Mongoose/Sequelize).
 - **`java_parser.py`**: Utilizes `tree-sitter-java` for Spring Boot (JPA/Hibernate).
 - **`php_parser.py`**: Utilizes `tree-sitter-php` for Laravel (Eloquent).
 - **`django_parser.py`**: Uses Python's native `ast` specialized for Django models and classes.
-- **Logic:** Pure static analysis, zero runtime imports, safe execution across multiple languages.
+- **Logic:** Pure static analysis, zero runtime imports, safe execution across multiple languages with intelligent deduplication and column merging on entity collisions.
 
 ### F. The Explorer TUI (`tui_app.py`)
 - **Framework:** Textual.
@@ -65,9 +65,17 @@ Markdown
 The project currently implements the following "Enterprise Edition" features:
 
 ### A. Entity-Relationship Diagrams (`--er`)
-- **Logic:** Static analysis of SQLAlchemy/Django (Python AST) and Entity Framework (C# Tree-Sitter).
+- **Logic:** Unified multi-language static analysis covering:
+  - Prisma Schemas (`schema.prisma`)
+  - Drizzle ORMs (`.ts/.js`)
+  - Raw SQL Migrations/Schemas (`.sql`)
+  - Python AST (SQLAlchemy, Django ORM)
+  - C# Tree-Sitter (Entity Framework)
+  - Java Tree-Sitter (Spring Boot / JPA)
+  - PHP Tree-Sitter (Laravel / Eloquent)
+  - JS/TS Tree-Sitter (Sequelize / Mongoose)
 - **Output:** Mermaid `erDiagram`.
-- **Safety:** Bulletproof syntax sanitizer ensures no rendering crashes, even with Generics like `List<T>`. Infers relationships (`||--o{`, `}o--||`) automatically.
+- **Safety:** Bulletproof syntax sanitizer ensures no rendering crashes, even with Generics like `List<T>`, nested parentheses, or special characters. Infers relationships (`||--o{`, `}o--||`) automatically, merging properties/columns cleanly in case of duplicate classes or namespace overlaps.
 
 ### B. API Route Mapping (`--routes`)
 - **Logic:** Static AST analysis of Flask/FastAPI routes.
