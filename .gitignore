@@ -34,16 +34,3 @@ venv/
 dist/
 build/
 *.egg-info/
-
-./commands.txt
-./CRITICAL_REVIEW.txt
-./ENTERPRISE_PITCH.md
-./gemini-context.txt
-./guIA_bcknd.txt
-./IA-context.md
-./mi_diagrama_clases.md
-./ROADMAP.txt
-./IA-charla.txt
-./mi_diagrama_clases.md
-./diagramas_bck_nd.html
-./Supervivencia.txt
