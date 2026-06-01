@@ -35,11 +35,15 @@ dist/
 build/
 *.egg-info/
 
-./ROADMAP.txt
-./mi_diagrama_clases.md
-./IA-context.md
 ./commands.txt
-./IA-charla.txt
-./ENTERPRISE_PITCH.md
-./diagramas_bck_nd.html
 ./CRITICAL_REVIEW.txt
+./ENTERPRISE_PITCH.md
+./gemini-context.txt
+./guIA_bcknd.txt
+./IA-context.md
+./mi_diagrama_clases.md
+./ROADMAP.txt
+./IA-charla.txt
+./mi_diagrama_clases.md
+./diagramas_bck_nd.html
+./Supervivencia.txt

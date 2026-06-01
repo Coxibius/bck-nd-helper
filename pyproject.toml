@@ -38,7 +38,8 @@ dependencies = [
     "tree-sitter-javascript",
     "tree-sitter-java",
     "tree-sitter-php",
-    "mcp"
+    "mcp",
+    "python-dotenv"
 ]
 
 [project.scripts]

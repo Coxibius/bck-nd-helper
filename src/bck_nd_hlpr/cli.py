@@ -21,7 +21,7 @@ app = typer.Typer(
 COMMAND MANUAL:
 
 Basic Scanning:
-  bck-nd scan .                       # Scan current directory and generate ASCII diagram
+  bck-nd scan .                       # Scan current directory and generate UML & ER diagrams
   bck-nd scan src --depth 5           # Scan specific folder with increased depth
 
 Output Formats:
@@ -88,7 +88,7 @@ def flow(
 def scan(
     path: str = typer.Argument(".", help="Ruta a analizar"),
     depth: int = typer.Option(3, "--depth", "-d", help="Profundidad de escaneo."),
-    graph: bool = typer.Option(True, "--graph/--no-graph", help="Mostrar dibujo ASCII."),
+    graph: bool = typer.Option(True, "--graph/--no-graph", help="Mostrar diagramas UML y ER por defecto."),
     explain: bool = typer.Option(False, "--explain", "-e", help="Reporte de texto local."),
     ai: bool = typer.Option(False, "--ai", help="Análisis IA (n8n)."),
     style: str = typer.Option("pro", "--style", "-s", help="Personalidad: pro, hacker, soviet, ramsay, jarvis, eli5, doom."),
@@ -101,14 +101,14 @@ def scan(
     audit: bool = typer.Option(False, "--audit", help="Auditoría de Seguridad (Busca credenciales hardcodeadas)."),
     impact: bool = typer.Option(False, "--impact", help="Mapa de calor de dependencias (High Impact Files)."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Guardar resultado en archivo (desactiva stdout)."),
-    provider: Optional[str] = typer.Option(None, "--provider", help="Forzar proveedor IA (openai, anthropic, gemini, ollama, webhook).")
+    provider: Optional[str] = typer.Option(None, "--provider", help="Forzar proveedor IA (openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook).")
 ):
     """
     🕵️ Escanea un proyecto y detecta su arquitectura automáticamente.
     
     \b
     Modos de uso:
-    • bck-nd scan .                    - Solo diagrama ASCII
+    • bck-nd scan .                    - Diagramas UML y ER (Mermaid)
     • bck-nd scan . -o report.txt      - Guardar en archivo
     • bck-nd scan . --uml              - Diagrama de Clases UML (Mermaid)
     • bck-nd scan . --format mermaid   - Salida Mermaid.js
@@ -143,36 +143,108 @@ def scan(
     typer.secho(f"\n🔍 Analizando arquitectura de '{path}'...", fg=typer.colors.CYAN, bold=True)
     arch_info = scanner.detect_architecture(path)
 
-    # MODO UML EXCLUSIVO
-    if uml:
-        typer.secho(f"\n[UML] GENERANDO DIAGRAMA DE CLASES (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
-        if arch_info.get('framework') == '.NET Core / C#':
+    # Funciones de apoyo para UML y ER
+    def get_uml_code():
+        framework = arch_info.get('framework', '')
+        is_csharp = framework == '.NET Core / C#'
+        is_express = framework == 'Express.js'
+        is_nextjs = framework == 'Next.js'
+        is_django = framework == 'Django'
+        is_spring = framework in ['Spring Boot', 'Java (Maven)', 'Java (Gradle)']
+        is_laravel = framework in ['Laravel', 'PHP']
+        
+        uml_diagram = None
+        if is_csharp:
             from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_uml
             from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
             classes = parse_project_for_csharp_uml(path, max_depth=depth)
-            uml_code = generate_mermaid_class_diagram(classes)
+            if classes:
+                uml_diagram = generate_mermaid_class_diagram(classes)
+        elif is_express or is_nextjs:
+            from bck_nd_hlpr.js_parser import parse_project_for_js_uml
+            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
+            classes = parse_project_for_js_uml(path, max_depth=depth)
+            if classes:
+                uml_diagram = generate_mermaid_class_diagram(classes)
+        elif is_django:
+            from bck_nd_hlpr.django_parser import parse_project_for_django_uml
+            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
+            classes = parse_project_for_django_uml(path, max_depth=depth)
+            if classes:
+                uml_diagram = generate_mermaid_class_diagram(classes)
+        elif is_spring:
+            from bck_nd_hlpr.java_parser import parse_project_for_java_uml
+            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
+            classes = parse_project_for_java_uml(path, max_depth=depth)
+            if classes:
+                uml_diagram = generate_mermaid_class_diagram(classes)
+        elif is_laravel:
+            from bck_nd_hlpr.php_parser import parse_project_for_php_uml
+            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
+            classes = parse_project_for_php_uml(path, max_depth=depth)
+            if classes:
+                uml_diagram = generate_mermaid_class_diagram(classes)
         else:
             uml_code = scanner.scan_uml(path, max_depth=depth)
+            if uml_code and "class Empty" not in uml_code:
+                uml_diagram = uml_code
+        return uml_diagram
+
+    def get_er_code():
+        framework = arch_info.get('framework', '')
+        is_csharp = framework == '.NET Core / C#'
+        is_express = framework == 'Express.js'
+        is_nextjs = framework == 'Next.js'
+        is_django = framework == 'Django'
+        is_spring = framework in ['Spring Boot', 'Java (Maven)', 'Java (Gradle)']
+        is_laravel = framework in ['Laravel', 'PHP']
+        
+        from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
+        
+        entities = None
+        if is_csharp:
+            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
+            entities = parse_project_for_csharp_er(path, max_depth=depth)
+        elif is_express or is_nextjs:
+            from bck_nd_hlpr.js_parser import parse_project_for_js_er
+            entities = parse_project_for_js_er(path, max_depth=depth)
+        elif is_django:
+            from bck_nd_hlpr.django_parser import parse_project_for_django_er
+            entities = parse_project_for_django_er(path, max_depth=depth)
+        elif is_spring:
+            from bck_nd_hlpr.java_parser import parse_project_for_java_er
+            entities = parse_project_for_java_er(path, max_depth=depth)
+        elif is_laravel:
+            from bck_nd_hlpr.php_parser import parse_project_for_php_er
+            entities = parse_project_for_php_er(path, max_depth=depth)
+        else:
+            entities = parse_project_for_er(path, max_depth=depth)
             
-        output_handler(uml_code, "Mermaid Code")
+        er_diagram = None
+        if entities:
+            gen_er = generate_mermaid_er(entities)
+            if gen_er:
+                er_diagram = gen_er
+        return er_diagram
+
+    # MODO UML EXCLUSIVO
+    if uml:
+        typer.secho(f"\n[UML] GENERANDO DIAGRAMA DE CLASES (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
+        uml_code = get_uml_code()
+        if uml_code:
+            output_handler(uml_code, "Mermaid Code")
+        else:
+            typer.secho("⚠️ No se detectaron clases para UML.", fg=typer.colors.YELLOW)
         return
 
     # MODO ER (ENTITY-RELATIONSHIP)
     if er:
         typer.secho(f"\n[ER] GENERANDO DIAGRAMA ER (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
-        
-        if arch_info.get('framework') == '.NET Core / C#':
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
-            entities = parse_project_for_csharp_er(path, max_depth=depth)
-        else:
-            entities = parse_project_for_er(path, max_depth=depth)
-            
-        er_code = generate_mermaid_er(entities)
-        
-        if not er_code or len(entities) == 0:
-            typer.secho("⚠️ No se detectaron modelos de base de datos.", fg=typer.colors.YELLOW)
-        else:
+        er_code = get_er_code()
+        if er_code:
             output_handler(er_code, "Mermaid Code")
+        else:
+            typer.secho("⚠️ No se detectaron modelos de base de datos.", fg=typer.colors.YELLOW)
         return
     
     # MODO ROUTES (API MAP)
@@ -278,32 +350,63 @@ def scan(
         typer.secho(f"💡 Intenta aumentar la profundidad: bck-nd scan {path} --depth {depth + 2}", fg=typer.colors.YELLOW)
         return
 
-    # 1. DIBUJO (Solo si está activado)
-    if graph:
-        router = Router() 
+    # 1. DIBUJO (Solo si está activado y no se seleccionaron reportes locales)
+    # Por defecto, mostraremos la arquitectura completa (UML, ER, API, Infra, TODOs)
+    if graph and not any([explain, ai]):
+        typer.secho("\n📊 ARQUITECTURA DEL PROYECTO (COMPLETA):", fg=typer.colors.MAGENTA, bold=True)
         
-        if format.lower() == 'mermaid':
-            typer.secho("\n🧜 GENERANDO MERMAID CODE:", fg=typer.colors.MAGENTA, bold=True)
-            mermaid_code = router.to_mermaid(flow_string)
-            if output:
-                output_handler(mermaid_code, "")
+        # 1. INFRA
+        typer.secho("\n[INFRA] MAPA DE INFRAESTRUCTURA:", fg=typer.colors.CYAN, bold=True)
+        compose_file = parse_infra(path)
+        if compose_file:
+            services = parse_docker_compose(compose_file)
+            if services:
+                infra_code = generate_mermaid_infra(services)
+                output_handler(infra_code, "Mermaid Code")
             else:
-                # Si es standard out, mostramos ambos: visual preview y mermaid code
-                typer.secho("\n📊 VISUAL ARCHITECTURE PREVIEW:", fg=typer.colors.MAGENTA, bold=True)
-                router.process(flow_string) # Imprime ASCII
-                
-                print("```mermaid")
-                print(mermaid_code)
-                print("```")
-                typer.secho("💡 Copy above block to Notion, GitHub or Mermaid Live Editor.", fg=typer.colors.BRIGHT_BLACK)
+                typer.secho("⚠️ No se encontraron servicios en docker-compose.", fg=typer.colors.YELLOW)
         else:
-            # ASCII por defecto
-            if output:
-                ascii_code = router.render_ascii(flow_string)
-                output_handler(ascii_code, "")
+            typer.secho("⚠️ No se detectó docker-compose.yml en el directorio.", fg=typer.colors.YELLOW)
+
+        # 2. ROUTES
+        typer.secho("\n[API] MAPA DE RUTAS:", fg=typer.colors.CYAN, bold=True)
+        detected_routes = parse_project_routes(path, max_depth=depth)
+        if detected_routes:
+            seq_code = generate_mermaid_sequence(detected_routes)
+            if seq_code:
+                output_handler(seq_code, "Mermaid Code")
             else:
-                typer.secho("\n📊 DIAGRAMA DE ARQUITECTURA:", fg=typer.colors.MAGENTA, bold=True)
-                router.process(flow_string) # Imprime ASCII directamente
+                typer.secho("⚠️ No se pudieron renderizar las rutas.", fg=typer.colors.YELLOW)
+        else:
+            typer.secho("⚠️ No se detectaron rutas API (Flask/FastAPI).", fg=typer.colors.YELLOW)
+
+        # 3. UML
+        typer.secho("\n[UML] DIAGRAMA DE CLASES:", fg=typer.colors.CYAN, bold=True)
+        uml_code = get_uml_code()
+        if uml_code:
+            output_handler(uml_code, "Mermaid Code")
+        else:
+            typer.secho("⚠️ No se detectaron clases para UML.", fg=typer.colors.YELLOW)
+            
+        # 4. ER
+        typer.secho("\n[ER] ENTITY-RELATIONSHIP:", fg=typer.colors.CYAN, bold=True)
+        er_code = get_er_code()
+        if er_code:
+            output_handler(er_code, "Mermaid Code")
+        else:
+            typer.secho("⚠️ No se detectaron modelos de base de datos.", fg=typer.colors.YELLOW)
+
+        # 5. TODOs
+        typer.secho("\n[TODO] DEUDA TÉCNICA:", fg=typer.colors.CYAN, bold=True)
+        todos = scan_for_todos(path, max_depth=depth)
+        if todos:
+            if output:
+                table_str = get_todos_table_string(todos, plain=True)
+                output_handler(table_str, "")
+            else:
+                display_todos_table(todos)
+        else:
+            typer.secho("✨ ¡Increíble! No se encontró deuda técnica.", fg=typer.colors.GREEN, bold=True)
 
     narrator = Narrator(force_provider=provider)
 
@@ -335,7 +438,6 @@ def scan(
         extra_diagrams = "\n\n--- DIAGRAMAS AVANZADOS (MERMAID) ---\n"
         
         # 1. Infra
-        from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
         compose_file = parse_infra(path)
         if compose_file:
             services = parse_docker_compose(compose_file)
@@ -343,7 +445,6 @@ def scan(
                 extra_diagrams += "Infraestructura (docker-compose):\n```mermaid\n" + generate_mermaid_infra(services) + "\n```\n"
 
         # 2. Rutas API
-        from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
         detected_routes = parse_project_routes(path, max_depth=depth)
         if detected_routes:
             extra_diagrams += "Rutas API (Sequence):\n```mermaid\n" + generate_mermaid_sequence(detected_routes) + "\n```\n"
@@ -417,7 +518,7 @@ def chat(
     path: str = typer.Argument(".", help="Ruta a analizar para dar contexto"),
     depth: int = typer.Option(3, "--depth", "-d", help="Profundidad de escaneo."),
     style: str = typer.Option("pro", "--style", "-s", help="Personalidad del bot (pro, hacker, ramsay, etc.)."),
-    provider: Optional[str] = typer.Option(None, "--provider", help="Forzar proveedor IA (openai, anthropic, gemini, ollama, webhook).")
+    provider: Optional[str] = typer.Option(None, "--provider", help="Forzar proveedor IA (openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook).")
 ):
     """
     💬 Inicia un chat interactivo con tu base de código usando IA (BYO-Key).
@@ -441,7 +542,6 @@ def chat(
     extra_diagrams = "\n\n--- DIAGRAMAS AVANZADOS (MERMAID) ---\n"
     
     # 1. Infra
-    from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
     compose_file = parse_infra(path)
     if compose_file:
         services = parse_docker_compose(compose_file)
@@ -449,12 +549,12 @@ def chat(
             extra_diagrams += "Infraestructura (docker-compose):\n```mermaid\n" + generate_mermaid_infra(services) + "\n```\n"
 
     # 2. Rutas API
-    from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
     detected_routes = parse_project_routes(path, max_depth=depth)
     if detected_routes:
         extra_diagrams += "Rutas API (Sequence):\n```mermaid\n" + generate_mermaid_sequence(detected_routes) + "\n```\n"
 
     # 3. ER y UML
+    entities = None
     if arch_info.get('framework') == '.NET Core / C#':
         from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er, parse_project_for_csharp_uml
         from bck_nd_hlpr.er_parser import generate_mermaid_er
@@ -474,7 +574,7 @@ def chat(
             extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
             
         uml_code = scanner.scan_uml(path, max_depth=depth)
-        if uml_code and "note " not in uml_code.lower():
+        if uml_code and "class Empty" not in uml_code:
             extra_diagrams += "UML Class Diagram:\n```mermaid\n" + uml_code + "\n```\n"
 
     docs = scanner.get_docs_content(path)

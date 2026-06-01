@@ -3,6 +3,11 @@ import sys
 import requests
 import json
 from typing import Optional
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 class AIProvider:
     """Base class for all AI providers."""
@@ -13,28 +18,51 @@ class AIProvider:
         raise NotImplementedError("Subclasses must implement generate()")
 
 
-class OpenAIProvider(AIProvider):
-    # Endpoint: https://api.openai.com/v1/chat/completions
-    # Default model: gpt-4o-mini
+class OpenAILikeProvider(AIProvider):
+    def __init__(self, api_key: str, base_url: str, default_model: str, name: str = "OpenAI"):
+        super().__init__(api_key)
+        self.base_url = base_url
+        self.default_model = default_model
+        self.name = name
+
     def generate(self, system_prompt: str, user_prompt: str) -> str:
-        url = "https://api.openai.com/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
         }
         data = {
-            "model": "gpt-4o-mini",
+            "model": self.default_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ]
         }
         try:
-            resp = requests.post(url, headers=headers, json=data, timeout=45)
+            resp = requests.post(self.base_url, headers=headers, json=data, timeout=45)
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
         except Exception as e:
-            return f"Error OpenAI: {e}"
+            return f"Error {self.name}: {e}\nResponse: {resp.text if 'resp' in locals() else ''}"
+
+
+class OpenAIProvider(OpenAILikeProvider):
+    def __init__(self, api_key: str):
+        super().__init__(api_key, "https://api.openai.com/v1/chat/completions", "gpt-4o-mini", "OpenAI")
+
+
+class GroqProvider(OpenAILikeProvider):
+    def __init__(self, api_key: str):
+        super().__init__(api_key, "https://api.groq.com/openai/v1/chat/completions", "llama3-8b-8192", "Groq")
+
+
+class DeepSeekProvider(OpenAILikeProvider):
+    def __init__(self, api_key: str):
+        super().__init__(api_key, "https://api.deepseek.com/chat/completions", "deepseek-chat", "DeepSeek")
+
+
+class OpenRouterProvider(OpenAILikeProvider):
+    def __init__(self, api_key: str):
+        super().__init__(api_key, "https://openrouter.ai/api/v1/chat/completions", "openai/gpt-4o-mini", "OpenRouter")
 
 
 class AnthropicProvider(AIProvider):
@@ -137,7 +165,7 @@ class WebhookProvider(AIProvider):
 def get_provider(force_provider: Optional[str] = None) -> AIProvider:
     """
     Returns the appropriate AIProvider.
-    Priority if force_provider is None: OpenAI -> Anthropic -> Gemini -> Ollama -> Webhook
+    Priority if force_provider is None: OpenAI -> Anthropic -> Gemini -> Groq -> DeepSeek -> OpenRouter -> Ollama -> Webhook
     If user forces a provider but passes no key gracefully exits/prints error.
     """
     if force_provider:
@@ -160,6 +188,24 @@ def get_provider(force_provider: Optional[str] = None) -> AIProvider:
                 print("Error: Missing environment variable GOOGLE_API_KEY", file=sys.stderr)
                 sys.exit(1)
             return GeminiProvider(key)
+        elif force_provider == "groq":
+            key = os.getenv("GROQ_API_KEY")
+            if not key:
+                print("Error: Missing environment variable GROQ_API_KEY", file=sys.stderr)
+                sys.exit(1)
+            return GroqProvider(key)
+        elif force_provider == "deepseek":
+            key = os.getenv("DEEPSEEK_API_KEY")
+            if not key:
+                print("Error: Missing environment variable DEEPSEEK_API_KEY", file=sys.stderr)
+                sys.exit(1)
+            return DeepSeekProvider(key)
+        elif force_provider == "openrouter":
+            key = os.getenv("OPENROUTER_API_KEY")
+            if not key:
+                print("Error: Missing environment variable OPENROUTER_API_KEY", file=sys.stderr)
+                sys.exit(1)
+            return OpenRouterProvider(key)
         elif force_provider == "ollama":
             return OllamaProvider()
         elif force_provider == "webhook":
@@ -175,7 +221,25 @@ def get_provider(force_provider: Optional[str] = None) -> AIProvider:
         return AnthropicProvider(os.getenv("ANTHROPIC_API_KEY"))
     elif os.getenv("GOOGLE_API_KEY"):
         return GeminiProvider(os.getenv("GOOGLE_API_KEY"))
+    elif os.getenv("GROQ_API_KEY"):
+        return GroqProvider(os.getenv("GROQ_API_KEY"))
+    elif os.getenv("DEEPSEEK_API_KEY"):
+        return DeepSeekProvider(os.getenv("DEEPSEEK_API_KEY"))
+    elif os.getenv("OPENROUTER_API_KEY"):
+        return OpenRouterProvider(os.getenv("OPENROUTER_API_KEY"))
     elif os.getenv("OLLAMA_HOST"):
         return OllamaProvider()
-    
-    return WebhookProvider()
+    elif os.getenv("BCK_ND_WEBHOOK_URL"):
+        return WebhookProvider()
+        
+    print("\n[!] BYOK (Bring Your Own Key) Error:", file=sys.stderr)
+    print("No se encontró ninguna API Key para inicializar un proveedor de IA.", file=sys.stderr)
+    print("Por favor, crea un archivo '.env' en tu proyecto con alguna de estas variables:\n", file=sys.stderr)
+    print("  OPENAI_API_KEY=your_key", file=sys.stderr)
+    print("  ANTHROPIC_API_KEY=your_key", file=sys.stderr)
+    print("  GOOGLE_API_KEY=your_key", file=sys.stderr)
+    print("  GROQ_API_KEY=your_key", file=sys.stderr)
+    print("  DEEPSEEK_API_KEY=your_key", file=sys.stderr)
+    print("  OPENROUTER_API_KEY=your_key\n", file=sys.stderr)
+    print("O inicia Ollama localmente y configura OLLAMA_HOST.", file=sys.stderr)
+    sys.exit(1)
