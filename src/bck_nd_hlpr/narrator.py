@@ -1,10 +1,13 @@
 import os
 from bck_nd_hlpr.sanitizer import sanitize_text
-from bck_nd_hlpr.ai_providers import get_provider
+from bck_nd_hlpr.ai_providers import get_provider, NoAPIKeyError
 
 class Narrator:
     def __init__(self, force_provider: str = None):
-        self.provider = get_provider(force_provider)
+        try:
+            self.provider = get_provider(force_provider)
+        except NoAPIKeyError:
+            self.provider = None
 
     # DICCIONARIO DE PERSONALIDADES
     PROMPTS = {
@@ -35,6 +38,9 @@ class Narrator:
             return "\n".join(report)
 
         # MODO IA (N8N) - Aquí inyectamos la personalidad
+        if not self.provider:
+            return "Análisis de IA deshabilitado. Configura OPENAI_API_KEY para habilitarlo."
+
         persona_prompt = self.PROMPTS.get(style, self.PROMPTS["pro"])
         
         # Construimos el prompt final combinando la personalidad + los datos
@@ -55,6 +61,9 @@ class Narrator:
         """
         Ejecuta un turno interactivo de chat manteniendo el contexto.
         """
+        if not self.provider:
+            return "Análisis de IA deshabilitado. Configura OPENAI_API_KEY para habilitarlo."
+
         persona_prompt = self.PROMPTS.get(style, self.PROMPTS["pro"])
         
         # El system_prompt contiene la personalidad y el mega-contexto (diagramas, topología)
