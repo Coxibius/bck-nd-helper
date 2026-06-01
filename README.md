@@ -120,7 +120,7 @@ bck-nd scan . --depth 5
 
 #### **Modes**
 
-##### 1. **Diagram Only (Default)**
+##### 1. **Full Architecture Overview (Default)**
 ```bash
 bck-nd scan .
 ```
@@ -128,7 +128,10 @@ bck-nd scan .
 - Framework detection (Flask, FastAPI, Django, etc.)
 - Architecture type (MVC, Microservices, etc.)
 - Features (Docker, Auth, Database, etc.)
-- ASCII diagram showing component relationships
+- **Infra Map:** Docker Compose services
+- **API Routes:** Endpoints sequence diagram
+- **UML & ER:** Class and Entity-Relationship Mermaid diagrams
+- **TODOs:** Technical Debt Report
 
 ##### 2. **Mermaid Export (New!)**
 ```bash
@@ -410,28 +413,36 @@ bck-nd scan . --er --format mermaid -o db.mmd
 
 ## 🧪 AI Providers Setup (BYO-Key)
 
-Backend Helper now supports direct integration with AI models using your own keys. By default, it checks environment variables in this order:
-`OPENAI_API_KEY` -> `ANTHROPIC_API_KEY` -> `GOOGLE_API_KEY` -> `OLLAMA_HOST` -> Webhook Fallback.
+Backend Helper supports direct integration with modern AI models using your own keys. **It automatically loads `.env` files** from your current directory! 
+By default, it checks environment variables in this order:
+`OPENAI` -> `ANTHROPIC` -> `GOOGLE` -> `GROQ` -> `DEEPSEEK` -> `OPENROUTER` -> `OLLAMA` -> `WEBHOOK`
 
-### Option 1: OpenAI
+### Option 1: .env File (Recommended)
+Simply create a `.env` file in your project root:
+```env
+OPENAI_API_KEY=sk-...
+# or
+GROQ_API_KEY=gsk_...
+# or
+DEEPSEEK_API_KEY=sk-...
+```
+And run:
+```bash
+bck-nd scan . --ai
+```
+
+### Option 2: Environment Variables
+Alternatively, export them directly:
 ```bash
 export OPENAI_API_KEY="sk-..."
-bck-nd scan . --ai
-```
-
-### Option 2: Anthropic (Claude)
-```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
-bck-nd scan . --ai
-```
-
-### Option 3: Google Gemini
-```bash
 export GOOGLE_API_KEY="AIzaSy..."
-bck-nd scan . --ai
+export GROQ_API_KEY="gsk_..."
+export DEEPSEEK_API_KEY="sk-..."
+export OPENROUTER_API_KEY="sk-or-v1-..."
 ```
 
-### Option 4: Ollama (Local)
+### Option 3: Ollama (Local AI)
 No API key required. Make sure Ollama is running on `http://localhost:11434`.
 ```bash
 # Optionally customize the host
@@ -522,7 +533,7 @@ Añade el siguiente bloque de configuración a tu archivo `claude_desktop_config
 
 | Command | Architecture Detection | Diagram | Text Report | AI Analysis |
 |---------|----------------------|---------|-------------|-------------|
-| `bck-nd scan .` | ✅ | ✅ | ❌ | ❌ |
+| `bck-nd scan .` | ✅ | ✅ (Full Arch) | ❌ | ❌ |
 | `bck-nd scan . --explain` | ✅ | ✅ | ✅ | ❌ |
 | `bck-nd scan . --ai` | ✅ | ✅ | ❌ | ✅ |
 | `bck-nd scan . --explain --ai` | ✅ | ✅ | ✅ | ✅ |
