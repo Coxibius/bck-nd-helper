@@ -477,6 +477,9 @@ def scan(
         else:
             full_context = flow_string + arch_context + extra_diagrams
         
+        if narrator.provider is None:
+            typer.secho("[INFO] No se detectó API Key. Generando documentación estática sin análisis de IA...", fg=typer.colors.YELLOW)
+        
         typer.secho(f"\n🤖 ANÁLISIS IA (Estilo: {style.upper()}):", fg=typer.colors.MAGENTA, bold=True)
         ai_response = narrator.explain(full_context, use_ai=True, style=style)
         
@@ -585,6 +588,10 @@ def chat(
         full_context = flow_string + arch_context + extra_diagrams
         
     narrator = Narrator(force_provider=provider)
+    if narrator.provider is None:
+        typer.secho("\n❌ Error: No se detectó API Key. El chat interactivo requiere un proveedor de IA activo.", fg=typer.colors.RED, bold=True)
+        typer.secho("Por favor, configura OPENAI_API_KEY o similar para usar esta función.", fg=typer.colors.YELLOW)
+        return
     
     typer.secho("\n✅ Contexto cargado con éxito.", fg=typer.colors.GREEN)
     typer.secho(f"💬 INICIANDO CHAT INTERACTIVO (Estilo: {style.upper()}). Escribe 'salir' para terminar.\n", fg=typer.colors.MAGENTA, bold=True)

@@ -8,6 +8,10 @@ try:
     load_dotenv()
 except ImportError:
     pass
+class NoAPIKeyError(Exception):
+    """Exception raised when no API key is found for an AI provider."""
+    pass
+
 
 class AIProvider:
     """Base class for all AI providers."""
@@ -166,45 +170,39 @@ def get_provider(force_provider: Optional[str] = None) -> AIProvider:
     """
     Returns the appropriate AIProvider.
     Priority if force_provider is None: OpenAI -> Anthropic -> Gemini -> Groq -> DeepSeek -> OpenRouter -> Ollama -> Webhook
-    If user forces a provider but passes no key gracefully exits/prints error.
+    If user forces a provider but passes no key raises NoAPIKeyError.
     """
     if force_provider:
         force_provider = force_provider.strip().lower()
         if force_provider == "openai":
             key = os.getenv("OPENAI_API_KEY")
             if not key:
-                print("Error: Missing environment variable OPENAI_API_KEY", file=sys.stderr)
-                sys.exit(1)
+                raise NoAPIKeyError("Missing environment variable OPENAI_API_KEY")
             return OpenAIProvider(key)
         elif force_provider == "anthropic":
             key = os.getenv("ANTHROPIC_API_KEY")
             if not key:
-                print("Error: Missing environment variable ANTHROPIC_API_KEY", file=sys.stderr)
-                sys.exit(1)
+                raise NoAPIKeyError("Missing environment variable ANTHROPIC_API_KEY")
             return AnthropicProvider(key)
         elif force_provider == "gemini":
             key = os.getenv("GOOGLE_API_KEY")
             if not key:
-                print("Error: Missing environment variable GOOGLE_API_KEY", file=sys.stderr)
-                sys.exit(1)
+                raise NoAPIKeyError("Missing environment variable GOOGLE_API_KEY")
             return GeminiProvider(key)
         elif force_provider == "groq":
             key = os.getenv("GROQ_API_KEY")
             if not key:
-                print("Error: Missing environment variable GROQ_API_KEY", file=sys.stderr)
-                sys.exit(1)
+                raise NoAPIKeyError("Missing environment variable GROQ_API_KEY")
             return GroqProvider(key)
         elif force_provider == "deepseek":
             key = os.getenv("DEEPSEEK_API_KEY")
             if not key:
-                print("Error: Missing environment variable DEEPSEEK_API_KEY", file=sys.stderr)
-                sys.exit(1)
+                raise NoAPIKeyError("Missing environment variable DEEPSEEK_API_KEY")
             return DeepSeekProvider(key)
         elif force_provider == "openrouter":
             key = os.getenv("OPENROUTER_API_KEY")
             if not key:
-                print("Error: Missing environment variable OPENROUTER_API_KEY", file=sys.stderr)
-                sys.exit(1)
+                raise NoAPIKeyError("Missing environment variable OPENROUTER_API_KEY")
             return OpenRouterProvider(key)
         elif force_provider == "ollama":
             return OllamaProvider()
@@ -232,14 +230,8 @@ def get_provider(force_provider: Optional[str] = None) -> AIProvider:
     elif os.getenv("BCK_ND_WEBHOOK_URL"):
         return WebhookProvider()
         
-    print("\n[!] BYOK (Bring Your Own Key) Error:", file=sys.stderr)
-    print("No se encontró ninguna API Key para inicializar un proveedor de IA.", file=sys.stderr)
-    print("Por favor, crea un archivo '.env' en tu proyecto con alguna de estas variables:\n", file=sys.stderr)
-    print("  OPENAI_API_KEY=your_key", file=sys.stderr)
-    print("  ANTHROPIC_API_KEY=your_key", file=sys.stderr)
-    print("  GOOGLE_API_KEY=your_key", file=sys.stderr)
-    print("  GROQ_API_KEY=your_key", file=sys.stderr)
-    print("  DEEPSEEK_API_KEY=your_key", file=sys.stderr)
-    print("  OPENROUTER_API_KEY=your_key\n", file=sys.stderr)
-    print("O inicia Ollama localmente y configura OLLAMA_HOST.", file=sys.stderr)
-    sys.exit(1)
+    raise NoAPIKeyError(
+        "No se encontró ninguna API Key para inicializar un proveedor de IA. "
+        "Configura alguna de las siguientes variables de entorno: "
+        "OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY, OPENROUTER_API_KEY."
+    )
