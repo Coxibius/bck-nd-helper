@@ -163,7 +163,7 @@ class WebhookProvider(AIProvider):
                     return resp.text
             return f"Error n8n: {resp.status_code} - {resp.text}"
         except Exception as e:
-            return f"Error conexión: {e}"
+            return f"Connection error: {e}"
 
 
 def get_provider(force_provider: Optional[str] = None) -> AIProvider:
@@ -231,7 +231,7 @@ def get_provider(force_provider: Optional[str] = None) -> AIProvider:
         return WebhookProvider()
         
     raise NoAPIKeyError(
-        "No se encontró ninguna API Key para inicializar un proveedor de IA. "
-        "Configura alguna de las siguientes variables de entorno: "
+        "No API Key found to initialize an AI provider. "
+        "Please configure one of the following environment variables: "
         "OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY, OPENROUTER_API_KEY."
     )
