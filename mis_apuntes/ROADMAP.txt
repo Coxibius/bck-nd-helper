@@ -1,0 +1,49 @@
+   ═══════════════════════════════════════════════════════════════════════════
+   🚀 ROADMAP: BACKEND-HELPER (Enterprise Edition)
+   Current Version: v1.2.0 (The Full-Stack Auditor Release)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   🟢 Q1: CORE & STABILITY [COMPLETADO]
+      Status: ✅ DONE
+      - [x] Removed Neural Engine dependency (Lightweight Core).
+      - [x] Standardized deterministic rendering (Box, Cylinder, Softbox).
+      - [x] Deep Scan integration for Python imports.
+      - [x] Webhook integration for AI Analysis (n8n).
+
+   🟡 Q2: DIAGRAMMING SUITE [COMPLETADO]
+      Status: ✅ DONE
+      - [x] Export to Mermaid.js syntax (`--format mermaid`).
+      - [x] UML Class Diagrams via AST (`--uml`).
+      - [x] Entity-Relationship Diagrams via ORM Detection (`--er`).
+      - [x] API Route Mapping for Flask/FastAPI (`--routes`).
+      - [x] Infrastructure Visualization via Docker (`--infra`).
+
+   🔴 Q3: CODE QUALITY & AUDIT [COMPLETADO]
+      Status: ✅ DONE
+      - [x] Technical Debt Scanner (`--todo`).
+      - [x] Rich Table Reporting & Debt Scoring.
+      - [x] Multi-language comment support (#, //, --).
+
+
+   🔵 Q4: NEXT STEPS (THE POLISHING PHASE)
+      Status: ✅ DONE
+      - [x] File Export: Save outputs to file instead of stdout (`--output arch.md`).
+      - [x] Security Scanner: Detect secrets/API keys (`--audit`) -> Implemented Output Sanitizer.
+      - [x] Node.js/TS Route Support: Regex-based detection for Express/NestJS.
+      - [x] Dependency Heatmap: Analyze impact (`--impact`).
+      - [x] HTML Docs Portal: Generar documentación viva estática con todos los diagramas (`bck-nd docs`).
+      - [x] CI/CD Github Action: Ready-to-use yaml for auto-documentation.
+
+   🟣 Q5: POLYGLOT MASTERY & ROBUSTNESS
+      Status: ✅ DONE
+      - [x] Native C# / .NET Core Support via Tree-Sitter.
+      - [x] Native Python (Django), JS/TS (Express), Java (Spring Boot), PHP (Laravel) Support via Tree-Sitter and AST.
+      - [x] Advanced UML Diagramming: Bi-directional associations and dependencies via Regex type matching.
+      - [x] Bulletproof ER Diagrams: Smart property inference (no `virtual` required) and strict Mermaid syntax sanitization.
+      - [x] Live HTML Portal Upgrade: Inject UML Class Diagrams natively into `bck-nd docs`.
+
+   ═══════════════════════════════════════════════════════════════════════════
+   🔮 FUTURE CONCEPTS (v2.0)
+   ═══════════════════════════════════════════════════════════════════════════
+      - [x] TUI Mode: Interactive terminal UI to navigate the graph (`explore` command).
+      - [ ] "Fix It": Use AI to suggest code fixes for the found TODOs.
