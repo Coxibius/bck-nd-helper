@@ -565,20 +565,20 @@ export BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
 
 ---
 
-## 🤖 Integración MCP (Claude Desktop / Cursor)
+## 🤖 MCP Integration (Claude Desktop / Cursor)
 
-Backend Helper incluye un servidor compatible con el **Model Context Protocol (MCP)**. Esto permite a cualquier cliente de IA compatible (como **Claude Desktop** o **Cursor**) interactuar directamente con tu base de código usando nuestras herramientas locales de ingeniería inversa y diagramado sin necesidad de enviar todo tu código a la nube o consumir valiosos tokens de contexto al transferir archivos completos.
+Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**. This allows any compatible AI client (like **Claude Desktop** or **Cursor**) to interact directly with your codebase using our local reverse engineering and diagramming tools without needing to send all your code to the cloud or consume valuable context tokens by transferring full files.
 
-La IA llamará a las herramientas locales bajo demanda para analizar la arquitectura, generar diagramas, buscar deudas técnicas o auditar la seguridad.
+The AI will call local tools on demand to analyze the architecture, generate diagrams, search for technical debt, or audit security.
 
-### Cómo Configurar
+### How to Configure
 
 #### 1. Claude Desktop
 
-Añade el siguiente bloque de configuración a tu archivo `claude_desktop_config.json`:
+Add the following configuration block to your `claude_desktop_config.json` file:
 
-* **Ruta en Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-* **Ruta en Mac/Linux:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+* **Windows Path:** `%APPDATA%\Claude\claude_desktop_config.json`
+* **Mac/Linux Path:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -589,8 +589,8 @@ Añade el siguiente bloque de configuración a tu archivo `claude_desktop_config
         "c:/bck-nd-hlpr/mcp_server.py"
       ],
       "env": {
-        "OPENAI_API_KEY": "tu-api-key-opcional",
-        "ANTHROPIC_API_KEY": "tu-api-key-opcional"
+        "OPENAI_API_KEY": "your-optional-api-key",
+        "ANTHROPIC_API_KEY": "your-optional-api-key"
       }
     }
   }
@@ -599,13 +599,13 @@ Añade el siguiente bloque de configuración a tu archivo `claude_desktop_config
 
 #### 2. Cursor
 
-1. Ve a **Cursor Settings** > **Features** > **MCP**.
-2. Haz clic en **+ Add New MCP Server**.
-3. Configura los siguientes parámetros:
+1. Go to **Cursor Settings** > **Features** > **MCP**.
+2. Click on **+ Add New MCP Server**.
+3. Configure the following parameters:
    - **Name**: `backend-helper`
    - **Type**: `stdio`
    - **Command**: `python c:/bck-nd-hlpr/mcp_server.py`
-4. Guarda y haz clic en **Refresh**. ¡Listo! Tendrás 11 herramientas de arquitectura disponibles instantáneamente para tu IA.
+4. Save and click on **Refresh**. Done! You will instantly have 11 architecture tools available for your AI.
 
 ---
 

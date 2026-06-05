@@ -11,19 +11,19 @@ class Narrator:
 
     # DICCIONARIO DE PERSONALIDADES
     PROMPTS = {
-        "pro": "Actúa como un Arquitecto de Software Senior. Sé técnico, breve, formal y céntrate en patrones de diseño.",
-        "hacker": "Eres un Hacker de Sombrero Negro experto en ingeniería inversa. Analiza esto como una red objetivo. Usa jerga: 'vector de ataque', 'payload', 'matrix'. Sé críptico.",
-        "soviet": "Eres un Ingeniero en Jefe de la Unión Soviética (1980). Valoras la eficiencia y el hormigón. Odias el desperdicio capitalista. Llama al usuario 'Camarada'.",
-        "eli5": "Eres una maestra de jardín de infantes muy dulce. Explica este código con analogías de juguetes, legos y animales. Usa emojis 🌟.",
-        "ramsay": "Eres el Chef Gordon Ramsay revisando código desastroso (Kitchen Nightmares). Insulta el diseño. Grita si ves dependencias circulares. Usa frases como 'IT'S RAW!', 'DONKEY'.",
-        "jarvis": "Eres J.A.R.V.I.S., la IA de Tony Stark. Analiza con elegancia británica. Sé servicial, preciso y llama al usuario 'Señor'.",
-        "corporate": "Eres un Manager corporativo que ama las buzzwords. Usa palabras como 'Sinergia', 'Holístico', 'Paradigma', 'ROI'. Vende humo.",
-        "medieval": "Eres un Mago anciano en una torre. El código son pergaminos, las carpetas reinos y los scripts magia arcana. Habla con solemnidad.",
-        "doom": "Eres el Doom Slayer. El código está infestado de demonios (bugs). Describe la arquitectura como un campo de batalla. Rip and Tear."
+        "pro": "Act as a Senior Software Architect. Be technical, brief, formal, and focus on design patterns.",
+        "hacker": "You are an expert Black Hat Hacker in reverse engineering. Analyze this as a target network. Use jargon: 'attack vector', 'payload', 'matrix'. Be cryptic.",
+        "soviet": "You are a Chief Engineer of the Soviet Union (1980). You value efficiency and concrete. You hate capitalist waste. Call the user 'Comrade'.",
+        "eli5": "You are a very sweet kindergarten teacher. Explain this code with analogies of toys, legos, and animals. Use emojis 🌟.",
+        "ramsay": "You are Chef Gordon Ramsay reviewing a disastrous code (Kitchen Nightmares). Insult the design. Yell if you see circular dependencies. Use phrases like 'IT'S RAW!', 'DONKEY'.",
+        "jarvis": "You are J.A.R.V.I.S., Tony Stark's AI. Analyze with British elegance. Be helpful, precise, and call the user 'Sir'.",
+        "corporate": "You are a corporate Manager who loves buzzwords. Use words like 'Synergy', 'Holistic', 'Paradigm', 'ROI'. Sell smoke.",
+        "medieval": "You are an ancient Wizard in a tower. The code is scrolls, the folders are kingdoms, and the scripts are arcane magic. Speak with solemnity.",
+        "doom": "You are the Doom Slayer. The code is infested with demons (bugs). Describe the architecture as a battlefield. Rip and Tear."
     }
 
     def explain(self, topology_text: str, use_ai: bool = False, style: str = "pro") -> str:
-        if not topology_text: return "Nada que explicar."
+        if not topology_text: return "Nothing to explain."
 
         # MODO LOCAL (Texto plano, ignora el estilo)
         if not use_ai:
@@ -32,45 +32,45 @@ class Narrator:
             for l in lines:
                 if "->" in l:
                     a, b = l.split("->")
-                    if "[DIR]" in a: report.append(f"📂 Carpeta '{a.replace('[DIR]','').strip()}' contiene '{b.strip()}'")
-                    elif ".py" in b: report.append(f"🐍 '{a.strip()}' importa '{b.strip()}'")
-                    else: report.append(f"🔗 '{a.strip()}' conecta con '{b.strip()}'")
+                    if "[DIR]" in a: report.append(f"📂 Folder '{a.replace('[DIR]','').strip()}' contains '{b.strip()}'")
+                    elif ".py" in b: report.append(f"🐍 '{a.strip()}' imports '{b.strip()}'")
+                    else: report.append(f"🔗 '{a.strip()}' connects with '{b.strip()}'")
             return "\n".join(report)
 
         # MODO IA (N8N) - Aquí inyectamos la personalidad
         if not self.provider:
-            return "Análisis de IA deshabilitado. Configura OPENAI_API_KEY para habilitarlo."
+            return "AI Analysis disabled. Configure OPENAI_API_KEY to enable it."
 
         persona_prompt = self.PROMPTS.get(style, self.PROMPTS["pro"])
         
         # Construimos el prompt final combinando la personalidad + los datos
-        full_prompt = f"{persona_prompt}\n\nAnaliza la siguiente topología de archivos y explícame qué hace este proyecto:\n"
+        full_prompt = f"{persona_prompt}\n\nAnalyze the following file topology and explain what this project does:\n"
 
         # SANITIZACIÓN DE SEGURIDAD (CRÍTICO)
         # Limpiamos tanto el texto de topología como cualquier contexto extra que venga
         safe_topology = sanitize_text(topology_text)
 
         try:
-            print(f"📡 Llamando al Narrador (Modo: {style.upper()})...")
+            print(f"📡 Calling the Narrator (Mode: {style.upper()})...")
             # En la nueva arquitectura, usamos el provider
             return self.provider.generate(system_prompt=full_prompt, user_prompt=safe_topology)
         except Exception as e:
-            return f"Error conexión: {e}"
+            return f"Connection error: {e}"
 
     def chat_turn(self, system_context: str, history_text: str, style: str = "pro") -> str:
         """
         Ejecuta un turno interactivo de chat manteniendo el contexto.
         """
         if not self.provider:
-            return "Análisis de IA deshabilitado. Configura OPENAI_API_KEY para habilitarlo."
+            return "AI Analysis disabled. Configure OPENAI_API_KEY to enable it."
 
         persona_prompt = self.PROMPTS.get(style, self.PROMPTS["pro"])
         
         # El system_prompt contiene la personalidad y el mega-contexto (diagramas, topología)
-        full_system_prompt = f"{persona_prompt}\n\nContexto de la Arquitectura del Proyecto:\n{system_context}\n\nResponde a la última pregunta del usuario basándote en el contexto del proyecto y la conversación previa."
+        full_system_prompt = f"{persona_prompt}\n\nProject Architecture Context:\n{system_context}\n\nRespond to the user's last question based on the project context and previous conversation."
         
         try:
             return self.provider.generate(system_prompt=full_system_prompt, user_prompt=history_text)
         except Exception as e:
-            return f"Error conexión: {e}"
+            return f"Connection error: {e}"
 
