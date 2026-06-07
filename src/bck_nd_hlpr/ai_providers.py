@@ -185,9 +185,9 @@ def get_provider(force_provider: Optional[str] = None) -> AIProvider:
                 raise NoAPIKeyError("Missing environment variable ANTHROPIC_API_KEY")
             return AnthropicProvider(key)
         elif force_provider == "gemini":
-            key = os.getenv("GOOGLE_API_KEY")
+            key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             if not key:
-                raise NoAPIKeyError("Missing environment variable GOOGLE_API_KEY")
+                raise NoAPIKeyError("Missing environment variable GEMINI_API_KEY or GOOGLE_API_KEY")
             return GeminiProvider(key)
         elif force_provider == "groq":
             key = os.getenv("GROQ_API_KEY")
@@ -217,8 +217,9 @@ def get_provider(force_provider: Optional[str] = None) -> AIProvider:
         return OpenAIProvider(os.getenv("OPENAI_API_KEY"))
     elif os.getenv("ANTHROPIC_API_KEY"):
         return AnthropicProvider(os.getenv("ANTHROPIC_API_KEY"))
-    elif os.getenv("GOOGLE_API_KEY"):
-        return GeminiProvider(os.getenv("GOOGLE_API_KEY"))
+    elif os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+        key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        return GeminiProvider(key)
     elif os.getenv("GROQ_API_KEY"):
         return GroqProvider(os.getenv("GROQ_API_KEY"))
     elif os.getenv("DEEPSEEK_API_KEY"):

@@ -1,7 +1,6 @@
-
 # 🛠️ Backend Helper (`bck-nd-hlpr`)
 
-> **Lightweight Architecture CLI** - Reverse-engineer any codebase into ASCII diagrams with AI-powered insights.
+> **Lightweight Architecture CLI** - Reverse-engineer any codebase into Mermaid diagrams with AI-powered insights.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
@@ -297,7 +296,7 @@ bck-nd scan . --no-graph --ai
 
 **Output:**
 
-- Only AI analysis (no ASCII diagram)
+- Only AI analysis (no Mermaid diagram)
 - Faster for text-only reports
 
 #### **AI Personalities**
@@ -733,8 +732,6 @@ bck-nd scan . --ai --style pro > review.md
 ```
 
 ### Documentation Generation
-
-``bash
 
 # Generate architecture docs
 

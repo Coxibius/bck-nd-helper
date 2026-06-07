@@ -34,3 +34,6 @@ venv/
 dist/
 build/
 *.egg-info/
+
+
+mis_apuntes/

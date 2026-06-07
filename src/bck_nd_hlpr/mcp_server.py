@@ -45,13 +45,13 @@ mcp = FastMCP("Backend Helper MCP Server")
 
 @mcp.tool()
 @redirect_stdout_to_stderr
-def scan_project(path: str = ".", depth: int = 3, format: str = "ascii") -> str:
-    """Scan a project's architecture and return detected framework and structural diagram.
+def scan_project(path: str = ".", depth: int = 3, format: str = "mermaid") -> str:
+    """Scan a project's architecture and return detected framework, UML class diagram, ER diagram, API routes, infrastructure, and technical debt.
 
     Args:
         path: Path to the project directory (default: ".").
         depth: Traversal depth for scanning files (default: 3).
-        format: Output format ('ascii' or 'mermaid', default: 'ascii').
+        format: Output format ('mermaid' or 'ascii', default: 'mermaid').
     """
     try:
         scanner = ProjectScanner()
@@ -68,23 +68,70 @@ def scan_project(path: str = ".", depth: int = 3, format: str = "ascii") -> str:
         if arch_info.get('summary'):
             result.append(f"📝 Summary: {arch_info['summary']}")
             
-        flow_string = scanner.scan(path, max_depth=depth)
-        if not flow_string:
-            result.append(f"\n⚠️ No source files found under depth {depth}.")
-            return "\n".join(result)
-            
-        router = Router()
-        if format.lower() == 'mermaid':
-            mermaid_code = router.to_mermaid(flow_string)
-            result.append("\n🧜 Mermaid Diagram:")
-            result.append("```mermaid")
-            result.append(mermaid_code)
-            result.append("```")
+        result.append("\n📊 PROJECT ARCHITECTURE (COMPLETE):")
+        
+        # 1. INFRA
+        compose_file = parse_infra(path)
+        if compose_file:
+            services = parse_docker_compose(compose_file)
+            if services:
+                infra_code = generate_mermaid_infra(services)
+                result.append("\n[INFRA] INFRASTRUCTURE MAP:")
+                result.append(f"```mermaid\n{infra_code}\n```")
+            else:
+                result.append("\n[INFRA] INFRASTRUCTURE MAP:\n⚠️ No services found in docker-compose.")
         else:
-            ascii_diagram = router.render_ascii(flow_string)
-            result.append("\n📊 Architecture Diagram (ASCII):")
-            result.append(ascii_diagram)
+            result.append("\n[INFRA] INFRASTRUCTURE MAP:\n⚠️ docker-compose.yml not detected in the directory.")
             
+        # 2. API ROUTES
+        detected_routes = parse_project_routes(path, max_depth=depth)
+        if detected_routes:
+            seq_code = generate_mermaid_sequence(detected_routes)
+            if seq_code:
+                result.append("\n[API] ROUTES MAP:")
+                result.append(f"```mermaid\n{seq_code}\n```")
+            else:
+                result.append("\n[API] ROUTES MAP:\n⚠️ Could not render routes sequence.")
+        else:
+            result.append("\n[API] ROUTES MAP:\n⚠️ No API routes detected.")
+            
+        # 3. UML CLASS DIAGRAM
+        uml_code = scanner.scan_uml(path, max_depth=depth)
+        if uml_code and "class Empty" not in uml_code and "note " not in uml_code.lower():
+            result.append("\n[UML] CLASS DIAGRAM:")
+            result.append(f"```mermaid\n{uml_code}\n```")
+        else:
+            result.append("\n[UML] CLASS DIAGRAM:\n⚠️ No classes detected for UML.")
+            
+        # 4. ER DIAGRAM
+        entities = parse_project_for_er(path, max_depth=depth)
+        if entities:
+            er_code = generate_mermaid_er(entities)
+            if er_code:
+                result.append("\n[ER] ENTITY-RELATIONSHIP:")
+                result.append(f"```mermaid\n{er_code}\n```")
+            else:
+                result.append("\n[ER] ENTITY-RELATIONSHIP:\n⚠️ Could not render ER diagram.")
+        else:
+            result.append("\n[ER] ENTITY-RELATIONSHIP:\n⚠️ No database models/entities detected.")
+            
+        # 5. TECHNICAL DEBT
+        todos = scan_for_todos(path, max_depth=depth)
+        if todos:
+            result.append("\n[TODO] TECHNICAL DEBT:")
+            result.append(get_todos_table_string(todos, plain=True))
+        else:
+            result.append("\n[TODO] TECHNICAL DEBT:\n✨ Awesome! No technical debt found.")
+            
+        # 6. Fallback/Original ASCII diagram (only if format is explicitly 'ascii')
+        if format.lower() == 'ascii':
+            flow_string = scanner.scan(path, max_depth=depth)
+            if flow_string:
+                router = Router()
+                ascii_diagram = router.render_ascii(flow_string)
+                result.append("\n[TOPOLOGY] File Topology (ASCII):")
+                result.append(ascii_diagram)
+                
         return "\n".join(result)
     except Exception as e:
         return f"❌ Error scanning project: {str(e)}\n{traceback.format_exc()}"
