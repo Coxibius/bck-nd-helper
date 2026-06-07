@@ -205,10 +205,6 @@ def display_todos_table(todos: List[Dict]) -> None:
     display_statistics(todos, console)
 
 
-    # Display statistics
-    display_statistics(todos, console)
-
-
 def get_todos_table_string(todos: List[Dict], plain: bool = False) -> str:
     """
     Returns the technical debt table as a string.

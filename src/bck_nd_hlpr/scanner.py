@@ -162,8 +162,27 @@ class ProjectScanner:
                     connections.append(f"[Database] {file} -> Data_Storage")
 
         if not connections: return ""
-        if not connections: return ""
         return " ; ".join(sorted(list(set(connections))))
+
+    def scan_file(self, file_path: str) -> str:
+        """Escanear un único archivo para ver sus importaciones locales."""
+        path = Path(file_path).resolve()
+        if not path.exists(): return ""
+        
+        # Necesitamos poblar allowed_files si está vacío para la whitelist
+        if not self.allowed_files:
+            # Buscar otros archivos hermanos/padres en el proyecto para whitelist
+            root = path.parent
+            for r_dir, _, files in os.walk(root):
+                for f in files:
+                    if f.endswith((".py", ".cs", ".js", ".ts")):
+                        self.allowed_files.add(Path(f).stem)
+                        
+        deps = self._find_imports(path)
+        if deps:
+            connections = [f"{path.name} -> {dep}.py" for dep in deps]
+            return " ; ".join(connections)
+        return ""
 
     def scan_uml(self, root_path: str, max_depth: int = 5) -> str:
         """Genera un diagrama de clases UML (Mermaid) multi-lenguaje."""
@@ -232,8 +251,8 @@ class ProjectScanner:
         
         print("📚 [Scanner] Buscando documentación para contexto...", file=sys.stderr)
         
-        # Buscamos en la raíz y en una carpeta docs/ si existe
-        search_paths = [root, root / "docs"]
+        # Buscamos en la raíz, en docs/ y en mis_apuntes/ si existen
+        search_paths = [root, root / "docs", root / "mis_apuntes"]
         
         for base_path in search_paths:
             if not base_path.exists(): continue

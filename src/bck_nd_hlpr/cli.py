@@ -119,8 +119,13 @@ def scan(
     def output_handler(content: str, context_msg: str):
         if output:
             try:
-                with open(output, "w", encoding="utf-8") as f:
+                with open(output, "a", encoding="utf-8") as f:
+                    if context_msg:
+                        f.write(f"\n{'='*60}\n")
+                        f.write(f"  {context_msg}\n")
+                        f.write(f"{'='*60}\n\n")
                     f.write(content)
+                    f.write("\n")
                 typer.secho(f"💾 Result saved to: {output}", fg=typer.colors.GREEN, bold=True)
             except Exception as e:
                 typer.secho(f"❌ Error writing file: {e}", fg=typer.colors.RED)
@@ -138,6 +143,14 @@ def scan(
                     typer.secho("Copy the above block into Mermaid.live", fg=typer.colors.BRIGHT_BLACK)
                 else:
                     print(content)
+
+    # Truncar archivo de salida al inicio para empezar limpio
+    if output:
+        try:
+            with open(output, "w", encoding="utf-8") as f:
+                f.write("")  # Truncate
+        except Exception as e:
+            typer.secho(f"❌ Error creating output file: {e}", fg=typer.colors.RED)
 
     # DETECTAR ARQUITECTURA PRIMERO para rutear parsers
     typer.secho(f"\n🔍 Analyzing architecture of '{path}'...", fg=typer.colors.CYAN, bold=True)
@@ -362,7 +375,7 @@ def scan(
             services = parse_docker_compose(compose_file)
             if services:
                 infra_code = generate_mermaid_infra(services)
-                output_handler(infra_code, "Mermaid Code")
+                output_handler(infra_code, "[INFRA] Infrastructure Map")
             else:
                 typer.secho("⚠️ No services found in docker-compose.", fg=typer.colors.YELLOW)
         else:
@@ -374,7 +387,7 @@ def scan(
         if detected_routes:
             seq_code = generate_mermaid_sequence(detected_routes)
             if seq_code:
-                output_handler(seq_code, "Mermaid Code")
+                output_handler(seq_code, "[API] Routes Map")
             else:
                 typer.secho("⚠️ Could not render the routes.", fg=typer.colors.YELLOW)
         else:
@@ -384,7 +397,7 @@ def scan(
         typer.secho("\n[UML] CLASS DIAGRAM:", fg=typer.colors.CYAN, bold=True)
         uml_code = get_uml_code()
         if uml_code:
-            output_handler(uml_code, "Mermaid Code")
+            output_handler(uml_code, "[UML] Class Diagram")
         else:
             typer.secho("⚠️ No classes detected for UML.", fg=typer.colors.YELLOW)
             
@@ -392,7 +405,7 @@ def scan(
         typer.secho("\n[ER] ENTITY-RELATIONSHIP:", fg=typer.colors.CYAN, bold=True)
         er_code = get_er_code()
         if er_code:
-            output_handler(er_code, "Mermaid Code")
+            output_handler(er_code, "[ER] Entity-Relationship")
         else:
             typer.secho("⚠️ No database models detected.", fg=typer.colors.YELLOW)
 
@@ -402,7 +415,7 @@ def scan(
         if todos:
             if output:
                 table_str = get_todos_table_string(todos, plain=True)
-                output_handler(table_str, "")
+                output_handler(table_str, "[TODO] Technical Debt")
             else:
                 display_todos_table(todos)
         else:
