@@ -180,7 +180,8 @@ def get_impact_report_string(usage_map: Dict[str, Set[str]], plain: bool = False
     )
     
     table.add_column("File (The Dependency)", style="cyan" if not plain else None)
-    table.add_column("Impact Score", justify="right", style="bold yellow" if not plain else None)
+    table.add_column("Impact Score", justify="right", style="bold white" if not plain else None)
+    table.add_column("Risk Category", justify="center", style="bold" if not plain else None)
     table.add_column("Imported By (Dependents)", style="white" if not plain else None)
 
     # Sort by number of dependents (High impact first)
@@ -195,12 +196,22 @@ def get_impact_report_string(usage_map: Dict[str, Set[str]], plain: bool = False
             deps_list += f" (+{len(dependents)-3} more)"
             
         color = "white"
-        if score > 5: color = "bold red"
-        elif score > 2: color = "bold yellow"
+        risk_category = "🟢 PERIPHERAL"
+        risk_color = "green"
+
+        if score > 5:
+            color = "bold red"
+            risk_category = "🔥 CORE"
+            risk_color = "bold red"
+        elif score >= 2:
+            color = "bold yellow"
+            risk_category = "🟡 SHARED"
+            risk_color = "bold yellow"
         
         count_styled = Text(str(score), style=color if not plain else None)
+        risk_styled = Text(risk_category, style=risk_color if not plain else None)
         
-        table.add_row(file, count_styled, deps_list)
+        table.add_row(file, count_styled, risk_styled, deps_list)
         
     console.print(table)
     
