@@ -25,6 +25,7 @@
 - 🪟 **OS-Safe Scanning**: Robust directory traversal ignoring `venv`, `node_modules`, and system restricted files
 - 🎨 **Visual & Mermaid**: Output Unicode diagrams or copy-paste Mermaid code
 - 🚀 **Auto-Documentation (CI/CD)**: One-command setup for GitHub Actions to host living docs on GitHub Pages (`init-ci`)
+- 🧠 **AI Context Dump** (`bck-nd prompt`): Export a single, LLM-optimized `.txt` file with project tree + UML + ER + core files — just copy-paste into ChatGPT/Claude for instant codebase understanding **[NEW ✨]**
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
 - 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Next.js/Express.js/Drizzle ORM), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform, Prisma schemas (`schema.prisma`), and SQL migrations (`.sql`)
 
@@ -90,6 +91,86 @@ bck-nd docs . --output docs
 - **Entity-Relationship:** E-R diagrams for ORM models (Entity Framework, SQLAlchemy, Django).
 - **Technical Debt:** Actionable table of TODOs and FIXMEs.
 - Fully self-contained, using MermaidJS CDN for rendering. No heavy build tools required.
+
+---
+
+### 🧠 `prompt` - AI Context Dump 🆕
+
+Generates a **single, LLM-optimized `.txt` file** with XML-like tags that you can copy-paste directly into ChatGPT, Claude, or any AI to give it instant, complete understanding of your project.
+
+No more manually explaining your codebase structure — one command, one file, instant AI context.
+
+#### **Usage**
+
+```bash
+# Generate ai_context.txt in the current directory
+bck-nd prompt .
+
+# Custom output file
+bck-nd prompt /my/project -o context.txt
+
+# Deeper scan (default depth is 4)
+bck-nd prompt . --depth 6
+```
+
+#### **What the file contains**
+
+| XML Tag                | Contents                                          |
+| ---------------------- | ------------------------------------------------- |
+| `<project_tree>`     | Clean ASCII directory tree (no venv/node_modules) |
+| `<architecture_uml>` | UML Class Diagram in Mermaid format               |
+| `<architecture_er>`  | Entity-Relationship Diagram in Mermaid format     |
+| `<core_files>`       | Content of the 3-5 most important backend files   |
+
+#### **How to use it**
+
+1. Run `bck-nd prompt .` in your project root
+2. Open `ai_context.txt`
+3. Select All → Copy
+4. Paste into ChatGPT / Claude as the first message
+5. Start asking questions about your codebase immediately!
+
+#### **Example output structure**
+
+```xml
+<!-- bck-nd-hlpr Context Dump -->
+<!-- Paste this file into ChatGPT / Claude for instant AI context -->
+
+<project_tree>
+my-project/
++-- src/
+|   +-- main.py
+|   +-- models.py
+\-- tests/
+</project_tree>
+
+<architecture_uml>
+```mermaid
+classDiagram
+    class User { ... }
+```
+
+</architecture_uml>
+
+<architecture_er>
+
+```mermaid
+erDiagram
+    User { int id PK }
+```
+
+</architecture_er>
+
+<core_files>
+`<file path="src/main.py">`
+
+```python
+# ... file content ...
+```
+
+</file>
+</core_files>
+```
 
 ---
 
@@ -261,7 +342,19 @@ bck-nd scan . --impact
 
 - Shows a "Heatmap" of your files based on how many other files import them.
 - Helps identify "Core" modules that are risky to refactor.
-- Sorts by Impact Score (High = Connected to everything).
+- Sorts by Impact Score and assigns Risk Categories (`🔥 CORE`, `🟡 SHARED`, `🟢 PERIPHERAL`).
+
+##### 10.5 **Route-to-DB Traceability 🆕**
+
+```bash
+bck-nd scan . --trace
+```
+
+**Output:**
+
+- Generates `graph LR` for Mermaid.js.
+- Traces API calls starting from your routes down to your services and models.
+- Parses AST (currently supports Python: FastAPI/Flask).
 
 ##### 11. **Diagram + AI Analysis**
 
@@ -610,16 +703,17 @@ Add the following configuration block to your `claude_desktop_config.json` file:
 
 ## Comparison: Different Commands
 
-| Command                           | Architecture Detection | Diagram        | Text Report | AI Analysis |
-| --------------------------------- | ---------------------- | -------------- | ----------- | ----------- |
-| `bck-nd scan .`                 | ✅                     | ✅ (Full Arch) | ❌          | ❌          |
-| `bck-nd scan . --explain`       | ✅                     | ✅             | ✅          | ❌          |
-| `bck-nd scan . --ai`            | ✅                     | ✅             | ❌          | ✅          |
-| `bck-nd scan . --explain --ai`  | ✅                     | ✅             | ✅          | ✅          |
-| `bck-nd scan . --no-graph --ai` | ✅                     | ❌             | ❌          | ✅          |
-| `bck-nd flow "A -> B"`          | ❌                     | ✅             | ❌          | ❌          |
-| `bck-nd explore`                | ✅                     | ✅             | ✅          | ❌          |
-| `bck-nd init-ci`                | ✅                     | ✅             | ✅          | ❌          |
+| Command                           | Architecture Detection | Diagram        | Text Report | AI Analysis | AI Context File |
+| --------------------------------- | ---------------------- | -------------- | ----------- | ----------- | --------------- |
+| `bck-nd scan .`                 | ✅                     | ✅ (Full Arch) | ❌          | ❌          | ❌              |
+| `bck-nd scan . --explain`       | ✅                     | ✅             | ✅          | ❌          | ❌              |
+| `bck-nd scan . --ai`            | ✅                     | ✅             | ❌          | ✅          | ❌              |
+| `bck-nd scan . --explain --ai`  | ✅                     | ✅             | ✅          | ✅          | ❌              |
+| `bck-nd scan . --no-graph --ai` | ✅                     | ❌             | ❌          | ✅          | ❌              |
+| `bck-nd prompt .`               | ✅                     | ✅ (Mermaid)   | ❌          | ❌          | ✅ (XML)        |
+| `bck-nd flow "A -> B"`          | ❌                     | ✅             | ❌          | ❌          | ❌              |
+| `bck-nd explore`                | ✅                     | ✅             | ✅          | ❌          | ❌              |
+| `bck-nd init-ci`                | ✅                     | ✅             | ✅          | ❌          | ❌              |
 
 ---
 

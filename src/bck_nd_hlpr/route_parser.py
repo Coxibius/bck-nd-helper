@@ -197,7 +197,7 @@ def parse_project_routes(root_path: str, max_depth: int = 3) -> List[RouteInfo]:
             
         for file in files:
             file_path = Path(root_dir) / file
-            display_name = file
+            display_name = str(file_path.relative_to(root)).replace("\\", "/")
             
             # Python AST Parsing
             if file.endswith(".py"):

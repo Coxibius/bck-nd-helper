@@ -6,25 +6,33 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-# Reuse patterns from sanitizer but we want to capturing them for reporting
-# We redefine them here slightly to separate Logic. 
-# Ideally we import them, but sanitizer regexes are for replacement (finding keys).
-# Here we want to report the FINDING.
-
+# RISK_PATTERNS with pattern, desc, and category
 RISK_PATTERNS = {
     'CRITICAL': [
-        (r'(?i)(password|passwd|pwd|secret|api_key|token|auth_token|access_token|bearer)\s*[:=]\s*[\'"]?([^\s,;\'"}]+)[\'"]?', "Hardcoded Credential"),
-        (r'-----BEGIN [A-Z]+ PRIVATE KEY-----', "Private Key (PEM)"),
-        (r'(?i)AWS_ACCESS_KEY_ID\s*=\s*[\'"]AKIA[0-9A-Z]{16}[\'"]', "AWS Access Key"),
-        (r'AAAA[A-Za-z0-9+/]{8,}', "Potential High Entropy Token")
+        (r'(?i)(password|passwd|pwd|secret|api_key|token|auth_token|access_token|bearer)\s*[:=]\s*[\'"]?([^\s,;\'"}]+)[\'"]?', "Hardcoded Credential", "Secrets"),
+        (r'-----BEGIN [A-Z]+ PRIVATE KEY-----', "Private Key (PEM)", "Secrets"),
+        (r'\b(AKIA[0-9A-Z]{16})\b', "AWS Access Key", "Secrets"),
+        (r'(?i)(AWS_SECRET_ACCESS_KEY)\s*=\s*[\'"]([A-Za-z0-9/+]{40})[\'"]', "AWS Secret Key", "Secrets"),
+        (r'\b(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82})\b', "GitHub Token", "Secrets"),
+        (r'\bglpat-[A-Za-z0-9\-]{20}\b', "GitLab Token", "Secrets"),
+        (r'\bsk_live_[A-Za-z0-9]{24,}\b', "Stripe Secret", "Secrets"),
+        (r'\bsk_test_[A-Za-z0-9]{24,}\b', "Stripe Test Key", "Secrets"),
+        (r'(?i)twilio.*[0-9a-f]{32}', "Twilio Auth Token", "Secrets"),
+        (r'SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43}', "SendGrid Key", "Secrets"),
+        (r'eyJ[A-Za-z0-9\-_]{10,}\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+', "JWT Hardcoded", "Secrets"),
+        (r'[a-z0-9]{32}-us[0-9]{1,2}', "Mailchimp Key", "Secrets"),
+        (r'AAAA[A-Za-z0-9+/]{8,}', "Potential High Entropy Token", "Secrets")
     ],
     'HIGH': [
-        (r'(?i)(db_pass|database_password|postgres_password|mysql_root_password)\s*[:=]\s*[\'"]?([^\s,;\'"}]+)[\'"]?', "Database Password"),
-        (r'(?i)(database_url|connection_string)\s*[:=]\s*[\'"]?[a-z]+://[^:]+:[^@]+@[^/]+', "Connection String with Credentials")
+        (r'(?i)(db_pass|database_password|postgres_password|mysql_root_password)\s*[:=]\s*[\'"]?([^\s,;\'"}]+)[\'"]?', "Database Password", "Secrets"),
+        (r'(?i)(database_url|connection_string)\s*[:=]\s*[\'"]?[a-z]+://[^:]+:[^@]+@[^/]+', "Connection String with Credentials", "Secrets"),
+        (r'xox[baprs]-[A-Za-z0-9\-]{10,}', "Slack Token", "Secrets"),
+        (r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', "Heroku Key", "Secrets"),
+        (r'npm_[A-Za-z0-9]{36}', "NPM Token", "Secrets")
     ],
     'WARNING': [
-        (r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', "Hardcoded IP Address"),
-        (r'(?i)authorization\s*:\s*[\'"]Bearer\s+[a-zA-Z0-9_\-\.]+[\'"]', "Authorization Header"),
+        (r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', "Hardcoded IP Address", "Config"),
+        (r'(?i)authorization\s*:\s*[\'"]Bearer\s+[a-zA-Z0-9_\-\.]+[\'"]', "Authorization Header", "Secrets"),
     ]
 }
 
@@ -32,6 +40,93 @@ RISK_PATTERNS = {
 IGNORE_DIRS = {
     'venv', 'env', '.venv', '__pycache__', '.git', 'node_modules', 'dist', 'build', 'htmlcov'
 }
+
+def scan_sensitive_exposures(root_path: str, entities: List) -> List[Dict]:
+    """
+    Analiza los modelos de BD detectados por er_parser y los cruza con las rutas de API
+    detectadas por route_parser para advertir si campos sensibles pueden estar expuestos.
+    """
+    risks = []
+    SENSITIVE_FIELDS = {
+        'password', 'passwd', 'secret', 'token', 'credit_card', 
+        'card_number', 'cvv', 'ssn', 'social_security', 'pin'
+    }
+    
+    # 1. Identificar entidades con columnas sensibles
+    sensitive_entities = {}
+    for entity in entities:
+        sens_cols = []
+        for col_name, col_type in entity.columns:
+            if any(sf in col_name.lower() for sf in SENSITIVE_FIELDS):
+                sens_cols.append(col_name)
+        if sens_cols:
+            sensitive_entities[entity.name] = sens_cols
+            
+    if not sensitive_entities:
+        return risks
+        
+    root = Path(root_path).resolve()
+    
+    # 2. Buscar en archivos del proyecto (routers, esquemas, controladores, etc.)
+    for root_dir, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+        for file in files:
+            file_path = Path(root_dir) / file
+            if file_path.suffix not in ['.py', '.js', '.ts', '.cs', '.java', '.php', '.rb']:
+                continue
+                
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    
+                lines = content.splitlines()
+                for i, line in enumerate(lines, 1):
+                    if len(line) > 500:
+                        continue
+                    
+                    # Ignorar comentarios
+                    stripped = line.strip()
+                    if stripped.startswith('#') or stripped.startswith('//'):
+                        continue
+                        
+                    for ent_name, sens_cols in sensitive_entities.items():
+                        ent_lower = ent_name.lower()
+                        
+                        # response_model=User, schema=UserSchema, schema=User
+                        p_model = rf'\b(response_model|schema)\s*=\s*\w*{re.escape(ent_name)}\w*'
+                        
+                        # return user, return user_list, return users
+                        p_return = rf'\breturn\s+[^;]*?\b{re.escape(ent_lower)}\b'
+                        
+                        # jsonify(user), jsonify(user_data)
+                        p_json = rf'\bjsonify\(\s*[^)]*?\b{re.escape(ent_lower)}\b'
+                        
+                        match_type = ""
+                        if re.search(p_model, line):
+                            match_type = "schema/model reference"
+                        elif re.search(p_return, line, re.IGNORECASE):
+                            match_type = "return variable"
+                        elif re.search(p_json, line, re.IGNORECASE):
+                            match_type = "jsonify call"
+                            
+                        if match_type:
+                            cols_str = ", ".join(sens_cols)
+                            if "import " in line or "from " in line or "require(" in line:
+                                continue
+                            
+                            risks.append({
+                                'file': str(file_path.relative_to(root)),
+                                'line': i,
+                                'type': 'Sensitive Data Exposure',
+                                'severity': 'HIGH',
+                                'category': 'Sensitive Data',
+                                'message': f"Entity '{ent_name}' (sensitive cols: {cols_str}) exposed in {match_type}: {stripped[:60]}"
+                            })
+                            break # Evitar duplicar en la misma línea
+            except Exception:
+                pass
+                
+    return risks
 
 def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
     """
@@ -45,13 +140,12 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
     for file in unsafe_files:
         path = root / file
         if path.exists():
-            # Check if ignored (naive check, real check needs parsing .gitignore)
-            # For now, just REPORT that they exist.
             risks.append({
                 'file': file,
                 'line': 0,
-                'type': 'WARNING',
-                'severity': 'HIGH', # Having .env in repo is bad
+                'type': 'Unsafe Configuration File',
+                'severity': 'HIGH',
+                'category': 'Config',
                 'message': 'Sensitive configuration file found (ensure it is git-ignored)'
             })
 
@@ -68,23 +162,72 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
             for i, line in enumerate(lines, 1):
                 if len(line) > 500: continue # Skip huge lines (minified code)
                 
+                # Ignorar comentarios
+                stripped_line = line.strip()
+                if stripped_line.startswith('#') or stripped_line.startswith('//'):
+                    continue
+                
                 for severity, patterns in RISK_PATTERNS.items():
-                    for pattern, desc in patterns:
-                        # Exclude some false positives naively
-                        if "os.getenv" in line or "os.environ" in line: continue
+                    for pattern, desc, category in patterns:
+                        # Exclude some false positives
+                        if any(env_call in line for env_call in ["os.getenv", "os.environ", "getenv", "process.env", "System.getenv", "$_ENV", "$_SERVER"]):
+                            continue
                         if "EXAMPLE" in line.upper() or "TEMPLATE" in line.upper(): continue
                         
                         match = re.search(pattern, line)
                         if match:
-                            # Avoid matching simple variable usage like "password = password"
-                            # Our regex enforces assignment syntax usually
+                            # Extract key and value
+                            key = ""
+                            val = ""
+                            if match.lastindex and match.lastindex >= 2:
+                                key = match.group(1)
+                                val = match.group(2)
+                            else:
+                                val = match.group(0)
+                            
+                            val_clean = val.strip('\'"')
                             
                             # Filter local IP (127.0.0.1, 0.0.0.0) if strictly hardcoded IP check
                             if desc == "Hardcoded IP Address":
                                 ip = match.group(0)
                                 if ip.startswith("127.") or ip == "0.0.0.0": continue
-                                # If looks like version number (1.0.0.0), skip. 
-                                # This is hard. Let's keep it simple for now.
+                            
+                            # False positive check: RHS equals LHS
+                            if key and val_clean.lower() == key.lower():
+                                continue
+                                
+                            # False positive check: RHS is a variable/expression and NOT quoted (for source files)
+                            config_suffixes = {'.yml', '.yaml', '.json', '.properties', '.ini', '.conf'}
+                            config_names = {'.env', '.env.local'}  # dotfiles have no suffix on Windows
+                            is_config_file = file_path.suffix in config_suffixes or file_path.name in config_names
+                            if not is_config_file and key:
+                                if not (f"'{val_clean}'" in line or f'"{val_clean}"' in line):
+                                    if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', val_clean) or val_clean.lower() in ['true', 'false', 'none', 'null', 'undefined']:
+                                        continue
+                                    if '(' in val_clean or ')' in val_clean:
+                                        continue
+                            
+                            # Placeholders ignored
+                            # Exact-match placeholders (short/generic words that could be substrings of real tokens)
+                            exact_placeholders = {'test', 'example', 'dummy', 'xxx', 'changeme', 'mysecret', 'secret_key'}
+                            # Substring-match placeholders (specific enough to safely substring-check)
+                            substr_placeholders = ['your_key_here', 'your_token_here', 'placeholder']
+                            val_lower = val_clean.lower()
+                            if val_lower in exact_placeholders:
+                                continue
+                            if any(p in val_lower for p in substr_placeholders):
+                                continue
+                                
+                            if val_clean.startswith('<') and val_clean.endswith('>'):
+                                continue
+                            if val_clean.startswith('${') and val_clean.endswith('}'):
+                                continue
+                            if '%' in val_clean and val_clean.endswith('s'):
+                                continue
+                                
+                            # Mínimo de longitud para el valor (> 6 chars)
+                            if desc in ["Hardcoded Credential", "Database Password"] and len(val_clean) <= 6:
+                                continue
                             
                             secret_preview = match.group(0)
                             if len(secret_preview) > 40: secret_preview = secret_preview[:37] + "..."
@@ -94,18 +237,18 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
                                 'line': i,
                                 'type': desc,
                                 'severity': severity,
+                                'category': category,
                                 'message': f"Match: {secret_preview}"
                             })
-                            # Break inner loop to avoid double reporting same line? No, multiple risks possible.
         except Exception:
             pass
 
     for root_dir, dirs, files in os.walk(root):
         rel_root = Path(root_dir).relative_to(root)
-        if str(rel_root) == ".": depth = 0
-        else: depth = len(rel_root.parts)
+        if str(rel_root) == ".": depth_val = 0
+        else: depth_val = len(rel_root.parts)
         
-        if depth > max_depth:
+        if depth_val > max_depth:
             del dirs[:]
             continue
             
@@ -114,8 +257,20 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
         for file in files:
             file_path = Path(root_dir) / file
             # Scan source code and config files
-            if file_path.suffix in ['.py', '.js', '.ts', '.json', '.yml', '.yaml', '.xml', '.env', '.sh', '.go', '.rs']:
+            # Note: dotfiles like .env have no suffix on Windows (Path('.env').suffix == '')
+            scannable_suffixes = {'.py', '.js', '.ts', '.json', '.yml', '.yaml', '.xml', '.sh', '.go', '.rs', '.cs', '.java', '.php', '.rb'}
+            scannable_names = {'.env', '.env.local'}  # dotfiles detected by name
+            if file_path.suffix in scannable_suffixes or file_path.name in scannable_names:
                 scan_file(file_path)
+                
+    # Run Sensitive Data Tracker
+    try:
+        from bck_nd_hlpr.er_parser import parse_project_for_er
+        entities = parse_project_for_er(str(root))
+        exposure_risks = scan_sensitive_exposures(str(root), entities)
+        risks.extend(exposure_risks)
+    except Exception:
+        pass
                 
     return risks
 
@@ -129,47 +284,88 @@ def get_security_report_string(risks: List[Dict], plain: bool = False) -> str:
     else:
         console = Console(file=output, force_terminal=True, width=120)
         
-    table = Table(
-        title="🚨 SECURITY AUDIT REPORT 🚨",
-        show_header=True,
-        header_style="bold red" if not plain else None,
-        border_style="red" if not plain else None,
-        title_style="bold red" if not plain else None
-    )
-    
-    table.add_column("Severity", style="bold red" if not plain else None, width=10)
-    table.add_column("File", style="cyan" if not plain else None)
-    table.add_column("Line", justify="right")
-    table.add_column("Risk Type", style="yellow" if not plain else None)
-    table.add_column("Message")
-    
-    # Sort by severity (CRITICAL -> HIGH -> WARNING)
     severity_order = {'CRITICAL': 0, 'HIGH': 1, 'WARNING': 2}
-    sorted_risks = sorted(risks, key=lambda x: (severity_order.get(x['severity'], 99), x['file']))
+    sorted_risks = sorted(risks, key=lambda x: (severity_order.get(x['severity'], 99), x['file'], x['line']))
     
-    for risk in sorted_risks:
-        sev = risk['severity']
-        style = "bold red" if sev == 'CRITICAL' else ("bold orange3" if sev == 'HIGH' else "yellow")
-        if plain: style = None
+    crit_count = sum(1 for r in risks if r['severity'] == 'CRITICAL')
+    high_count = sum(1 for r in risks if r['severity'] == 'HIGH')
+    warn_count = sum(1 for r in risks if r['severity'] == 'WARNING')
+    
+    if crit_count > 0:
+        global_score = "CRITICAL"
+    elif high_count > 0:
+        global_score = "HIGH"
+    elif warn_count > 3:
+        global_score = "MEDIUM"
+    elif warn_count > 0:
+        global_score = "LOW"
+    else:
+        global_score = "CLEAN"
         
-        table.add_row(
-            Text(sev, style=style),
-            risk['file'],
-            str(risk['line']),
-            risk['type'],
-            risk['message']  # Should ideally be sanitized before printing? 
-                             # The whole point is showing WHERE it is. 
-                             # Maybe mask the actual secret in the preview?
-                             # For an AUDIT tool for the dev, showing it is helpful. 
-                             # But `todo_hunter` didn't mask. 
-                             # Let's keep it provided the user is running this locally.
+    if plain:
+        # Group by file in plain text output
+        grouped = {}
+        for risk in sorted_risks:
+            f = risk['file']
+            if f not in grouped:
+                grouped[f] = []
+            grouped[f].append(risk)
+            
+        console.print("🚨 SECURITY AUDIT REPORT 🚨\n")
+        for f, file_risks in grouped.items():
+            console.print(f"File: {f}")
+            for risk in file_risks:
+                cat = risk.get('category', 'Secrets')
+                console.print(f"  [{risk['severity']}] Line {risk['line']}: {risk['type']} - {risk['message']} (Category: {cat})")
+            console.print("")
+    else:
+        table = Table(
+            title="🚨 SECURITY AUDIT REPORT 🚨",
+            show_header=True,
+            header_style="bold red",
+            border_style="red",
+            title_style="bold red"
         )
         
-    console.print(table)
+        table.add_column("Severity", style="bold red", width=10)
+        table.add_column("Category", style="magenta", width=15)
+        table.add_column("File", style="cyan")
+        table.add_column("Line", justify="right")
+        table.add_column("Risk Type", style="yellow")
+        table.add_column("Message")
+        
+        for risk in sorted_risks:
+            sev = risk['severity']
+            style = "bold red" if sev == 'CRITICAL' else ("bold orange3" if sev == 'HIGH' else "yellow")
+            
+            table.add_row(
+                Text(sev, style=style),
+                risk.get('category', 'Secrets'),
+                risk['file'],
+                str(risk['line']),
+                risk['type'],
+                risk['message']
+            )
+            
+        console.print(table)
+        
+    # Print summary block and risk score
+    score_style = "bold red" if global_score in ["CRITICAL", "HIGH"] else ("yellow" if global_score == "MEDIUM" else "bold green")
+    summary_text = f"{crit_count} Critical · {high_count} High · {warn_count} Warning"
     
-    if not risks:
-        console.print("\n[bold green]✅ No obvious security risks found.[/bold green]" if not plain else "\n✅ No obvious security risks found.")
+    if not plain:
+        if not risks:
+            console.print("\n[bold green]✅ No obvious security risks found.[/bold green]")
+        else:
+            console.print(f"\n[bold red]Found {len(risks)} potential security risks.[/bold red]")
+            console.print(f"[bold]Risk Score: [/bold][{score_style}]{global_score}[/{score_style}]")
+            console.print(f"[bold]Summary:[/bold] {summary_text}")
     else:
-        console.print(f"\n[bold red]Found {len(risks)} potential security risks.[/bold red]" if not plain else f"\nFound {len(risks)} potential security risks.")
-    
+        if not risks:
+            console.print("\n✅ No obvious security risks found.")
+        else:
+            console.print(f"\nFound {len(risks)} potential security risks.")
+            console.print(f"Risk Score: {global_score}")
+            console.print(f"Summary: {summary_text}")
+        
     return output.getvalue()

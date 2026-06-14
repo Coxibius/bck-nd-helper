@@ -1,5 +1,6 @@
 import typer
 import sys
+from pathlib import Path
 from typing import Optional
 from bck_nd_hlpr.router import Router
 from bck_nd_hlpr.scanner import ProjectScanner
@@ -10,6 +11,8 @@ from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate
 from bck_nd_hlpr.todo_hunter import scan_for_todos, display_todos_table, get_todos_table_string
 from bck_nd_hlpr.doc_generator import DocGenerator
 from bck_nd_hlpr.ci_generator import generate_ci_workflow
+from bck_nd_hlpr.context_dumper import ContextDumper
+from bck_nd_hlpr.traceability import parse_project_traceability, generate_mermaid_traceability
 
 
 app = typer.Typer(
@@ -34,6 +37,7 @@ Output Formats:
   bck-nd scan . --todo                # Technical Debt Scanner (TODO, FIXME, HACK, XXX, BUG)
   bck-nd scan . --audit               # Security Audit (Detect Secrets, Keys, Hardcoded IPs) [NEW]
   bck-nd scan . --impact              # Dependency Heatmap (What breaks if I code?) [NEW]
+  bck-nd scan . --trace               # Route-to-DB Traceability Graph [NEW]
 
 Persistence:
   bck-nd scan . --output report.txt   # Save output to file instead of stdout
@@ -42,6 +46,10 @@ Persistence:
 Reporting & AI:
   bck-nd scan . --explain             # Diagram + Local Text Report (Offline)
   bck-nd scan . --ai                  # Diagram + AI Analysis (requires n8n)
+
+AI Context Dump:
+  bck-nd prompt .                     # Export full project context for ChatGPT/Claude
+  bck-nd prompt . -o my_context.txt   # Save context to a custom file [NEW]
   
 Manual Diagrams:
   bck-nd flow "User -> API -> DB"     # Generate quick ASCII flow from string
@@ -100,6 +108,7 @@ def scan(
     todo: bool = typer.Option(False, "--todo", help="Search for technical debt (TODO, FIXME, HACK, XXX, BUG)."),
     audit: bool = typer.Option(False, "--audit", help="Security Audit (Find hardcoded credentials)."),
     impact: bool = typer.Option(False, "--impact", help="Dependency heatmap (High Impact Files)."),
+    trace: bool = typer.Option(False, "--trace", help="Generate Route-to-DB traceability graph (Mermaid)."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save result to file (disables stdout)."),
     provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider (openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook).")
 ):
@@ -341,6 +350,21 @@ def scan(
             print(report_str)
         return
 
+    # MODO TRACE (NEW)
+    if trace:
+        typer.secho(f"\n[TRACE] 🔗 GENERATING ROUTE-TO-DB TRACEABILITY MAP (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
+        traces = parse_project_traceability(path, max_depth=depth)
+        
+        if not traces:
+            typer.secho("⚠️ No Python routes detected to trace.", fg=typer.colors.YELLOW)
+            return
+            
+        trace_code = generate_mermaid_traceability(traces)
+        if trace_code:
+            output_handler(trace_code, "Mermaid Code")
+        else:
+            typer.secho("⚠️ Could not generate the traceability graph.", fg=typer.colors.YELLOW)
+        return
 
     
     if arch_info['framework'] != 'Unknown':
@@ -644,6 +668,91 @@ def init_ci(
         typer.secho("4. Done! Your documentation will update on every push.", fg=typer.colors.CYAN)
     except Exception as e:
         typer.secho(f"❌ Error configuring CI: {e}", fg=typer.colors.RED)
+
+@app.command(name="prompt")
+def prompt_cmd(
+    path: str = typer.Argument(".", help="Path to the project to analyze."),
+    output: str = typer.Option("ai_context.txt", "--output", "-o", help="Output file name."),
+    depth: int = typer.Option(4, "--depth", "-d", help="Directory scan depth."),
+):
+    """
+    [AI] Context Dump: Export full project context for ChatGPT / Claude.
+
+    \b
+    Generates a single optimized .txt file with XML tags containing:
+    - Project directory tree (clean, no noise folders)
+    - UML Class Diagram (Mermaid)
+    - Entity-Relationship Diagram (Mermaid)
+    - Content of the 3-5 most important backend files
+
+    Just copy-paste the output file into any LLM for instant project understanding!
+
+    \b
+    Usage:
+      bck-nd prompt .                      # Generates ai_context.txt
+      bck-nd prompt /my/project -o ctx.txt # Custom output file
+    """
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich import box
+
+    console = Console(force_terminal=True, highlight=False)
+
+    console.print(
+        Panel.fit(
+            "[bold cyan]bck-nd Context Dump[/bold cyan]\n"
+            "[dim]Generating LLM-optimized context file...[/dim]",
+            border_style="cyan",
+            box=box.ASCII2,
+        )
+    )
+
+    dumper = ContextDumper(path=path, depth=depth)
+
+    typer.secho("  [1/5] Building directory tree...", fg=typer.colors.CYAN)
+    tree = dumper.get_project_tree()
+
+    typer.secho("  [2/5] Generating UML diagram...", fg=typer.colors.MAGENTA)
+    uml = dumper.get_uml_diagram()
+
+    typer.secho("  [3/5] Generating ER diagram...", fg=typer.colors.MAGENTA)
+    er = dumper.get_er_diagram()
+
+    typer.secho("  [4/5] Reading core backend files...", fg=typer.colors.YELLOW)
+    core_files = dumper.get_core_files()
+
+    typer.secho("  [5/5] Assembling context file...", fg=typer.colors.GREEN)
+    context = dumper.build()
+
+    # Write to disk
+    try:
+        output_path = Path(output)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(context)
+    except Exception as e:
+        typer.secho(f"[ERROR] Could not save file: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # -- Summary report -------------------------------------------------------
+    uml_status  = "[green][OK] Generated[/green]" if uml else "[yellow][--] No classes detected[/yellow]"
+    er_status   = "[green][OK] Generated[/green]" if er  else "[yellow][--] No models detected[/yellow]"
+    files_count = len(core_files)
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]Project:[/bold]   [cyan]{Path(path).resolve().name}[/cyan]\n"
+            f"[bold]UML:[/bold]       {uml_status}\n"
+            f"[bold]ER:[/bold]        {er_status}\n"
+            f"[bold]Core files:[/bold] [green]{files_count} file(s) included[/green]\n\n"
+            f"[bold green]Contexto generado en [underline]{output}[/underline].[/bold green]\n"
+            f"[italic]Listo para copiar y pegar en tu IA![/italic]",
+            title="[bold cyan]Context Dump Complete[/bold cyan]",
+            border_style="green",
+            box=box.ASCII2,
+        )
+    )
+
 
 if __name__ == "__main__":
     app()
