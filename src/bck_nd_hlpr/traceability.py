@@ -2,6 +2,7 @@ import ast
 import os
 from pathlib import Path
 from typing import List, Dict, Set, Tuple
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 
 class TraceNode:
     def __init__(self, route_method: str, route_path: str, handler_name: str, handler_file: str):
@@ -97,10 +98,9 @@ class TraceabilityScanner(ast.NodeVisitor):
 def parse_project_traceability(root_path: str, max_depth: int = 3) -> List[TraceNode]:
     all_traces = []
     root = Path(root_path)
-    ignore_dirs = {'venv', 'env', '.venv', '__pycache__', '.git', 'node_modules', 'dist', 'build'}
     
     for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try:
             current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError:

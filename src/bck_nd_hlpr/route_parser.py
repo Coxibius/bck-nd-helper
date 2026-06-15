@@ -2,7 +2,8 @@ import ast
 import os
 import re
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple, Dict
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 
 class RouteInfo:
     def __init__(self, method: str, path: str, filename: str, lineno: int):
@@ -182,10 +183,9 @@ def parse_project_routes(root_path: str, max_depth: int = 3) -> List[RouteInfo]:
     nextjs_routes = parse_nextjs_routes(root)
     if nextjs_routes:
         all_routes.extend(nextjs_routes)
-    ignore_dirs = {'venv', 'env', '.venv', '__pycache__', '.git', 'node_modules', 'dist', 'build'}
     
     for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         
         try:
             current_depth = len(Path(root_dir).relative_to(root).parts)

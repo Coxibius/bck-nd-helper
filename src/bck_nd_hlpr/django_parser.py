@@ -7,8 +7,9 @@ import os
 from pathlib import Path
 from typing import List
 
-from bck_nd_hlpr.uml_parser import UMLClassInfo, UMLExtractor
-from bck_nd_hlpr.er_parser import EREntity, ERExtractor
+from bck_nd_hlpr.uml_parser import UMLClassInfo
+from bck_nd_hlpr.er_parser import EREntity
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS, ERExtractor
 
 # We can re-use the generic AST extractors because they already do a great job,
 # but we wrap them here to maintain the same API signature as the tree-sitter ones.
@@ -28,10 +29,9 @@ class DjangoERExtractor(ERExtractor):
 def parse_project_for_django_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
     all_classes = []
     root = Path(root_path)
-    ignore_dirs = {'venv', 'env', '.venv', '__pycache__', '.git', 'node_modules', 'dist', 'build'}
 
     for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
         if current_depth > max_depth: continue
@@ -55,10 +55,9 @@ def parse_project_for_django_uml(root_path: str, max_depth: int = 4) -> List[UML
 def parse_project_for_django_er(root_path: str, max_depth: int = 4) -> List[EREntity]:
     all_entities = []
     root = Path(root_path)
-    ignore_dirs = {'venv', 'env', '.venv', '__pycache__', '.git', 'node_modules', 'dist', 'build'}
 
     for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
         if current_depth > max_depth: continue

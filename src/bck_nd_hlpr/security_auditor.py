@@ -1,6 +1,7 @@
 import re
 import os
 from pathlib import Path
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 from typing import List, Dict
 from rich.console import Console
 from rich.table import Table
@@ -36,11 +37,6 @@ RISK_PATTERNS = {
     ]
 }
 
-# Ignore list similar to scanner
-IGNORE_DIRS = {
-    'venv', 'env', '.venv', '__pycache__', '.git', 'node_modules', 'dist', 'build', 'htmlcov'
-}
-
 def scan_sensitive_exposures(root_path: str, entities: List) -> List[Dict]:
     """
     Analiza los modelos de BD detectados por er_parser y los cruza con las rutas de API
@@ -69,7 +65,7 @@ def scan_sensitive_exposures(root_path: str, entities: List) -> List[Dict]:
     
     # 2. Buscar en archivos del proyecto (routers, esquemas, controladores, etc.)
     for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         for file in files:
             file_path = Path(root_dir) / file
             if file_path.suffix not in ['.py', '.js', '.ts', '.cs', '.java', '.php', '.rb']:
@@ -150,7 +146,7 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
             })
 
     def should_ignore(path: Path) -> bool:
-        return any(part in IGNORE_DIRS for part in path.parts)
+        return any(part in GLOBAL_IGNORE_DIRS for part in path.parts)
 
     def scan_file(file_path: Path):
         try:

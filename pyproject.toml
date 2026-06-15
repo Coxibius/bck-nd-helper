@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bck-nd-hlpr"
-version = "1.0.3"
-description = "The Backend Helper - Lightweight Architecture CLI"
+version = "1.0.4"
+description = "The Backend Helper - Your Context for AI and Humans CLI"
 readme = "README.md"
 authors = [
-  { name = "Coxibius", email = "tu_email@example.com" },
+  { name = "Coxibius", email = "[victormcox26@gmail.com]" },
 ]
 license = { text = "MIT" }
 keywords = ["mcp", "architecture", "diagrams", "mermaid", "cli", "reverse-engineering", "backend"]

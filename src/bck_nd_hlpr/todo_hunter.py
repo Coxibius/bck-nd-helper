@@ -11,16 +11,7 @@ from typing import List, Dict, Optional
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
-
-# Directories to ignore during scanning
-IGNORE_DIRS = {
-    'venv', 'env', '.venv', '.env',
-    'node_modules', 'bower_components',
-    '.git', '.svn', '.hg',
-    'build', 'dist', '__pycache__',
-    '.pytest_cache', '.mypy_cache',
-    'vendor', 'target'
-}
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 
 # File extensions to scan
 SCANNABLE_EXTENSIONS = {
@@ -72,7 +63,7 @@ def scan_for_todos(root_path: str, max_depth: int = 10) -> List[Dict]:
     
     def should_ignore(path: Path) -> bool:
         """Check if path should be ignored."""
-        return any(part in IGNORE_DIRS for part in path.parts)
+        return any(part in GLOBAL_IGNORE_DIRS for part in path.parts)
     
     def scan_directory(directory: Path, current_depth: int = 0):
         """Recursively scan directory for code files."""
@@ -83,7 +74,7 @@ def scan_for_todos(root_path: str, max_depth: int = 10) -> List[Dict]:
             for item in directory.iterdir():
                 # Skip ignored directories
                 if item.is_dir():
-                    if item.name not in IGNORE_DIRS and not should_ignore(item):
+                    if item.name not in GLOBAL_IGNORE_DIRS and not should_ignore(item):
                         scan_directory(item, current_depth + 1)
                 
                 # Scan files with supported extensions
