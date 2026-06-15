@@ -703,27 +703,27 @@ Add the following configuration block to your `claude_desktop_config.json` file:
 
 ## Comparison: Different Commands
 
-| Command                           | Architecture Detection | Diagram        | Text Report | AI Analysis | AI Context File |
-| --------------------------------- | ---------------------- | -------------- | ----------- | ----------- | --------------- |
-| `bck-nd scan .`                   | ✅                     | ✅ (Full Arch) | ❌          | ❌          | ❌              |
-| `bck-nd scan . --explain`         | ✅                     | ✅             | ✅          | ❌          | ❌              |
-| `bck-nd scan . --ai`              | ✅                     | ✅             | ❌          | ✅          | ❌              |
-| `bck-nd scan . --explain --ai`    | ✅                     | ✅             | ✅          | ✅          | ❌              |
-| `bck-nd scan . --no-graph --ai`   | ✅                     | ❌             | ❌          | ✅          | ❌              |
-| `bck-nd scan . --uml`             | ✅                     | ✅ (UML Class) | ❌          | ❌          | ❌              |
-| `bck-nd scan . --er`              | ✅                     | ✅ (ER DB)     | ❌          | ❌          | ❌              |
-| `bck-nd scan . --routes`          | ✅                     | ✅ (API Seq)   | ❌          | ❌          | ❌              |
-| `bck-nd scan . --infra`           | ✅                     | ✅ (Docker LR) | ❌          | ❌          | ❌              |
-| `bck-nd scan . --todo`            | ✅                     | ❌             | ✅ (Debt)   | ❌          | ❌              |
-| `bck-nd scan . --audit`           | ✅                     | ❌             | ✅ (Sec. Risks)| ❌          | ❌              |
-| `bck-nd scan . --impact`          | ✅                     | ❌             | ✅ (Impact Heatmap)| ❌       | ❌              |
-| `bck-nd scan . --trace`           | ✅                     | ✅ (Trace LR)  | ❌          | ❌          | ❌              |
-| `bck-nd prompt .`                 | ✅                     | ✅ (Mermaid)   | ❌          | ❌          | ✅ (XML)        |
-| `bck-nd flow "A -> B"`            | ❌                     | ✅             | ❌          | ❌          | ❌              |
-| `bck-nd explore`                  | ✅                     | ✅             | ✅          | ❌          | ❌              |
-| `bck-nd docs .`                   | ✅                     | ✅ (All HTML)  | ✅ (HTML Portal)| ❌      | ❌              |
-| `bck-nd chat .`                   | ✅                     | ✅ (Loaded)    | ❌          | ✅ (Interactive)| ❌              |
-| `bck-nd init-ci`                  | ✅                     | ✅             | ✅          | ❌          | ❌              |
+| Command                           | Architecture Detection | Diagram        | Text Report         | AI Analysis      | AI Context File |
+| --------------------------------- | ---------------------- | -------------- | ------------------- | ---------------- | --------------- |
+| `bck-nd scan .`                 | ✅                     | ✅ (Full Arch) | ❌                  | ❌               | ❌              |
+| `bck-nd scan . --explain`       | ✅                     | ✅             | ✅                  | ❌               | ❌              |
+| `bck-nd scan . --ai`            | ✅                     | ✅             | ❌                  | ✅               | ❌              |
+| `bck-nd scan . --explain --ai`  | ✅                     | ✅             | ✅                  | ✅               | ❌              |
+| `bck-nd scan . --no-graph --ai` | ✅                     | ❌             | ❌                  | ✅               | ❌              |
+| `bck-nd scan . --uml`           | ✅                     | ✅ (UML Class) | ❌                  | ❌               | ❌              |
+| `bck-nd scan . --er`            | ✅                     | ✅ (ER DB)     | ❌                  | ❌               | ❌              |
+| `bck-nd scan . --routes`        | ✅                     | ✅ (API Seq)   | ❌                  | ❌               | ❌              |
+| `bck-nd scan . --infra`         | ✅                     | ✅ (Docker LR) | ❌                  | ❌               | ❌              |
+| `bck-nd scan . --todo`          | ✅                     | ❌             | ✅ (Debt)           | ❌               | ❌              |
+| `bck-nd scan . --audit`         | ✅                     | ❌             | ✅ (Sec. Risks)     | ❌               | ❌              |
+| `bck-nd scan . --impact`        | ✅                     | ❌             | ✅ (Impact Heatmap) | ❌               | ❌              |
+| `bck-nd scan . --trace`         | ✅                     | ✅ (Trace LR)  | ❌                  | ❌               | ❌              |
+| `bck-nd prompt .`               | ✅                     | ✅ (Mermaid)   | ❌                  | ❌               | ✅ (XML)        |
+| `bck-nd flow "A -> B"`          | ❌                     | ✅             | ❌                  | ❌               | ❌              |
+| `bck-nd explore`                | ✅                     | ✅             | ✅                  | ❌               | ❌              |
+| `bck-nd docs .`                 | ✅                     | ✅ (All HTML)  | ✅ (HTML Portal)    | ❌               | ❌              |
+| `bck-nd chat .`                 | ✅                     | ✅ (Loaded)    | ❌                  | ✅ (Interactive) | ❌              |
+| `bck-nd init-ci`                | ✅                     | ✅             | ✅                  | ❌               | ❌              |
 
 ---
 
