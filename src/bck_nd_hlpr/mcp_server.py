@@ -39,6 +39,8 @@ from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate
 from bck_nd_hlpr.todo_hunter import scan_for_todos, get_todos_table_string
 from bck_nd_hlpr.security_auditor import scan_security_risks, get_security_report_string
 from bck_nd_hlpr.doc_generator import DocGenerator
+from bck_nd_hlpr.ci_generator import generate_ci_workflow
+from bck_nd_hlpr.traceability import parse_project_traceability, generate_mermaid_traceability
 
 mcp = FastMCP(
     "Backend Helper MCP Server",
@@ -60,6 +62,8 @@ ROUTING GUIDE — call the right tool for the right question:
 - "generate HTML docs / documentation site?"    → generate_html_docs
 - "draw a custom diagram from my description?"  → render_flow_diagram
 - "AI review / architectural audit?"            → explain_architecture_with_ai
+- "trace endpoints / route to database / data flow?" → get_traceability_diagram
+- "setup CI / GitHub Actions / auto-documentation workflow?" → init_ci
 
 Default path is always "." (current directory) unless the user specifies a different path.
 """
@@ -164,6 +168,42 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
             result.append(get_todos_table_string(todos, plain=True))
         else:
             result.append("\n[TODO] TECHNICAL DEBT:\nNo technical debt comments found.")
+
+        # 6. SECURITY RISK AUDIT
+        try:
+            risks = scan_security_risks(path, max_depth=depth)
+            if risks:
+                result.append("\n[SECURITY] SECURITY RISK AUDIT:")
+                result.append(get_security_report_string(risks, plain=True))
+            else:
+                result.append("\n[SECURITY] SECURITY RISK AUDIT:\nNo security risks detected.")
+        except Exception as e:
+            result.append(f"\n[SECURITY] SECURITY RISK AUDIT:\nError scanning security: {str(e)}")
+
+        # 7. DEPENDENCY IMPACT HEATMAP
+        try:
+            from bck_nd_hlpr.dependency_tracker import analyze_impact as _analyze_impact, get_impact_report_string
+            usage_map = _analyze_impact(path)
+            if usage_map:
+                result.append("\n[IMPACT] DEPENDENCY HEATMAP:")
+                result.append(get_impact_report_string(usage_map, plain=True))
+        except Exception as e:
+            result.append(f"\n[IMPACT] DEPENDENCY HEATMAP:\nError running heatmap: {str(e)}")
+
+        # 8. ROUTE-TO-DB TRACEABILITY
+        try:
+            traces = parse_project_traceability(path, max_depth=depth)
+            if traces:
+                trace_code = generate_mermaid_traceability(traces)
+                if trace_code:
+                    result.append("\n[TRACE] ROUTE-TO-DB TRACEABILITY:")
+                    result.append(f"```mermaid\n{trace_code}\n```")
+                else:
+                    result.append("\n[TRACE] ROUTE-TO-DB TRACEABILITY:\nCould not render traceability sequence.")
+            else:
+                result.append("\n[TRACE] ROUTE-TO-DB TRACEABILITY:\nNo traceability traces found.")
+        except Exception as e:
+            result.append(f"\n[TRACE] ROUTE-TO-DB TRACEABILITY:\nError running traceability: {str(e)}")
 
         return "\n".join(result)
     except Exception as e:
@@ -608,6 +648,63 @@ def explain_architecture_with_ai(
         return narrator.explain(full_context, use_ai=True, style=style)
     except Exception as e:
         return f"Error generating AI analysis: {str(e)}\n{traceback.format_exc()}"
+
+
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_traceability_diagram(path: str = ".", depth: int = 3) -> str:
+    """Generate a Mermaid.js Route-to-DB traceability diagram mapping endpoints to services/models.
+
+    Use this tool when:
+    - The user asks to "trace routes", "see data flow", or "trace endpoints to database/models".
+    - The user wants to see what services or database models are called by which API endpoints.
+    - You need to analyze the end-to-end flow of API requests.
+
+    Output: A ```mermaid graph LR``` block tracing routes to their calls.
+    Supports: Python (FastAPI/Flask).
+
+    Args:
+        path: Path to the project root. Default "." is the current directory.
+        depth: Scan depth. Increase for deeply nested route files.
+    """
+    try:
+        traces = parse_project_traceability(path, max_depth=depth)
+        if not traces:
+            return "No routes or calls detected to trace. Traceability is currently supported for Python (Flask/FastAPI)."
+        
+        trace_code = generate_mermaid_traceability(traces)
+        if not trace_code:
+            return "Could not generate the traceability graph."
+            
+        return f"```mermaid\n{trace_code}\n```"
+    except Exception as e:
+        return f"Error generating traceability diagram: {str(e)}\n{traceback.format_exc()}"
+
+
+@mcp.tool()
+@redirect_stdout_to_stderr
+def init_ci(path: str = ".") -> str:
+    """Configure GitHub Actions workflow for auto-documentation on GitHub Pages.
+
+    Use this tool when:
+    - The user asks to "setup CI", "integrate with GitHub Actions", or "configure auto-docs".
+    - The user wants to configure a workflow to automatically build and host static docs.
+
+    Args:
+        path: Path to the project root. Default ".".
+    """
+    try:
+        workflow_path = generate_ci_workflow(path)
+        return (
+            f"GitHub Actions workflow for auto-documentation successfully initialized!\n"
+            f"Created workflow file: {workflow_path}\n\n"
+            f"Next steps for the user:\n"
+            f"1. Push the changes to GitHub: git add . && git commit -m 'ci: add auto-docs' && git push origin main\n"
+            f"2. Go to repository settings on GitHub > Pages.\n"
+            f"3. Under 'Build and deployment', choose 'GitHub Actions' as the source."
+        )
+    except Exception as e:
+        return f"Error configuring CI: {str(e)}\n{traceback.format_exc()}"
 
 
 def main():
