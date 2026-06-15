@@ -16,6 +16,7 @@ except ImportError:
 
 from bck_nd_hlpr.uml_parser import UMLClassInfo
 from bck_nd_hlpr.er_parser import EREntity
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 
 def get_node_text(node: tree_sitter.Node, source_bytes: bytes) -> str:
     return source_bytes[node.start_byte:node.end_byte].decode('utf-8')
@@ -194,10 +195,9 @@ def parse_project_for_js_uml(root_path: str, max_depth: int = 4) -> List[UMLClas
          
     all_classes = []
     root = Path(root_path)
-    ignore_dirs = {'.git', 'node_modules', 'dist', 'build', '.vscode'}
 
     for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
         if current_depth > max_depth: continue
@@ -226,10 +226,9 @@ def parse_project_for_js_er(root_path: str, max_depth: int = 4) -> List[EREntity
          
     all_entities = []
     root = Path(root_path)
-    ignore_dirs = {'.git', 'node_modules', 'dist', 'build', '.vscode'}
 
     for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
         if current_depth > max_depth: continue

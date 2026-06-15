@@ -14,12 +14,7 @@ from typing import List, Optional
 # Constantes de configuración
 # ──────────────────────────────────────────────
 
-IGNORE_DIRS: set = {
-    ".git", ".github", ".venv", "venv", "env", "node_modules",
-    "__pycache__", ".idea", ".vscode", "dist", "build",
-    "*.egg-info", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "coverage", ".coverage", "htmlcov",
-}
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 
 # Archivos que queremos leer como "core files" del backend.
 # Ordenados por prioridad descendente.
@@ -91,19 +86,18 @@ class ContextDumper:
 
     def _should_ignore(self, path: Path) -> bool:
         name = path.name
-        blacklist = {"venv", ".venv", "env", "node_modules", "venv_subida", "__pycache__", ".git", "site-packages", "Lib"}
         
-        # Ignorar carpetas de la lista negra o Lib/site-packages
-        if path.is_dir() and name in blacklist:
+        # Ignorar carpetas de la lista negra global
+        if path.is_dir() and name in GLOBAL_IGNORE_DIRS:
             return True
             
         # Ignorar si algún componente de la ruta está en la lista negra
         try:
             rel_parts = path.relative_to(self.root).parts
-            if any(p in blacklist for p in rel_parts):
+            if any(p in GLOBAL_IGNORE_DIRS for p in rel_parts):
                 return True
         except ValueError:
-            if any(p in blacklist for p in path.parts):
+            if any(p in GLOBAL_IGNORE_DIRS for p in path.parts):
                 return True
                 
         # Ignorar carpetas/archivos que empiezan con punto (excepto archivos config comunes)
@@ -237,23 +231,21 @@ class ContextDumper:
         found: List[dict] = []
         candidate_map: dict[str, Path] = {}
 
-        blacklist = {"venv", ".venv", "env", "node_modules", "venv_subida", "__pycache__", ".git", "site-packages", "Lib"}
-
         # Walk the project tree and index files by name
         for root_dir, dirs, files in os.walk(self.root):
             dirs[:] = [
                 d for d in dirs
-                if d not in blacklist
+                if d not in GLOBAL_IGNORE_DIRS
                 and not d.startswith(".")
                 and not d.endswith(".egg-info")
             ]
 
             try:
                 rel_parts = Path(root_dir).relative_to(self.root).parts
-                if any(p in blacklist for p in rel_parts):
+                if any(p in GLOBAL_IGNORE_DIRS for p in rel_parts):
                     continue
             except ValueError:
-                if any(p in blacklist for p in Path(root_dir).parts):
+                if any(p in GLOBAL_IGNORE_DIRS for p in Path(root_dir).parts):
                     continue
 
             rel_root = Path(root_dir).relative_to(self.root)

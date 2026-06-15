@@ -8,6 +8,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 
 class EREntity:
     """Representa una entidad (tabla) en el diagrama ER."""
@@ -288,11 +289,9 @@ def parse_drizzle_schema(file_path: Path) -> List[EREntity]:
 def parse_project_for_er(root_path: str, max_depth: int = 3) -> List[EREntity]:
     all_entities = []
     root = Path(root_path)
-    
-    ignore_dirs = {'venv', 'env', '.venv', '__pycache__', '.git', 'node_modules', 'dist', 'build'}
 
     for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
         
         try:
             current_depth = len(Path(root_dir).relative_to(root).parts)

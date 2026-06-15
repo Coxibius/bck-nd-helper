@@ -1,15 +1,12 @@
-
 import os
 import re
 from pathlib import Path
 from typing import List, Dict, Set
+from collections import defaultdict
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
-
-IGNORE_DIRS = {
-    'venv', 'env', '.venv', '__pycache__', '.git', 'node_modules', 'dist', 'build'
-}
 
 class DependencyTracker:
     def __init__(self, root_path: str):
@@ -26,11 +23,11 @@ class DependencyTracker:
             else: depth = len(rel_root.parts)
             
             # Skip deep nesting or ignored dirs
-            if any(part in IGNORE_DIRS for part in rel_root.parts):
+            if any(part in GLOBAL_IGNORE_DIRS for part in rel_root.parts):
                 del dirs[:]
                 continue
             
-            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
 
             for file in files:
                 file_path = Path(root_dir) / file

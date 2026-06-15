@@ -2,12 +2,12 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Dict, List, Optional
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 from bck_nd_hlpr.detector import ArchitectureDetector
 from bck_nd_hlpr.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram, UMLClassInfo
 
 class ProjectScanner:
-    IGNORE_DIRS = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'dist', 'build', '.idea', '.vscode', 'research', 'ascii_architect.egg-info', 'bck-nd-hlpr.egg-info'} # Added egg-info ignore for new package too
-    
     # Archivos que aportan CONTEXTO a la IA (si existen, los leemos)
     CONTEXT_FILES = [
         "README.md", 
@@ -20,7 +20,6 @@ class ProjectScanner:
     
     def __init__(self):
         self.allowed_files = set() 
-        self.IGNORE_DIRS.add('bck-nd-hlpr') # Ignore self if inside (though it won't scan recursively up hopefully)
 
     def _find_imports(self, file_path: Path) -> list[str]:
         """Busca imports SOLO hacia archivos que están en la lista blanca."""
@@ -71,7 +70,7 @@ class ProjectScanner:
                 del dirs[:] 
                 continue
             
-            dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith('.')]
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
             
             for f in files:
                 if f.endswith(".py") or f.endswith(".cs") or f.endswith((".js", ".ts")):
@@ -87,7 +86,7 @@ class ProjectScanner:
                 del dirs[:]
                 continue
             
-            dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith('.')]
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
             folder_name = Path(root_dir).name
             if str(rel_path) == ".": folder_name = "ROOT"
 
@@ -173,7 +172,8 @@ class ProjectScanner:
         if not self.allowed_files:
             # Buscar otros archivos hermanos/padres en el proyecto para whitelist
             root = path.parent
-            for r_dir, _, files in os.walk(root):
+            for r_dir, r_dirs, files in os.walk(root):
+                r_dirs[:] = [d for d in r_dirs if d not in GLOBAL_IGNORE_DIRS]
                 for f in files:
                     if f.endswith((".py", ".cs", ".js", ".ts")):
                         self.allowed_files.add(Path(f).stem)
@@ -201,7 +201,7 @@ class ProjectScanner:
                 del dirs[:] 
                 continue
             
-            dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith('.')]
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
             
             for file in files:
                 if file.endswith(".py"):

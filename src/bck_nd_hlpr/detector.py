@@ -3,7 +3,9 @@ Detector de tipos de arquitectura y frameworks backend.
 """
 import re
 import os
+import json
 from pathlib import Path
+from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 from typing import Dict, List, Set, Any
 try:
     import tomllib as toml # Python 3.11+
@@ -23,12 +25,6 @@ class ArchitectureDetector:
         "routes": ["route", "routes", "router", "routers"]
     }
     
-    IGNORE_DIRS = {
-        '.git', 'node_modules', '__pycache__', '.venv', 'venv', 'env', 
-        'dist', 'build', '.idea', '.vscode', 'research', 
-        'ascii_architect.egg-info', 'bck-nd-hlpr.egg-info'
-    }
-
     def __init__(self):
         self.framework = None
         self.architecture_type = None
@@ -60,10 +56,10 @@ class ArchitectureDetector:
             pass # Si falla leer config, usamos defaults silenciosamente
         
     def _safe_walk(self, root: Path, extension: str = None):
-        """Itera de forma segura sobre los archivos respetando IGNORE_DIRS."""
+        """Itera de forma segura sobre los archivos respetando GLOBAL_IGNORE_DIRS."""
         for root_dir, dirs, files in os.walk(root):
             # Filtramos directorios in-place para no descender en ellos
-            dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith('.')]
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
             
             for file in files:
                 if extension:
@@ -125,7 +121,6 @@ class ArchitectureDetector:
         package_json = root / "package.json"
         if package_json.exists():
             try:
-                import json
                 data = json.loads(package_json.read_text())
                 deps = {**data.get('dependencies', {}), **data.get('devDependencies', {})}
                 
@@ -172,7 +167,6 @@ class ArchitectureDetector:
         composer_json = root / "composer.json"
         if composer_json.exists():
             try:
-                import json
                 data = json.loads(composer_json.read_text())
                 deps = {**data.get('require', {}), **data.get('require-dev', {})}
                 
@@ -228,7 +222,7 @@ class ArchitectureDetector:
         
         # Usamos os.walk para iterar directorios de forma segura
         for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith('.')]
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
             
             # Verificar nombres de directorios actuales
             for dir_name in dirs:
