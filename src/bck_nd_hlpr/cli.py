@@ -13,6 +13,7 @@ from bck_nd_hlpr.doc_generator import DocGenerator
 from bck_nd_hlpr.ci_generator import generate_ci_workflow
 from bck_nd_hlpr.context_dumper import ContextDumper
 from bck_nd_hlpr.traceability import parse_project_traceability, generate_mermaid_traceability
+from bck_nd_hlpr.tree_generator import generate_project_tree
 
 
 app = typer.Typer(
@@ -35,9 +36,10 @@ Output Formats:
   bck-nd scan . --routes              # API Route Map (Flask/FastAPI Sequence Diagram)
   bck-nd scan . --infra               # Infrastructure Diagram (Docker Compose)
   bck-nd scan . --todo                # Technical Debt Scanner (TODO, FIXME, HACK, XXX, BUG)
-  bck-nd scan . --audit               # Security Audit (Detect Secrets, Keys, Hardcoded IPs) [NEW]
-  bck-nd scan . --impact              # Dependency Heatmap (What breaks if I code?) [NEW]
-  bck-nd scan . --trace               # Route-to-DB Traceability Graph [NEW]
+  bck-nd scan . --audit               # Security Audit (Detect Secrets, Keys, Hardcoded IPs)
+  bck-nd scan . --impact              # Dependency Heatmap (What breaks if I code?)
+  bck-nd scan . --trace               # Route-to-DB Traceability Graph
+  bck-nd scan . --tree                # Project File/Directory Tree [NEW]
 
 Persistence:
   bck-nd scan . --output report.txt   # Save output to file instead of stdout
@@ -109,6 +111,7 @@ def scan(
     audit: bool = typer.Option(False, "--audit", help="Security Audit (Find hardcoded credentials)."),
     impact: bool = typer.Option(False, "--impact", help="Dependency heatmap (High Impact Files)."),
     trace: bool = typer.Option(False, "--trace", help="Generate Route-to-DB traceability graph (Mermaid)."),
+    tree: bool = typer.Option(False, "--tree", help="Generate project file/directory tree."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save result to file (disables stdout)."),
     provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider (openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook).")
 ):
@@ -248,6 +251,16 @@ def scan(
             if gen_er:
                 er_diagram = gen_er
         return er_diagram
+
+    # MODO TREE EXCLUSIVO
+    if tree:
+        typer.secho(f"\n[TREE] 🌳 PROJECT STRUCTURE:", fg=typer.colors.CYAN, bold=True)
+        tree_output = generate_project_tree(path, depth=depth)
+        if tree_output:
+            output_handler(tree_output, "Project Structure")
+        else:
+            typer.secho("⚠️ Could not generate project tree.", fg=typer.colors.YELLOW)
+        return
 
     # MODO UML EXCLUSIVO
     if uml:
@@ -391,7 +404,18 @@ def scan(
     # Por defecto, mostraremos la arquitectura completa (UML, ER, API, Infra, TODOs)
     if graph and not any([explain, ai]):
         typer.secho("\n📊 PROJECT ARCHITECTURE (COMPLETE):", fg=typer.colors.MAGENTA, bold=True)
-        
+
+        # 0. TREE (Project Structure)
+        typer.secho("\n[TREE] 🌳 PROJECT STRUCTURE:", fg=typer.colors.CYAN, bold=True)
+        tree_output = generate_project_tree(path, depth=depth)
+        if tree_output:
+            if output:
+                output_handler(tree_output, "[TREE] Project Structure")
+            else:
+                print(tree_output)
+        else:
+            typer.secho("⚠️ Could not generate project tree.", fg=typer.colors.YELLOW)
+
         # 1. INFRA
         typer.secho("\n[INFRA] INFRASTRUCTURE MAP:", fg=typer.colors.CYAN, bold=True)
         compose_file = parse_infra(path)

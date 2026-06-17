@@ -2,51 +2,67 @@ import os
 from pathlib import Path
 import typer
 
-GITHUB_ACTION_YAML = """name: 🚀 Auto-Documentation (bck-nd-hlpr)
+GITHUB_ACTION_YAML = """name: Generate Documentation
 
 on:
   push:
     branches:
-      - main
+      - '**'   # Run on every branch push
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-and-deploy:
+  docs:
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: 🐍 Set up Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: 📦 Install Backend Helper
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Check if we are running inside the bck-nd-hlpr repo itself
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Install bck-nd-hlpr
           if [ -f pyproject.toml ] && grep -q "name = \\"bck-nd-hlpr\\"" pyproject.toml; then
-            echo "Installing from local source..."
             pip install .
           else
-            echo "Installing from PyPI..."
             pip install bck-nd-hlpr
           fi
 
-      - name: 🛠️ Generate Documentation (UML, ER, Infra, Routes)
+      - name: Run Backend Helper Scan (generate HTML with embedded Mermaid)
         run: |
-          bck-nd docs . -o docs-output
+          bck-nd docs . -o docs
 
-      - name: 🚀 Deploy to GitHub Pages
+      - name: Generate Markdown Architecture
+        run: |
+          bck-nd scan . --format markdown > ARCHITECTURE.md || echo "bck-nd scan fallback"
+
+      - name: Upload Docs Artifact (Test Branches)
+        if: github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-docs
+          path: |
+            docs/
+            ARCHITECTURE.md
+          retention-days: 7
+
+      - name: Deploy to GitHub Pages (Branch Specific)
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs-output
-          commit_message: "docs: update living documentation 🤖"
+          publish_dir: docs
+          destination_dir: ${{ github.ref_name }}
+          keep_files: true
 """
 
 def generate_ci_workflow(root_path: str = "."):
@@ -54,7 +70,7 @@ def generate_ci_workflow(root_path: str = "."):
     Generates the GitHub Action workflow file for auto-documentation.
     """
     workflows_dir = Path(root_path) / ".github" / "workflows"
-    workflow_file = workflows_dir / "bck-nd-docs.yml"
+    workflow_file = workflows_dir / "documentation.yml"
 
     # Create directories if they don't exist
     workflows_dir.mkdir(parents=True, exist_ok=True)

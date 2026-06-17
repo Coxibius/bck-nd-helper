@@ -41,6 +41,7 @@ from bck_nd_hlpr.security_auditor import scan_security_risks, get_security_repor
 from bck_nd_hlpr.doc_generator import DocGenerator
 from bck_nd_hlpr.ci_generator import generate_ci_workflow
 from bck_nd_hlpr.traceability import parse_project_traceability, generate_mermaid_traceability
+from bck_nd_hlpr.tree_generator import generate_project_tree
 
 mcp = FastMCP(
     "Backend Helper MCP Server",
@@ -63,6 +64,7 @@ ROUTING GUIDE — call the right tool for the right question:
 - "draw a custom diagram from my description?"  → render_flow_diagram
 - "AI review / architectural audit?"            → explain_architecture_with_ai
 - "trace endpoints / route to database / data flow?" → get_traceability_diagram
+- "project structure / file tree / directory layout?" → get_project_tree
 - "setup CI / GitHub Actions / auto-documentation workflow?" → init_ci
 
 Default path is always "." (current directory) unless the user specifies a different path.
@@ -116,6 +118,14 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
             result.append(f"Summary: {arch_info['summary']}")
 
         result.append("\nPROJECT ARCHITECTURE (COMPLETE):")
+
+        # 0. PROJECT TREE
+        tree_output = generate_project_tree(path, depth=depth)
+        if tree_output:
+            result.append("\n[TREE] PROJECT STRUCTURE:")
+            result.append(tree_output)
+        else:
+            result.append("\n[TREE] PROJECT STRUCTURE:\nCould not generate project tree.")
 
         # 1. INFRA
         compose_file = parse_infra(path)
@@ -208,6 +218,37 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
         return "\n".join(result)
     except Exception as e:
         return f"Error scanning project: {str(e)}\n{traceback.format_exc()}"
+
+
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_project_tree(path: str = ".", depth: int = 4) -> str:
+    """Generate a clean ASCII directory tree of the project, filtering out noise directories.
+
+    Use this tool when:
+    - The user asks about "project structure", "file tree", "directory layout", or "folder structure".
+    - The user asks "what files are in this project?" or "show me the project tree".
+    - The user wants to understand the project layout before diving into code.
+    - The user wants to share the project structure with another AI or paste it somewhere.
+
+    Output: A clean ASCII tree using Unicode box-drawing characters (├── └── │),
+    automatically filtering out noise directories like node_modules, venv, __pycache__,
+    .git, dist, build, etc.
+
+    This is a READ-ONLY tool — it does not create or modify any files.
+
+    Args:
+        path: Path to the project root. Default "." is the current directory.
+        depth: Directory depth to display. Default 4 covers most project layouts.
+               Increase to 6-8 for deeply nested monorepos.
+    """
+    try:
+        tree_output = generate_project_tree(path, depth=depth)
+        if not tree_output:
+            return "Could not generate project tree. The path may not exist or may be empty."
+        return tree_output
+    except Exception as e:
+        return f"Error generating project tree: {str(e)}\n{traceback.format_exc()}"
 
 
 @mcp.tool()
