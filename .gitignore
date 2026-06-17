@@ -38,5 +38,6 @@ build/
 
 mis_apuntes/
 
-ai_context.txt
 architecture.txt
+vscode-extension/node_modules/
+ai_context.txt
