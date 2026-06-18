@@ -406,10 +406,20 @@ class DocGenerator:
         )
 
         # Write to file
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        output_file = os.path.join(output_dir, "index.html")
-        
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(html_content)
+        try:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            output_file = os.path.join(output_dir, "index.html")
             
-        return output_file
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(html_content)
+                
+            return output_file
+        except OSError as e:
+            print(f"Error creating output directory or writing HTML file: {e}")
+            return None
+        except UnicodeEncodeError as e:
+            print(f"Encoding error while writing HTML file: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error generating documentation: {e}")
+            return None

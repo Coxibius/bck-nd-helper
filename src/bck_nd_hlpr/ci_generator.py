@@ -7,7 +7,7 @@ GITHUB_ACTION_YAML = """name: Generate Documentation
 on:
   push:
     branches:
-      - '**'   # Run on every branch push
+      - main
   workflow_dispatch:
 
 permissions:
@@ -19,8 +19,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,27 +40,11 @@ jobs:
         run: |
           bck-nd docs . -o docs
 
-      - name: Generate Markdown Architecture
-        run: |
-          bck-nd scan . --format markdown > ARCHITECTURE.md || echo "bck-nd scan fallback"
-
-      - name: Upload Docs Artifact (Test Branches)
-        if: github.ref != 'refs/heads/main'
-        uses: actions/upload-artifact@v4
-        with:
-          name: architecture-docs
-          path: |
-            docs/
-            ARCHITECTURE.md
-          retention-days: 7
-
-      - name: Deploy to GitHub Pages (Branch Specific)
+      - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: docs
-          destination_dir: ${{ github.ref_name }}
-          keep_files: true
 """
 
 def generate_ci_workflow(root_path: str = "."):
