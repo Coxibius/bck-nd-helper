@@ -394,6 +394,18 @@ bck-nd scan . --no-graph --ai
 - Only AI analysis (no Mermaid diagram)
 - Faster for text-only reports
 
+##### 13. **Project File/Directory Tree [NEW]**
+
+```bash
+bck-nd scan . --tree
+```
+
+**Output:**
+
+- Generates a clean ASCII directory tree of the project using Unicode box-drawing characters.
+- Automatically and silently filters out ignored directories (such as `node_modules`, `venv`, `.git`, etc.) based on `GLOBAL_IGNORE_DIRS`.
+
+
 #### **AI Personalities**
 
 ```bash
@@ -669,6 +681,7 @@ For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED
 | `bck-nd scan . --audit`         | ✅                     | ❌             | ✅ (Sec. Risks)     | ❌               | ❌              |
 | `bck-nd scan . --impact`        | ✅                     | ❌             | ✅ (Impact Heatmap) | ❌               | ❌              |
 | `bck-nd scan . --trace`         | ✅                     | ✅ (Trace LR)  | ❌                  | ❌               | ❌              |
+| `bck-nd scan . --tree`          | ✅                     | ✅ (File Tree)  | ❌                  | ❌               | ❌              |
 | `bck-nd prompt .`               | ✅                     | ✅ (Mermaid)   | ❌                  | ❌               | ✅ (XML)        |
 | `bck-nd flow "A -> B"`          | ❌                     | ✅             | ❌                  | ❌               | ❌              |
 | `bck-nd explore`                | ✅                     | ✅             | ✅                  | ❌               | ❌              |

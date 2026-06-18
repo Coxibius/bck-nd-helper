@@ -30,6 +30,8 @@ def generate_project_tree(root_path: str, depth: int = 4) -> str:
     root = Path(root_path).resolve()
     if not root.exists():
         return f"Error: Path '{root_path}' does not exist."
+    if not root.is_dir():
+        return f"Error: Path '{root_path}' is not a directory."
 
     lines: List[str] = [root.name + "/"]
     _walk_tree(root, root, prefix="", depth=0, max_depth=depth, lines=lines)
@@ -53,7 +55,7 @@ def _walk_tree(
             current.iterdir(),
             key=lambda p: (p.is_file(), p.name.lower()),
         )
-    except PermissionError:
+    except OSError:
         return
 
     # Filtrar directorios/archivos ignorados

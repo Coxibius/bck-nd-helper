@@ -2,6 +2,19 @@ import typer
 import sys
 from pathlib import Path
 from typing import Optional
+
+# Reconfigure stdout/stderr to UTF-8 on Windows to prevent UnicodeEncodeError with emojis
+if sys.platform.startswith("win"):
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
 from bck_nd_hlpr.router import Router
 from bck_nd_hlpr.scanner import ProjectScanner
 from bck_nd_hlpr.narrator import Narrator
