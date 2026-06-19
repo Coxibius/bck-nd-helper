@@ -114,6 +114,7 @@ class BackendHelperSidebarProvider {
     async _handleGenerateDiagram(workspacePath, type) {
         const cmdMap = {
             'arch': { title: 'Diagrama Completo de Arquitectura', cmd: 'bck-nd scan . --format mermaid' },
+            'tree': { title: 'Árbol de Estructura de Proyecto', cmd: 'bck-nd scan . --tree' },
             'uml': { title: 'Diagrama UML de Clases', cmd: 'bck-nd scan . --uml --format mermaid' },
             'er': { title: 'Diagrama Entidad-Relación (ER)', cmd: 'bck-nd scan . --er --format mermaid' },
             'trace': { title: 'Mapa de Rutas a DB', cmd: 'bck-nd scan . --trace --format mermaid' }
@@ -135,13 +136,18 @@ class BackendHelperSidebarProvider {
                         resolve();
                         return;
                     }
-                    // Create Webview Panel for rendering Mermaid diagram
                     const panel = vscode.window.createWebviewPanel('bckNdDiagram', config.title, vscode.ViewColumn.One, {
                         enableScripts: true,
                         retainContextWhenHidden: true
                     });
-                    panel.webview.html = getMermaidWebviewContent(config.title, stdout);
-                    // Handle messages from Mermaid webview
+                    // Tree type gets its own text-based webview
+                    if (type === 'tree') {
+                        panel.webview.html = getTreeWebviewContent(config.title, stdout);
+                    }
+                    else {
+                        panel.webview.html = getMermaidWebviewContent(config.title, stdout);
+                    }
+                    // Handle messages from webview
                     panel.webview.onDidReceiveMessage(async (msg) => {
                         switch (msg.command) {
                             case 'notifyInfo':
@@ -155,15 +161,17 @@ class BackendHelperSidebarProvider {
                                     defaultUri: vscode.workspace.workspaceFolders
                                         ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, msg.defaultName)
                                         : undefined,
-                                    filters: { 'SVG Images': ['svg'] }
+                                    filters: msg.defaultName.endsWith('.svg')
+                                        ? { 'SVG Images': ['svg'] }
+                                        : { 'Text Files': ['txt'] }
                                 });
                                 if (uri) {
                                     try {
                                         fs.writeFileSync(uri.fsPath, msg.content, 'utf8');
-                                        vscode.window.showInformationMessage("¡Diagrama SVG guardado con éxito!");
+                                        vscode.window.showInformationMessage("¡Archivo guardado con éxito!");
                                     }
                                     catch (err) {
-                                        vscode.window.showErrorMessage(`Error al guardar archivo SVG: ${err.message}`);
+                                        vscode.window.showErrorMessage(`Error al guardar archivo: ${err.message}`);
                                     }
                                 }
                                 break;
@@ -448,6 +456,11 @@ class BackendHelperSidebarProvider {
             </button>
             <p class="btn-desc">Estructura general de módulos, dependencias y carpetas.</p>
             
+            <button class="btn" onclick="generateDiagram('tree')">
+                <span>🌳</span> Árbol de Proyecto
+            </button>
+            <p class="btn-desc">Árbol de carpetas y archivos.</p>
+            
             <button class="btn" onclick="generateDiagram('uml')">
                 <span>🧬</span> Diagrama UML de Clases
             </button>
@@ -512,83 +525,152 @@ class BackendHelperSidebarProvider {
 }
 BackendHelperSidebarProvider.viewType = 'backendHelperView.controlPanel';
 /**
- * Webview HTML Template for Mermaid diagram previews (CDN loaded, interactive dark/light themes, code copying and SVG saving)
+ * Cleans the Mermaid code from ANSI escape sequences before rendering.
  */
-function sanitizeMermaidCode(mermaidCode) {
-    let cleanCode = mermaidCode.trim();
+function cleanMermaidCode(mermaidCode) {
+    let cleanCode = mermaidCode.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+    cleanCode = cleanCode.trim();
     if (cleanCode.startsWith('```mermaid')) {
         cleanCode = cleanCode.substring(10);
     }
     if (cleanCode.endsWith('```')) {
         cleanCode = cleanCode.substring(0, cleanCode.length - 3);
     }
-    cleanCode = cleanCode.trim();
-    const lines = cleanCode.split(/\r?\n/);
-    const sanitizedLines = [];
-    let inClassBlock = false;
-    let i = 0;
-    while (i < lines.length) {
-        let line = lines[i];
-        const trimmed = line.trim();
-        // 1. Sanitize namespace names (replace hyphens with underscores)
-        if (trimmed.startsWith('namespace ')) {
-            line = line.replace(/namespace\s+([a-zA-Z0-9_-]+)/g, (match, nsName) => {
-                return 'namespace ' + nsName.replace(/-/g, '_');
-            });
-        }
-        // 2. Track class block
-        if (trimmed.startsWith('class ') && trimmed.endsWith('{')) {
-            inClassBlock = true;
-            // Sanitize class name in declaration
-            line = line.replace(/class\s+([a-zA-Z0-9_-]+)/g, (match, clsName) => {
-                return 'class ' + clsName.replace(/-/g, '_');
-            });
-            sanitizedLines.push(line);
-            i++;
-            continue;
-        }
-        if (inClassBlock && trimmed === '}') {
-            inClassBlock = false;
-            sanitizedLines.push(line);
-            i++;
-            continue;
-        }
-        if (inClassBlock) {
-            // Check for unclosed parenthesis (multi-line signature)
-            let openParenCount = (line.match(/\(/g) || []).length;
-            let closeParenCount = (line.match(/\)/g) || []).length;
-            while (openParenCount > closeParenCount && i + 1 < lines.length) {
-                i++;
-                const nextLine = lines[i].trim();
-                line = line.trim() + ' ' + nextLine;
-                openParenCount = (line.match(/\(/g) || []).length;
-                closeParenCount = (line.match(/\)/g) || []).length;
-                if (nextLine === '}') {
-                    inClassBlock = false;
-                    break;
-                }
-            }
-            // 3. Sanitize class member syntax
-            // Replace generic types like List<Post> with List~Post~ (Mermaid standard)
-            line = line.replace(/<([^>]+)>/g, '~$1~');
-            // Simplify spacing
-            line = line.replace(/\s+/g, ' ');
-            // Restore indentation
-            line = '        ' + line.trim();
-        }
-        else {
-            // Outside class block: sanitize relation lines that might contain hyphenated names
-            const relationPattern = /^([\w-]+)\s+(<\|--|--\|>|-->|<--|--|..>|<..|o--|--o|\*--|--\*)\s+([\w-]+)$/;
-            if (relationPattern.test(trimmed)) {
-                line = line.replace(relationPattern, (match, left, arrow, right) => {
-                    return `${left.replace(/-/g, '_')} ${arrow} ${right.replace(/-/g, '_')}`;
-                });
-            }
-        }
-        sanitizedLines.push(line);
-        i++;
+    return cleanCode.trim();
+}
+/**
+ * Strips ANSI escape codes from text
+ */
+function stripAnsi(text) {
+    return text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+}
+/**
+ * Extracts project tree text from the CLI stdout
+ */
+function extractProjectTree(stdout) {
+    const clean = stripAnsi(stdout);
+    const treeMarker = '[TREE]';
+    const treeIdx = clean.indexOf(treeMarker);
+    if (treeIdx === -1) {
+        return null;
     }
-    return sanitizedLines.join('\n');
+    const afterMarker = clean.substring(treeIdx + treeMarker.length);
+    const lines = afterMarker.split(/\r?\n/);
+    const treeLines = [];
+    let started = false;
+    const nextSectionRegex = /^\[(UML|ER|API|INFRA|TODO|TREE)\]/;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (started && nextSectionRegex.test(trimmed)) {
+            break;
+        }
+        if (!started && (trimmed.includes('/') || trimmed.includes('├') || trimmed.includes('└') || trimmed.includes('│'))) {
+            started = true;
+        }
+        if (started && trimmed !== '') {
+            treeLines.push(line);
+        }
+    }
+    return treeLines.length > 0 ? treeLines.join('\n') : null;
+}
+/**
+ * Webview HTML for the project tree (text-only, no Mermaid)
+ */
+function getTreeWebviewContent(title, rawStdout) {
+    const clean = stripAnsi(rawStdout);
+    const lines = clean.split(/\r?\n/);
+    const treeLines = [];
+    let started = false;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!started && (trimmed.includes('/') || trimmed.includes('├') || trimmed.includes('└') || trimmed.includes('│'))) {
+            started = true;
+        }
+        if (started) {
+            treeLines.push(line);
+        }
+    }
+    const treeText = treeLines.length > 0 ? treeLines.join('\n') : clean;
+    const escaped = treeText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>${title}</title>
+    <style>
+        body {
+            background-color: var(--vscode-editor-background, #1e1e1e);
+            color: var(--vscode-editor-foreground, #d4d4d4);
+            font-family: var(--vscode-font-family, sans-serif);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 18px;
+            background-color: var(--vscode-sideBar-background, #252526);
+            border-bottom: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1));
+            flex-shrink: 0;
+        }
+        .header-bar h3 { margin: 0; font-size: 1rem; font-weight: 500; }
+        .controls { display: flex; gap: 8px; }
+        .btn {
+            background-color: var(--vscode-button-background, #007acc);
+            color: var(--vscode-button-foreground, #ffffff);
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn:hover { background-color: var(--vscode-button-hoverBackground, #0062a3); }
+        .content-area { flex-grow: 1; overflow: auto; padding: 20px 24px; }
+        pre {
+            font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            padding: 1.5rem;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            border: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1));
+            overflow-x: auto;
+            white-space: pre;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header-bar">
+        <h3>${title}</h3>
+        <div class="controls">
+            <button class="btn" onclick="copyTree()">📋 Copiar</button>
+            <button class="btn" onclick="saveTree()">💾 Guardar TXT</button>
+        </div>
+    </div>
+    <div class="content-area">
+        <pre id="tree-content">${escaped}</pre>
+    </div>
+    <script>
+        const vscode = acquireVsCodeApi();
+        const treeText = document.getElementById('tree-content').textContent;
+        function copyTree() {
+            navigator.clipboard.writeText(treeText).then(() => {
+                vscode.postMessage({ command: 'notifyInfo', message: '¡Árbol copiado al portapapeles!' });
+            });
+        }
+        function saveTree() {
+            vscode.postMessage({ command: 'saveFile', content: treeText, defaultName: 'project-tree.txt' });
+        }
+    </script>
+</body>
+</html>`;
 }
 /**
  * Extracts all Mermaid diagram blocks from the CLI stdout markdown report
@@ -600,12 +682,12 @@ function extractMermaidDiagrams(stdout) {
     while ((match = regex.exec(stdout)) !== null) {
         diagrams.push(match[1].trim());
     }
-    // Fallback: if there are no backtick blocks, but the text starts with classDiagram or erDiagram
     if (diagrams.length === 0) {
-        const clean = stdout.trim();
-        if (clean.startsWith('classDiagram') || clean.startsWith('erDiagram') || clean.startsWith('stateDiagram') || clean.startsWith('flowchart') || clean.startsWith('sequenceDiagram') || clean.startsWith('graph')) {
-            const lines = clean.split(/\r?\n/);
-            const filteredLines = lines.filter(line => {
+        const keywords = ['classDiagram', 'erDiagram', 'stateDiagram', 'flowchart', 'sequenceDiagram', 'graph'];
+        const lines = stdout.split(/\r?\n/);
+        const startIndex = lines.findIndex(line => keywords.some(kw => line.trim().startsWith(kw)));
+        if (startIndex !== -1) {
+            const filteredLines = lines.slice(startIndex).filter(line => {
                 const t = line.trim();
                 return t !== '' &&
                     !t.includes('Copy the above block') &&
@@ -618,100 +700,10 @@ function extractMermaidDiagrams(stdout) {
     return diagrams;
 }
 /**
- * Webview HTML Template for Mermaid diagram previews (CDN loaded, interactive dark/light themes, code copying and SVG saving)
- * Supports multiple diagrams rendered in beautiful, VS Code-native tabs
+ * Shared CSS for the webview
  */
-function getMermaidWebviewContent(title, rawStdout) {
-    const diagrams = extractMermaidDiagrams(rawStdout);
-    if (diagrams.length === 0) {
-        // Fallback: show raw stdout in a pre block if parsing failed completely
-        return `<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>${title}</title>
-    <style>
-        body {
-            background-color: var(--vscode-editor-background, #1e1e1e);
-            color: var(--vscode-editor-foreground, #d4d4d4);
-            padding: 20px;
-            font-family: var(--vscode-font-family, sans-serif);
-        }
-        pre {
-            background-color: rgba(255,255,255,0.05);
-            padding: 15px;
-            border-radius: 6px;
-            overflow: auto;
-        }
-    </style>
-</head>
-<body>
-    <h3>No se pudo extraer un diagrama Mermaid válido</h3>
-    <p>Salida original del CLI:</p>
-    <pre>${rawStdout.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-</body>
-</html>`;
-    }
-    // Process and sanitize each diagram
-    const diagramsData = [];
-    diagrams.forEach((diag, index) => {
-        const sanitized = sanitizeMermaidCode(diag);
-        let diagTitle = title;
-        if (diagrams.length > 1) {
-            const firstLine = sanitized.split('\n')[0].trim();
-            if (firstLine.startsWith('classDiagram')) {
-                diagTitle = '🧬 Diagrama de Clases (UML)';
-            }
-            else if (firstLine.startsWith('erDiagram')) {
-                diagTitle = '🗄️ Diagrama Entidad-Relación (ER)';
-            }
-            else if (firstLine.startsWith('sequenceDiagram')) {
-                diagTitle = '🛣️ Trazabilidad de Rutas';
-            }
-            else if (firstLine.startsWith('flowchart') || firstLine.startsWith('graph')) {
-                diagTitle = '🏗️ Arquitectura de Flujo';
-            }
-            else {
-                diagTitle = `📊 Diagrama #${index + 1}`;
-            }
-        }
-        diagramsData.push({ title: diagTitle, code: sanitized });
-    });
-    let tabsHeaderHtml = '';
-    let tabsContentHtml = '';
-    if (diagramsData.length > 1) {
-        tabsHeaderHtml = '<div class="tabs">';
-        diagramsData.forEach((diag, index) => {
-            tabsHeaderHtml += `<button class="tab-btn ${index === 0 ? 'active' : ''}" onclick="switchTab(${index})">${diag.title}</button>`;
-            tabsContentHtml += `
-            <div class="tab-content ${index === 0 ? 'active' : ''}" id="tab-content-${index}">
-                <div class="mermaid-wrapper">
-                    <div class="mermaid" id="mermaid-diag-${index}">
-                        ${diag.code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}
-                    </div>
-                </div>
-            </div>`;
-        });
-        tabsHeaderHtml += '</div>';
-    }
-    else {
-        // Only one diagram, no tabs needed
-        tabsContentHtml = `
-        <div class="mermaid-wrapper">
-            <div class="mermaid" id="mermaid-diag-0">
-                ${diagramsData[0].code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}
-            </div>
-        </div>`;
-    }
-    return `<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <!-- Mermaid CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-    <style>
+function getSharedWebviewCSS() {
+    return `
         :root {
             --bg-color: var(--vscode-editor-background, #1e1e1e);
             --fg-color: var(--vscode-editor-foreground, #d4d4d4);
@@ -725,194 +717,117 @@ function getMermaidWebviewContent(title, rawStdout) {
             --inactive-tab-bg: var(--vscode-tab-inactiveBackground, #2d2d2d);
             --inactive-tab-fg: var(--vscode-tab-inactiveForeground, #8e8e8e);
         }
-        body {
-            background-color: var(--bg-color);
-            color: var(--fg-color);
-            font-family: var(--vscode-font-family, sans-serif);
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            overflow: hidden;
+        body { background-color: var(--bg-color); color: var(--fg-color); font-family: var(--vscode-font-family, sans-serif); margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        .header-bar { display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; background-color: var(--panel-bg); border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+        .header-bar h3 { margin: 0; font-size: 1rem; font-weight: 500; }
+        .controls { display: flex; gap: 8px; }
+        .btn { background-color: var(--btn-bg); color: var(--btn-fg); border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+        .btn:hover { background-color: var(--btn-hover); }
+        .tabs { display: flex; background-color: var(--panel-bg); border-bottom: 1px solid var(--border-color); flex-shrink: 0; overflow-x: auto; }
+        .tab-btn { background: var(--inactive-tab-bg); color: var(--inactive-tab-fg); border: none; border-right: 1px solid var(--border-color); padding: 10px 16px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+        .tab-btn.active { background: var(--active-tab-bg); color: var(--active-tab-fg); border-bottom: 2px solid var(--btn-bg); }
+        .content-area { flex-grow: 1; overflow: auto; position: relative; }
+        .tab-content { display: none; height: 100%; }
+        .tab-content.active { display: block; }
+        .mermaid-wrapper { padding: 20px; display: flex; justify-content: center; align-items: flex-start; min-height: 100%; background-color: var(--bg-color); }
+        .tree-wrapper { padding: 20px 24px; }
+        .tree-wrapper pre { font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.6; padding: 1.5rem; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border-color); overflow-x: auto; white-space: pre; color: var(--fg-color); margin: 0; }
+    `;
+}
+/**
+ * Webview HTML Template for Mermaid diagram previews.
+ * For 'arch' mode, also includes the project tree as a tab.
+ */
+function getMermaidWebviewContent(title, rawStdout) {
+    const diagrams = extractMermaidDiagrams(rawStdout);
+    const projectTree = extractProjectTree(rawStdout);
+    if (diagrams.length === 0 && !projectTree) {
+        return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${title}</title><style>body{background-color:#1e1e1e;color:#d4d4d4;padding:20px;font-family:sans-serif;}pre{background:rgba(255,255,255,0.05);padding:15px;border-radius:6px;overflow:auto;}</style></head><body><h3>No se pudo extraer contenido válido</h3><pre>${rawStdout.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre></body></html>`;
+    }
+    const tabsData = [];
+    if (projectTree)
+        tabsData.push({ type: 'tree', title: '🌳 Estructura de Proyecto', code: projectTree });
+    diagrams.forEach((diag, index) => {
+        const cleaned = cleanMermaidCode(diag);
+        let diagTitle = title;
+        const firstLine = cleaned.split('\n')[0].trim();
+        if (firstLine.startsWith('classDiagram'))
+            diagTitle = '🧬 Diagrama UML de Clases';
+        else if (firstLine.startsWith('erDiagram'))
+            diagTitle = '🗄️ Diagrama Entidad-Relación (ER)';
+        else if (firstLine.startsWith('sequenceDiagram'))
+            diagTitle = '🛣️ Trazabilidad de Rutas';
+        else if (firstLine.startsWith('flowchart') || firstLine.startsWith('graph'))
+            diagTitle = '🏗️ Arquitectura de Flujo';
+        else if (diagrams.length > 1)
+            diagTitle = `📊 Diagrama #${index + 1}`;
+        tabsData.push({ type: 'mermaid', title: diagTitle, code: cleaned });
+    });
+    const showTabs = tabsData.length > 1;
+    let tabsHeaderHtml = showTabs ? '<div class="tabs">' : '';
+    let tabsContentHtml = '';
+    let textareasHtml = '';
+    let mermaidIndexes = [];
+    tabsData.forEach((tab, index) => {
+        if (showTabs)
+            tabsHeaderHtml += `<button class="tab-btn ${index === 0 ? 'active' : ''}" onclick="switchTab(${index})">${tab.title}</button>`;
+        const activeClass = index === 0 ? 'active' : '';
+        const wrapperStart = showTabs ? `<div class="tab-content ${activeClass}" id="tab-content-${index}">` : '';
+        const wrapperEnd = showTabs ? `</div>` : '';
+        if (tab.type === 'tree') {
+            const escaped = tab.code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            tabsContentHtml += `${wrapperStart}<div class="tree-wrapper"><pre>${escaped}</pre></div>${wrapperEnd}`;
+            textareasHtml += `<textarea id="source-${index}" style="display:none;" data-type="tree">${escaped}</textarea>`;
         }
-        .header-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 18px;
-            background-color: var(--panel-bg);
-            border-bottom: 1px solid var(--border-color);
-            flex-shrink: 0;
+        else {
+            tabsContentHtml += `${wrapperStart}<div class="mermaid-wrapper"><div id="mermaid-view-${index}"></div></div>${wrapperEnd}`;
+            textareasHtml += `<textarea id="source-${index}" style="display:none;" data-type="mermaid">${tab.code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>`;
+            mermaidIndexes.push(index);
         }
-        .header-bar h3 {
-            margin: 0;
-            font-size: 1rem;
-            font-weight: 500;
-        }
-        .controls {
-            display: flex;
-            gap: 8px;
-        }
-        .btn {
-            background-color: var(--btn-bg);
-            color: var(--btn-fg);
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            transition: background-color 0.2s ease;
-        }
-        .btn:hover {
-            background-color: var(--btn-hover);
-        }
-        
-        /* Tabs navigation */
-        .tabs {
-            display: flex;
-            background-color: var(--panel-bg);
-            border-bottom: 1px solid var(--border-color);
-            flex-shrink: 0;
-        }
-        .tab-btn {
-            background-color: var(--inactive-tab-bg);
-            color: var(--inactive-tab-fg);
-            border: none;
-            border-right: 1px solid var(--border-color);
-            padding: 8px 16px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-family: inherit;
-            transition: all 0.2s;
-        }
-        .tab-btn:hover {
-            color: var(--active-tab-fg);
-            background-color: rgba(255, 255, 255, 0.05);
-        }
-        .tab-btn.active {
-            background-color: var(--active-tab-bg);
-            color: var(--active-tab-fg);
-            font-weight: 600;
-        }
-        
-        .main-container {
-            flex: 1;
-            overflow: auto;
-            position: relative;
-        }
-        
-        .tab-content {
-            display: none;
-            width: 100%;
-            height: 100%;
-            box-sizing: border-box;
-        }
-        .tab-content.active {
-            display: block;
-        }
-        
-        .mermaid-wrapper {
-            padding: 30px;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            box-sizing: border-box;
-            min-height: 100%;
-        }
-        
-        .mermaid {
-            background-color: transparent;
-            width: 100%;
-            display: flex;
-            justify-content: center;
-        }
-        .mermaid svg {
-            max-width: 100%;
-            height: auto;
-        }
-    </style>
-</head>
-<body class="vscode-body">
+    });
+    if (showTabs)
+        tabsHeaderHtml += '</div>';
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${title}</title><style>${getSharedWebviewCSS()}</style></head>
+<body>
     <div class="header-bar">
-        <h3>${title}</h3>
-        <div class="controls">
-            <button class="btn" onclick="copyActiveRawCode()">📋 Copiar Código</button>
-            <button class="btn" onclick="exportActiveSvg()">💾 Guardar SVG</button>
-        </div>
+        <h3 id="current-title">${tabsData[0].title}</h3>
+        <div class="controls"><button class="btn" onclick="copyCode()">📋 Copiar</button><button class="btn" id="btn-save-svg" onclick="saveSvg()">💾 Guardar</button></div>
     </div>
-    
-    ${tabsHeaderHtml}
-    
-    <div class="main-container">
-        ${tabsContentHtml}
-    </div>
-
-    <script>
+    ${tabsHeaderHtml}<div class="content-area">${tabsContentHtml}</div>${textareasHtml}
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         const vscode = acquireVsCodeApi();
-        
-        // Load diagrams data structure
-        const diagramsData = ${JSON.stringify(diagramsData)};
-        let activeIndex = 0;
-        
-        // Detect dark theme
-        const isDark = document.body.classList.contains('vscode-dark') || 
-                       document.body.classList.contains('vscode-high-contrast') && 
-                       !document.body.classList.contains('vscode-high-contrast-light');
-        
-        mermaid.initialize({
-            startOnLoad: true,
-            theme: isDark ? 'dark' : 'default',
-            securityLevel: 'loose',
-            flowchart: { useMaxWidth: false, htmlLabels: true }
-        });
-
-        function switchTab(index) {
-            activeIndex = index;
-            
-            // Switch tabs classes
-            const buttons = document.querySelectorAll('.tab-btn');
-            buttons.forEach((btn, idx) => {
-                if (idx === index) btn.classList.add('active');
-                else btn.classList.remove('active');
-            });
-            
-            // Switch content classes
-            const contents = document.querySelectorAll('.tab-content');
-            contents.forEach((content, idx) => {
-                if (idx === index) content.classList.add('active');
-                else content.classList.remove('active');
-            });
-        }
-
-        function copyActiveRawCode() {
-            const code = diagramsData[activeIndex].code;
-            navigator.clipboard.writeText(code).then(() => {
-                vscode.postMessage({ command: 'notifyInfo', message: '¡Código Mermaid copiado al portapapeles!' });
-            });
-        }
-
-        function exportActiveSvg() {
-            try {
-                const activeContent = document.getElementById('tab-content-' + activeIndex) || document.querySelector('.main-container');
-                const svgEl = activeContent ? activeContent.querySelector('.mermaid svg') : document.querySelector('.mermaid svg');
-                
-                if (!svgEl) {
-                    vscode.postMessage({ command: 'notifyError', message: 'No se pudo encontrar el SVG del diagrama activo.' });
-                    return;
-                }
-                const serializer = new XMLSerializer();
-                const svgString = serializer.serializeToString(svgEl);
-                vscode.postMessage({ command: 'saveFile', content: svgString, defaultName: 'diagrama.svg' });
-            } catch (err) {
-                vscode.postMessage({ command: 'notifyError', message: 'Error exportando SVG: ' + err.message });
+        let currentTabIndex = 0;
+        const tabTypes = ${JSON.stringify(tabsData.map(t => t.type))};
+        mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+        async function init() {
+            const mermaidIndexes = ${JSON.stringify(mermaidIndexes)};
+            for (const i of mermaidIndexes) {
+                const sourceText = document.getElementById('source-' + i).value;
+                const viewElement = document.getElementById('mermaid-view-' + i);
+                try { const { svg } = await mermaid.render('mermaid-svg-' + i, sourceText); viewElement.innerHTML = svg; } catch (err) { viewElement.innerHTML = 'Error: ' + err.message; }
             }
+            updateSaveButton();
         }
+        function updateSaveButton() {
+            document.getElementById('btn-save-svg').textContent = tabTypes[currentTabIndex] === 'tree' ? '💾 Guardar TXT' : '💾 Guardar SVG';
+        }
+        window.switchTab = function(index) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.querySelectorAll('.tab-btn')[index].classList.add('active');
+            document.getElementById('tab-content-' + index).classList.add('active');
+            document.getElementById('current-title').textContent = ${JSON.stringify(tabsData.map(d => d.title))}[index];
+            currentTabIndex = index;
+            updateSaveButton();
+        };
+        window.copyCode = function() { navigator.clipboard.writeText(document.getElementById('source-' + currentTabIndex).value); };
+        window.saveSvg = function() {
+            if (tabTypes[currentTabIndex] === 'tree') vscode.postMessage({ command: 'saveFile', content: document.getElementById('source-' + currentTabIndex).value, defaultName: 'project-tree.txt' });
+            else { const s = document.querySelector('#mermaid-view-' + currentTabIndex + ' svg'); if(s) vscode.postMessage({ command: 'saveFile', content: s.outerHTML, defaultName: 'diagrama.svg' }); }
+        };
+        init();
     </script>
-</body>
-</html>`;
+</body></html>`;
 }
 //# sourceMappingURL=extension.js.map

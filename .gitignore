@@ -41,3 +41,4 @@ mis_apuntes/
 architecture.txt
 vscode-extension/node_modules/
 ai_context.txt
+.ai_context_tmp.txt
