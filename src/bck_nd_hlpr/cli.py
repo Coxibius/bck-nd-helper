@@ -35,42 +35,39 @@ app = typer.Typer(
     add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
     epilog="""
-COMMAND MANUAL:
+\b
+QUICK REFERENCE:
 
-Basic Scanning:
-  bck-nd scan .                       # Scan current directory and generate UML & ER diagrams
-  bck-nd scan src --depth 5           # Scan specific folder with increased depth
+  Scanning & Diagrams:
+    bck-nd scan .              Full architecture overview (Tree+UML+ER+Routes+Infra+TODOs)
+    bck-nd scan . --uml        UML Class Diagram only
+    bck-nd scan . --er         Entity-Relationship Diagram only
+    bck-nd scan . --routes     API Routes Sequence Diagram only
+    bck-nd scan . --infra      Docker Compose Infrastructure Map only
+    bck-nd scan . --tree       Project directory tree only
 
-Output Formats:
-  bck-nd scan . --format ascii        # Default ASCII output
-  bck-nd scan . --format mermaid      # Mermaid.js output (+ Visual Preview)
-  bck-nd scan . --uml                 # UML Class Diagram (uses AST for class/inheritance)
-  bck-nd scan . --er                  # Entity-Relationship Diagram (SQLAlchemy/Django)
-  bck-nd scan . --routes              # API Route Map (Flask/FastAPI Sequence Diagram)
-  bck-nd scan . --infra               # Infrastructure Diagram (Docker Compose)
-  bck-nd scan . --todo                # Technical Debt Scanner (TODO, FIXME, HACK, XXX, BUG)
-  bck-nd scan . --audit               # Security Audit (Detect Secrets, Keys, Hardcoded IPs)
-  bck-nd scan . --impact              # Dependency Heatmap (What breaks if I code?)
-  bck-nd scan . --trace               # Route-to-DB Traceability Graph
-  bck-nd scan . --tree                # Project File/Directory Tree [NEW]
+  Analysis & Reports:
+    bck-nd scan . --todo       Technical Debt Scanner (TODO/FIXME/HACK/BUG)
+    bck-nd scan . --audit      Security Audit (secrets, keys, IPs)
+    bck-nd scan . --impact     Dependency Heatmap (change risk)
+    bck-nd scan . --trace      Route-to-DB traceability graph
+    bck-nd scan . --explain    Offline text report (Controllers/Models/Services)
+    bck-nd scan . --ai         AI-powered analysis (BYO-Key: OpenAI/Anthropic/Gemini/Ollama)
 
-Persistence:
-  bck-nd scan . --output report.txt   # Save output to file instead of stdout
-  bck-nd scan . --er -o schema.mmd    # Save Mermaid diagram to file
+  Other Commands:
+    bck-nd prompt .            Export LLM-optimized context file for ChatGPT/Claude
+    bck-nd flow "A -> B -> C"  Generate quick ASCII flow diagram from string
+    bck-nd docs .              Generate static HTML documentation portal
+    bck-nd chat .              Interactive AI chat about your codebase
+    bck-nd explore             Launch interactive TUI explorer
+    bck-nd init-ci             Setup GitHub Actions for auto-docs on Pages
 
-Reporting & AI:
-  bck-nd scan . --explain             # Diagram + Local Text Report (Offline)
-  bck-nd scan . --ai                  # Diagram + AI Analysis (requires n8n)
+  Saving Output:
+    bck-nd scan . --er -o schema.mmd    Save any diagram/report to file
+    bck-nd prompt . -o context.txt      Custom output file name
 
-AI Context Dump:
-  bck-nd prompt .                     # Export full project context for ChatGPT/Claude
-  bck-nd prompt . -o my_context.txt   # Save context to a custom file [NEW]
-  
-Manual Diagrams:
-  bck-nd flow "User -> API -> DB"     # Generate quick ASCII flow from string
-
-DevOps & CI/CD:
-  bck-nd init-ci                      # Setup GitHub Actions for Auto-Docs [NEW]
+  Tip: Run any command with --help for detailed usage and examples.
+       Example: bck-nd scan --help
 """
 
 )
@@ -97,8 +94,21 @@ def flow(
 ):
     """
     📐 Generate an ASCII diagram from a manual string.
-    
-    Example: bck-nd flow "Client -> API -> Database"
+
+    \b
+    Syntax:
+      A -> B            Connection from A to B
+      [X, Y, Z]         Multiple nodes in same position
+      ;                 New row / line break
+      A [DB]            Rendered as database cylinder
+      A [Service]       Rendered as soft box
+      A [?] or A [IF]   Rendered as decision diamond
+
+    \b
+    Examples:
+      bck-nd flow "Client -> API -> Database"
+      bck-nd flow "Client -> LoadBalancer -> [API_v1, API_v2] ; API_v1 -> Redis"
+      bck-nd flow "User -> Auth [Service] -> JWT [Token] -> API"
     """
     try:
         typer.secho("\n📐 GENERATING MANUAL DIAGRAM:", fg=typer.colors.CYAN, bold=True)
@@ -109,34 +119,59 @@ def flow(
 
 @app.command()
 def scan(
-    path: str = typer.Argument(".", help="Path to analyze"),
-    depth: int = typer.Option(3, "--depth", "-d", help="Scan depth."),
-    graph: bool = typer.Option(True, "--graph/--no-graph", help="Show UML and ER diagrams by default."),
-    explain: bool = typer.Option(False, "--explain", "-e", help="Local text report."),
-    ai: bool = typer.Option(False, "--ai", help="AI Analysis (n8n)."),
-    style: str = typer.Option("pro", "--style", "-s", help="Personality: pro, hacker, soviet, ramsay, jarvis, eli5, doom."),
-    format: str = typer.Option("ascii", "--format", "-f", help="Output format: ascii, mermaid."),
-    uml: bool = typer.Option(False, "--uml", "-u", help="Generate UML class diagram."),
-    er: bool = typer.Option(False, "--er", help="Generate Database ER diagram (Mermaid)."),
-    routes: bool = typer.Option(False, "--routes", help="Generate API routes map (Mermaid Sequence)."),
-    infra: bool = typer.Option(False, "--infra", help="Generate infrastructure diagram (Docker Compose)."),
-    todo: bool = typer.Option(False, "--todo", help="Search for technical debt (TODO, FIXME, HACK, XXX, BUG)."),
-    audit: bool = typer.Option(False, "--audit", help="Security Audit (Find hardcoded credentials)."),
-    impact: bool = typer.Option(False, "--impact", help="Dependency heatmap (High Impact Files)."),
-    trace: bool = typer.Option(False, "--trace", help="Generate Route-to-DB traceability graph (Mermaid)."),
-    tree: bool = typer.Option(False, "--tree", help="Generate project file/directory tree."),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Save result to file (disables stdout)."),
-    provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider (openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook).")
+    path: str = typer.Argument(".", help="Path to the project directory. Use '.' for current dir or provide a relative/absolute path. Example: bck-nd scan src"),
+    depth: int = typer.Option(3, "--depth", "-d", help="Max directory recursion depth (default: 3). Increase if files are nested deep. Example: bck-nd scan . --depth 5"),
+    graph: bool = typer.Option(True, "--graph/--no-graph", help="Toggle diagram generation. Use --no-graph for text-only output (faster, good for CI logs). Example: bck-nd scan . --no-graph --ai"),
+    explain: bool = typer.Option(False, "--explain", "-e", help="Generate an offline text report listing Controllers, Models, and Services. No AI required. Example: bck-nd scan . --explain"),
+    ai: bool = typer.Option(False, "--ai", help="Run AI-powered analysis. Auto-detects API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, OLLAMA_HOST) or falls back to webhook. Example: bck-nd scan . --ai --style hacker"),
+    style: str = typer.Option("pro", "--style", "-s", help="AI personality (requires --ai). Options: pro (architect), hacker (security), soviet (efficiency), eli5 (simple), ramsay (critical), jarvis (elegant), corporate (buzzwords), medieval (wizard), doom (bug hunter). Example: bck-nd scan . --ai --style ramsay"),
+    format: str = typer.Option("ascii", "--format", "-f", help="Output format: 'ascii' (terminal boxes) or 'mermaid' (graph TD code for Notion/GitHub/Obsidian + terminal preview). Example: bck-nd scan . --format mermaid"),
+    uml: bool = typer.Option(False, "--uml", "-u", help="Generate UML Class Diagram (Mermaid classDiagram). Supports Python (AST), C#, Java, JS/TS, PHP (Tree-sitter). Shows classes, methods, inheritance, associations. Example: bck-nd scan . --uml -o classes.mmd"),
+    er: bool = typer.Option(False, "--er", help="Generate Entity-Relationship Diagram (Mermaid erDiagram). Scans ORMs: SQLAlchemy, Django, Entity Framework, Prisma, Drizzle, Sequelize, Mongoose, Laravel/Eloquent, JPA, and raw SQL. Example: bck-nd scan . --er -o schema.mmd"),
+    routes: bool = typer.Option(False, "--routes", help="Generate API Routes Sequence Diagram (Mermaid sequenceDiagram). Scans Flask, FastAPI, Express, NestJS endpoints. Shows Client -> API interactions. Example: bck-nd scan . --routes"),
+    infra: bool = typer.Option(False, "--infra", help="Generate Infrastructure Diagram from docker-compose.yml (Mermaid graph LR). Shows services, images, dependencies. DB services as cylinders. Example: bck-nd scan . --infra"),
+    todo: bool = typer.Option(False, "--todo", help="Scan for technical debt: TODO, FIXME, HACK, XXX, BUG comments. Color-coded Rich table with file, line, type, message. Example: bck-nd scan . --todo -o debt.txt"),
+    audit: bool = typer.Option(False, "--audit", help="Security audit: detects hardcoded AWS keys, private PEMs, DB passwords, API tokens, IPs. Reports Critical/High/Warning risks. Example: bck-nd scan . --audit"),
+    impact: bool = typer.Option(False, "--impact", help="Dependency heatmap: ranks files by import count. Risk categories: CORE, SHARED, PERIPHERAL. Example: bck-nd scan . --impact"),
+    trace: bool = typer.Option(False, "--trace", help="Route-to-DB traceability graph (Mermaid graph LR). Traces routes -> services -> models via AST. Supports Python (FastAPI/Flask). Example: bck-nd scan . --trace"),
+    tree: bool = typer.Option(False, "--tree", help="ASCII directory tree with Unicode box-drawing. Auto-filters noise (node_modules, venv, .git, __pycache__). Example: bck-nd scan . --tree --depth 5"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
+    provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook. Example: bck-nd scan . --ai --provider ollama")
 ):
     """
     🕵️ Scans a project and automatically detects its architecture.
-    
+
     \b
-    Usage modes:
-    • bck-nd scan .                    - UML and ER Diagrams (Mermaid)
-    • bck-nd scan . -o report.txt      - Save to file
-    • bck-nd scan . --uml              - UML Class Diagram (Mermaid)
-    • bck-nd scan . --format mermaid   - Mermaid.js output
+    DEFAULT MODE (no flags):
+      Runs a full architecture overview generating:
+      Tree + Infra Map + API Routes + UML + ER + Technical Debt
+
+    \b
+    EXCLUSIVE MODES (use one at a time):
+      --uml        UML Class Diagram only
+      --er         Entity-Relationship Diagram only
+      --routes     API Routes Sequence Diagram only
+      --infra      Docker Compose Infrastructure Map only
+      --tree       Project directory tree only
+      --todo       Technical Debt report only
+      --audit      Security Audit report only
+      --impact     Dependency Heatmap only
+      --trace      Route-to-DB Traceability only
+
+    \b
+    COMBINABLE FLAGS:
+      --explain    Add offline text report (Controllers/Models/Services)
+      --ai         Add AI-powered analysis (auto-detects API keys)
+      --no-graph   Skip diagrams (useful with --ai for text-only)
+      -o FILE      Save output to file
+
+    \b
+    EXAMPLES:
+      bck-nd scan .                          Full overview
+      bck-nd scan src --depth 5              Deep scan of src/
+      bck-nd scan . --er -o schema.mmd       Export ER to file
+      bck-nd scan . --ai --style hacker      AI security review
+      bck-nd scan . --ai --provider ollama   Force local Ollama
     """
     scanner = ProjectScanner()
 
@@ -564,11 +599,29 @@ def scan(
 
 @app.command()
 def docs(
-    path: str = typer.Argument(".", help="Path to analyze"),
-    output: str = typer.Option("docs", "--output", "-o", help="Output directory for HTML documentation")
+    path: str = typer.Argument(".", help="Path to the project to document. Use '.' for current dir. Example: bck-nd docs ./my-api"),
+    output: str = typer.Option("docs", "--output", "-o", help="Output directory for the HTML portal (created if missing). Example: bck-nd docs . -o site")
 ):
     """
-    [WEB] Generates static web documentation of the project with diagrams (index.html).
+    🌐 Generate a self-contained static HTML documentation portal.
+
+    \b
+    Creates docs/index.html with:
+      - Infrastructure Map (docker-compose.yml visualization)
+      - API Routes (HTTP endpoint sequence diagrams)
+      - UML Class Diagram (auto-generated class hierarchy)
+      - Entity-Relationship Diagram (ORM models)
+      - Technical Debt table (TODOs/FIXMEs)
+      - Rendered via MermaidJS CDN — no build tools needed.
+
+    \b
+    Examples:
+      bck-nd docs .                  Generate in ./docs/
+      bck-nd docs . --output site    Generate in ./site/
+    
+    \b
+    CI/CD Tip:
+      Combine with 'bck-nd init-ci' to auto-publish on GitHub Pages.
     """
     typer.secho(f"\n[WEB] GENERATING WEB DOCUMENTATION IN '{output}':", fg=typer.colors.CYAN, bold=True)
     generator = DocGenerator()
@@ -581,7 +634,23 @@ def docs(
 
 @app.command()
 def explore():
-    """🖥️ TUI: Launch the terminal user interface."""
+    """
+    🖥️ Launch the interactive Terminal User Interface (TUI) explorer.
+
+    \b
+    What you get:
+      - Sidebar: Directory tree to navigate your codebase
+      - Main View: Click a .py file for instant ASCII diagram + Mermaid routes
+      - Folder View: Click a folder to see its high-level architecture
+
+    \b
+    Keyboard Shortcuts:
+      D    Toggle dark/light mode
+      Q    Quit the TUI
+
+    \b
+    Requires: textual (pip install textual)
+    """
     try:
         from bck_nd_hlpr.tui_app import ArchitectureExplorer
         explorer_app = ArchitectureExplorer()
@@ -592,13 +661,27 @@ def explore():
 
 @app.command()
 def chat(
-    path: str = typer.Argument(".", help="Path to analyze to provide context"),
-    depth: int = typer.Option(3, "--depth", "-d", help="Scan depth."),
-    style: str = typer.Option("pro", "--style", "-s", help="Bot personality (pro, hacker, ramsay, etc.)."),
-    provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider (openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook).")
+    path: str = typer.Argument(".", help="Path to the project. Scans architecture to build AI context. Example: bck-nd chat ./my-api"),
+    depth: int = typer.Option(3, "--depth", "-d", help="Scan depth for context building (default: 3). Increase for deeply nested projects. Example: bck-nd chat . -d 5"),
+    style: str = typer.Option("pro", "--style", "-s", help="AI personality: pro, hacker, soviet, eli5, ramsay, jarvis, corporate, medieval, doom. Example: bck-nd chat . --style jarvis"),
+    provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider: openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook. Example: bck-nd chat . --provider ollama")
 ):
     """
     💬 Start an interactive chat with your codebase using AI (BYO-Key).
+
+    \b
+    Requires an active AI provider (API key or Ollama running).
+    Automatically loads full project context (architecture, diagrams, docs)
+    so you can ask questions about your codebase immediately.
+
+    \b
+    Type 'exit', 'quit', or 'q' to end the session.
+
+    \b
+    Examples:
+      bck-nd chat .                          Default (pro style)
+      bck-nd chat . --style hacker           Security-focused chat
+      bck-nd chat . --provider ollama        Use local Ollama
     """
     scanner = ProjectScanner()
     
@@ -687,10 +770,28 @@ def chat(
 
 @app.command()
 def init_ci(
-    path: str = typer.Argument(".", help="Project path to initialize CI.")
+    path: str = typer.Argument(".", help="Project root where .github/workflows/ will be created. Example: bck-nd init-ci .")
 ):
     """
-    🤖 Configure GitHub Actions for auto-documentation on GitHub Pages.
+    🤖 Setup "Living Documentation" via GitHub Actions + GitHub Pages.
+
+    \b
+    Creates .github/workflows/documentation.yml that:
+      - Triggers on every push to any branch
+      - Installs bck-nd-hlpr in the CI runner
+      - Generates the full HTML documentation portal
+      - Deploys to GitHub Pages (branches as subdirectories: /main/, /developer/)
+
+    \b
+    After running:
+      1. git add . && git commit -m 'ci: add auto-docs' && git push
+      2. Go to GitHub > Settings > Pages
+      3. Set source to 'GitHub Actions'
+      4. Done! Docs update on every push.
+
+    \b
+    Example:
+      bck-nd init-ci
     """
     typer.secho("\n[CI/CD] INITIALIZING FOR AUTO-DOCUMENTATION:", fg=typer.colors.CYAN, bold=True)
     
@@ -708,26 +809,33 @@ def init_ci(
 
 @app.command(name="prompt")
 def prompt_cmd(
-    path: str = typer.Argument(".", help="Path to the project to analyze."),
-    output: str = typer.Option("ai_context.txt", "--output", "-o", help="Output file name."),
-    depth: int = typer.Option(4, "--depth", "-d", help="Directory scan depth."),
+    path: str = typer.Argument(".", help="Path to the project to analyze. Use '.' for current directory or provide an absolute/relative path. Example: bck-nd prompt /home/user/my-api"),
+    output: str = typer.Option("ai_context.txt", "--output", "-o", help="Output file path/name for the context dump (default: ai_context.txt in current dir). Example: bck-nd prompt . -o context.txt"),
+    depth: int = typer.Option(4, "--depth", "-d", help="Directory scan depth (default: 4). Increase for deep project structures. Example: bck-nd prompt . --depth 6"),
 ):
     """
-    [AI] Context Dump: Export full project context for ChatGPT / Claude.
+    🧠 AI Context Dump: Export full project context for ChatGPT / Claude.
 
     \b
-    Generates a single optimized .txt file with XML tags containing:
-    - Project directory tree (clean, no noise folders)
-    - UML Class Diagram (Mermaid)
-    - Entity-Relationship Diagram (Mermaid)
-    - Content of the 3-5 most important backend files
-
-    Just copy-paste the output file into any LLM for instant project understanding!
+    Generates a single LLM-optimized .txt file with XML-like tags:
+      <project_tree>       Clean ASCII directory tree (no venv/node_modules)
+      <architecture_uml>   UML Class Diagram in Mermaid format
+      <architecture_er>    Entity-Relationship Diagram in Mermaid format
+      <core_files>         Content of the 3-5 most important backend files
 
     \b
-    Usage:
-      bck-nd prompt .                      # Generates ai_context.txt
-      bck-nd prompt /my/project -o ctx.txt # Custom output file
+    How to use:
+      1. Run: bck-nd prompt .
+      2. Open ai_context.txt
+      3. Select All -> Copy
+      4. Paste into ChatGPT / Claude as the first message
+      5. Start asking questions about your codebase!
+
+    \b
+    Examples:
+      bck-nd prompt .                      Generates ai_context.txt
+      bck-nd prompt /my/project -o ctx.txt Custom output file
+      bck-nd prompt . --depth 6            Deeper scan for nested projects
     """
     from rich.console import Console
     from rich.panel import Panel
