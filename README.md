@@ -1,16 +1,18 @@
 # 🛠️ Backend Helper (`bck-nd-hlpr`)
 
-> **Lightweight Architecture CLI** - Reverse-engineer any codebase into Mermaid diagrams with AI-powered insights.
+Backend Helper — Lightweight CLI that detects backend architectures and exports Mermaid diagrams, ASCII previews and CI-ready HTML docs.
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+- Auto-detect frameworks (Flask, FastAPI, Django, Express, Spring, .NET, Go, Rust).
+- Export Mermaid, ASCII and static HTML docs for CI.
+- CI friendly: `bck-nd init-ci` generates GitHub Action to publish docs to GitHub Pages.
 
-[![Zero Heavy Dependencies](https://img.shields.io/badge/dependencies-lightweight-green.svg)](https://pypi.org/project/bck-nd-hlpr/)
+```bash
+pip install bck-nd-hlpr
+cd my-backend-project
+bck-nd scan . --format mermaid -o architecture.mmd
+```
 
-[![PyPI version](https://badge.fury.io/py/bck-nd-hlpr.svg)](https://badge.fury.io/py/bck-nd-hlpr)
-
-[![Downloads](https://static.pepy.tech/badge/bck-nd-hlpr)](https://pepy.tech/project/bck-nd-hlpr)
-
-**Backend Helper** is a lightweight CLI tool that automatically detects backend architectures and generates MERMAID diagrams. Built for CI/CD pipelines, code reviews, and rapid onboarding.
+> **Beta:** Esta versión es beta. Soporta los frameworks listados arriba; si tu proyecto tiene estructura no estándar, usa `bck-nd flow` o abre un issue.
 
 ---
 
@@ -186,11 +188,11 @@ bck-nd init-ci
 
 **What it does:**
 
-- Creates `.github/workflows/bck-nd-docs.yml`.
-- Configures an automatic trigger on `push` to `main`.
+- Creates `.github/workflows/documentation.yml`.
+- Configures an automatic trigger on `push` to any branch (`**`).
 - Installs `bck-nd-hlpr` in the CI runner.
 - Generates the full HTML portal (UML, ER, Infra, Routes).
-- Deploys the result automatically to **GitHub Pages**.
+- Deploys the result automatically to **GitHub Pages**, separating branches into subdirectories (e.g. `/main/`, `/developer/`) to allow easy comparison!
 
 ---
 
@@ -392,6 +394,18 @@ bck-nd scan . --no-graph --ai
 - Only AI analysis (no Mermaid diagram)
 - Faster for text-only reports
 
+##### 13. **Project File/Directory Tree [NEW]**
+
+```bash
+bck-nd scan . --tree
+```
+
+**Output:**
+
+- Generates a clean ASCII directory tree of the project using Unicode box-drawing characters.
+- Automatically and silently filters out ignored directories (such as `node_modules`, `venv`, `.git`, etc.) based on `GLOBAL_IGNORE_DIRS`.
+
+
 #### **AI Personalities**
 
 ```bash
@@ -570,39 +584,24 @@ bck-nd scan . --er --format mermaid -o db.mmd
 
 ## 🧪 AI Providers Setup (BYO-Key)
 
-Backend Helper supports direct integration with modern AI models using your own keys. **It automatically loads `.env` files** from your current directory!
-By default, it checks environment variables in this order:
-`OPENAI` -> `ANTHROPIC` -> `GOOGLE` -> `GROQ` -> `DEEPSEEK` -> `OPENROUTER` -> `OLLAMA` -> `WEBHOOK`
+Backend Helper automatically loads `.env` files if they exist in your project root. 
+> **⚠️ Security Warning:** Never commit `.env` to public repositories; `init-ci` does not inject keys into the repo.
 
-### Option 1: .env File (Recommended)
+Preferred order (checked automatically):
 
-Simply create a `.env` file in your project root:
-
-```env
+```text
+# Preferred order (checked automatically)
 OPENAI_API_KEY=sk-...
-# or
-GROQ_API_KEY=gsk_...
-# or
-DEEPSEEK_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=AIzaSy...
+OLLAMA_HOST=http://localhost:11434
+BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
 ```
 
-And run:
+Then run:
 
 ```bash
 bck-nd scan . --ai
-```
-
-### Option 2: Environment Variables
-
-Alternatively, export them directly:
-
-```bash
-export OPENAI_API_KEY="sk-..."
-export ANTHROPIC_API_KEY="sk-ant-..."
-export GOOGLE_API_KEY="AIzaSy..."
-export GROQ_API_KEY="gsk_..."
-export DEEPSEEK_API_KEY="sk-..."
-export OPENROUTER_API_KEY="sk-or-v1-..."
 ```
 
 ### Option 3: Ollama (Local AI)
@@ -659,45 +658,9 @@ export BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
 
 ## 🤖 MCP Integration (Claude Desktop / Cursor)
 
-Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**. This allows any compatible AI client (like **Claude Desktop** or **Cursor**) to interact directly with your codebase using our local reverse engineering and diagramming tools without needing to send all your code to the cloud or consume valuable context tokens by transferring full files.
+Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**, providing 11 powerful architecture tools directly to your AI assistants.
 
-The AI will call local tools on demand to analyze the architecture, generate diagrams, search for technical debt, or audit security.
-
-### How to Configure
-
-#### 1. Claude Desktop
-
-Add the following configuration block to your `claude_desktop_config.json` file:
-
-* **Windows Path:** `%APPDATA%\Claude\claude_desktop_config.json`
-* **Mac/Linux Path:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "backend-helper": {
-      "command": "python",
-      "args": [
-        "c:/bck-nd-hlpr/mcp_server.py"
-      ],
-      "env": {
-        "OPENAI_API_KEY": "your-optional-api-key",
-        "ANTHROPIC_API_KEY": "your-optional-api-key"
-      }
-    }
-  }
-}
-```
-
-#### 2. Cursor
-
-1. Go to **Cursor Settings** > **Features** > **MCP**.
-2. Click on **+ Add New MCP Server**.
-3. Configure the following parameters:
-   - **Name**: `backend-helper`
-   - **Type**: `stdio`
-   - **Command**: `python c:/bck-nd-hlpr/mcp_server.py`
-4. Save and click on **Refresh**. Done! You will instantly have 11 architecture tools available for your AI.
+For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED.md](ADVANCED.md).
 
 ---
 
@@ -718,6 +681,7 @@ Add the following configuration block to your `claude_desktop_config.json` file:
 | `bck-nd scan . --audit`         | ✅                     | ❌             | ✅ (Sec. Risks)     | ❌               | ❌              |
 | `bck-nd scan . --impact`        | ✅                     | ❌             | ✅ (Impact Heatmap) | ❌               | ❌              |
 | `bck-nd scan . --trace`         | ✅                     | ✅ (Trace LR)  | ❌                  | ❌               | ❌              |
+| `bck-nd scan . --tree`          | ✅                     | ✅ (File Tree)  | ❌                  | ❌               | ❌              |
 | `bck-nd prompt .`               | ✅                     | ✅ (Mermaid)   | ❌                  | ❌               | ✅ (XML)        |
 | `bck-nd flow "A -> B"`          | ❌                     | ✅             | ❌                  | ❌               | ❌              |
 | `bck-nd explore`                | ✅                     | ✅             | ✅                  | ❌               | ❌              |
@@ -728,6 +692,8 @@ Add the following configuration block to your `claude_desktop_config.json` file:
 ---
 
 ## 🎭 AI Personalities Guide
+
+> **Note:** Only used in webhook mode; provider-specific styles may vary.
 
 | Style         | Description                                   | Use Case                 |
 | ------------- | --------------------------------------------- | ------------------------ |

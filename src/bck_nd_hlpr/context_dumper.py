@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from bck_nd_hlpr.tree_generator import generate_project_tree
+
 
 # ──────────────────────────────────────────────
 # Constantes de configuración
@@ -54,37 +56,14 @@ class ContextDumper:
 
     def get_project_tree(self) -> str:
         """Genera un árbol de directorios limpio ignorando carpetas de ruido."""
-        lines: List[str] = [str(self.root.name) + "/"]
-        self._walk_tree(self.root, prefix="", depth=0, lines=lines)
-        return "\n".join(lines)
-
-    def _walk_tree(self, path: Path, prefix: str, depth: int, lines: List[str]) -> None:
-        if depth >= self.depth:
-            return
-
-        try:
-            children = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
-        except PermissionError:
-            return
-
-        # Filtrar directorios/archivos ignorados
-        visible = [
-            c for c in children
-            if not self._should_ignore(c)
-        ]
-
-        for i, child in enumerate(visible):
-            is_last = i == len(visible) - 1
-            connector = "\\-- " if is_last else "+-- "
-            extension = "    " if is_last else "|   "
-
-            if child.is_dir():
-                lines.append(f"{prefix}{connector}{child.name}/")
-                self._walk_tree(child, prefix + extension, depth + 1, lines)
-            else:
-                lines.append(f"{prefix}{connector}{child.name}")
+        return generate_project_tree(str(self.root), depth=self.depth)
 
     def _should_ignore(self, path: Path) -> bool:
+        """Determina si un archivo o directorio debe ser ignorado.
+        
+        Mantenido para compatibilidad con get_core_files() que lo usa
+        indirectamente a través de GLOBAL_IGNORE_DIRS.
+        """
         name = path.name
         
         # Ignorar carpetas de la lista negra global
