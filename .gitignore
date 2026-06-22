@@ -42,7 +42,7 @@ architecture.txt
 vscode-extension/node_modules/
 ai_context.txt
 
-vscode-extension/
+
 ADVANCED.md/
 
 .ai_context_tmp.txt
