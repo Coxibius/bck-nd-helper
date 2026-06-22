@@ -18,7 +18,7 @@ function activate(context) {
     let disposable = vscode.commands.registerCommand('bck-nd.generateDiagram', async () => {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
-            vscode.window.showErrorMessage('No hay ningún espacio de trabajo abierto. Abre una carpeta para escanear.');
+            vscode.window.showErrorMessage('There is not a workspace open. Please open a folder to scan.');
             return;
         }
         const workspacePath = workspaceFolders[0].uri.fsPath;
@@ -45,7 +45,7 @@ class BackendHelperSidebarProvider {
         webviewView.webview.onDidReceiveMessage(async (data) => {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders || workspaceFolders.length === 0) {
-                vscode.window.showErrorMessage('Por favor, abre una carpeta de proyecto para usar esta extensión.');
+                vscode.window.showErrorMessage('Please, open a project folder to use this extension.');
                 return;
             }
             const workspacePath = workspaceFolders[0].uri.fsPath;
@@ -74,7 +74,7 @@ class BackendHelperSidebarProvider {
         const tmpFilePath = path.join(workspacePath, tmpFileName);
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "Generando contexto IA...",
+            title: "Generating AI context...",
             cancellable: false
         }, async () => {
             return new Promise((resolve) => {
@@ -89,12 +89,12 @@ class BackendHelperSidebarProvider {
                     // Read file strictly inside the success callback of child_process.exec
                     fs.readFile(tmpFilePath, 'utf8', (readErr, content) => {
                         if (readErr) {
-                            vscode.window.showErrorMessage(`Error al leer el archivo de contexto: ${readErr.message}`);
+                            vscode.window.showErrorMessage(`Error reading context file: ${readErr.message}`);
                             resolve();
                             return;
                         }
                         vscode.env.clipboard.writeText(content).then(() => {
-                            vscode.window.showInformationMessage("🤖 ¡Contexto copiado!");
+                            vscode.window.showInformationMessage("🤖 Context copied!");
                             // Delete the temporary file asynchronously after copying
                             fs.unlink(tmpFilePath, (unlinkErr) => {
                                 if (unlinkErr) {
@@ -113,20 +113,21 @@ class BackendHelperSidebarProvider {
      */
     async _handleGenerateDiagram(workspacePath, type) {
         const cmdMap = {
-            'arch': { title: 'Diagrama Completo de Arquitectura', cmd: 'bck-nd scan . --format mermaid' },
-            'tree': { title: 'Árbol de Estructura de Proyecto', cmd: 'bck-nd scan . --tree' },
-            'uml': { title: 'Diagrama UML de Clases', cmd: 'bck-nd scan . --uml --format mermaid' },
-            'er': { title: 'Diagrama Entidad-Relación (ER)', cmd: 'bck-nd scan . --er --format mermaid' },
-            'trace': { title: 'Mapa de Rutas a DB', cmd: 'bck-nd scan . --trace --format mermaid' }
+            'arch': { title: 'Complete Architecture Diagram', cmd: 'bck-nd scan . --format mermaid' },
+            'tree': { title: 'Project Structure Tree', cmd: 'bck-nd scan . --tree' },
+            'uml': { title: 'UML Class Diagram', cmd: 'bck-nd scan . --uml --format mermaid' },
+            'er': { title: 'Entity-Relationship Diagram (ER)', cmd: 'bck-nd scan . --er --format mermaid' },
+            'trace': { title: 'Route-to-DB Map', cmd: 'bck-nd scan . --trace --format mermaid' },
+            'prompt': { title: 'Complete AI Context (Prompt)', cmd: 'bck-nd prompt . -o -' }
         };
         const config = cmdMap[type];
         if (!config) {
-            vscode.window.showErrorMessage(`Tipo de diagrama desconocido: ${type}`);
+            vscode.window.showErrorMessage(`Unknown diagram type: ${type}`);
             return;
         }
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: `Generando ${config.title}...`,
+            title: `Generating ${config.title}...`,
             cancellable: false
         }, async () => {
             return new Promise((resolve) => {
@@ -140,9 +141,12 @@ class BackendHelperSidebarProvider {
                         enableScripts: true,
                         retainContextWhenHidden: true
                     });
-                    // Tree type gets its own text-based webview
+                    // Choose webview layout depending on type
                     if (type === 'tree') {
                         panel.webview.html = getTreeWebviewContent(config.title, stdout);
+                    }
+                    else if (type === 'prompt') {
+                        panel.webview.html = getPromptWebviewContent(config.title, stdout);
                     }
                     else {
                         panel.webview.html = getMermaidWebviewContent(config.title, stdout);
@@ -168,10 +172,10 @@ class BackendHelperSidebarProvider {
                                 if (uri) {
                                     try {
                                         fs.writeFileSync(uri.fsPath, msg.content, 'utf8');
-                                        vscode.window.showInformationMessage("¡Archivo guardado con éxito!");
+                                        vscode.window.showInformationMessage("File saved successfully!");
                                     }
                                     catch (err) {
-                                        vscode.window.showErrorMessage(`Error al guardar archivo: ${err.message}`);
+                                        vscode.window.showErrorMessage(`Error saving file: ${err.message}`);
                                     }
                                 }
                                 break;
@@ -189,7 +193,7 @@ class BackendHelperSidebarProvider {
         if (type === 'docs') {
             vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: "Generando Portal HTML Local...",
+                title: "Generating Local HTML Portal...",
                 cancellable: false
             }, async () => {
                 return new Promise((resolve) => {
@@ -199,15 +203,15 @@ class BackendHelperSidebarProvider {
                             resolve();
                             return;
                         }
-                        const openAction = 'Abrir en Navegador';
-                        vscode.window.showInformationMessage('¡Portal HTML Local generado con éxito!', openAction).then(selection => {
+                        const openAction = 'Open in Browser';
+                        vscode.window.showInformationMessage('Local HTML Portal generated successfully!', openAction).then(selection => {
                             if (selection === openAction) {
-                                const docPath = path.join(workspacePath, 'index.html');
+                                const docPath = path.join(workspacePath, 'docs', 'index.html');
                                 if (fs.existsSync(docPath)) {
                                     vscode.env.openExternal(vscode.Uri.file(docPath));
                                 }
                                 else {
-                                    vscode.window.showErrorMessage('No se encontró el archivo index.html generado.');
+                                    vscode.window.showErrorMessage('Could not find the generated index.html under docs/index.html.');
                                 }
                             }
                         });
@@ -218,23 +222,23 @@ class BackendHelperSidebarProvider {
             return;
         }
         const cmdMap = {
-            'security': { title: 'Auditoría de Seguridad', cmd: 'bck-nd scan . --audit' },
-            'todo': { title: 'Escaneo de Deuda Técnica', cmd: 'bck-nd scan . --todo' }
+            'security': { title: 'Security Audit', cmd: 'bck-nd scan . --audit' },
+            'todo': { title: 'Technical Debt Scan', cmd: 'bck-nd scan . --todo' }
         };
         const config = cmdMap[type];
         if (!config) {
-            vscode.window.showErrorMessage(`Comando de auditoría desconocido: ${type}`);
+            vscode.window.showErrorMessage(`Unknown audit command: ${type}`);
             return;
         }
         // Show Output Channel and run command
         this._outputChannel.clear();
         this._outputChannel.show();
-        this._outputChannel.appendLine(`>>> Iniciando ${config.title}...`);
-        this._outputChannel.appendLine(`>>> Directorio de trabajo: ${workspacePath}`);
-        this._outputChannel.appendLine(`>>> Ejecutando: ${config.cmd}\n`);
+        this._outputChannel.appendLine(`>>> Starting ${config.title}...`);
+        this._outputChannel.appendLine(`>>> Working directory: ${workspacePath}`);
+        this._outputChannel.appendLine(`>>> Running: ${config.cmd}\n`);
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: `Ejecutando ${config.title}...`,
+            title: `Running ${config.title}...`,
             cancellable: false
         }, async () => {
             return new Promise((resolve) => {
@@ -243,16 +247,16 @@ class BackendHelperSidebarProvider {
                         this._outputChannel.append(stdout);
                     }
                     if (stderr) {
-                        this._outputChannel.append('\n--- ERRORES / ADVERTENCIAS ---\n');
+                        this._outputChannel.append('\n--- ERRORS / WARNINGS ---\n');
                         this._outputChannel.append(stderr);
                     }
                     if (error) {
-                        this._outputChannel.appendLine(`\n>>> ERROR: El comando falló con código ${error.code}`);
+                        this._outputChannel.appendLine(`\n>>> ERROR: Command failed with code ${error.code}`);
                         this._handleExecError(error, stderr);
                     }
                     else {
-                        this._outputChannel.appendLine(`\n>>> Ejecución finalizada con éxito.`);
-                        vscode.window.showInformationMessage(`¡${config.title} completada! Resultados en panel Backend Helper.`);
+                        this._outputChannel.appendLine(`\n>>> Execution finished successfully.`);
+                        vscode.window.showInformationMessage(`¡${config.title} completed! Results in the Backend Helper panel.`);
                     }
                     resolve();
                 });
@@ -267,16 +271,16 @@ class BackendHelperSidebarProvider {
         console.error('Stderr:', stderr);
         const errMsg = error.message || '';
         if (errMsg.includes('not found') || errMsg.includes('is not recognized') || error.code === 127) {
-            vscode.window.showErrorMessage("El CLI 'bck-nd' no se encuentra instalado o no está disponible en tu sistema PATH.", "Instalar con pip").then(selection => {
-                if (selection === "Instalar con pip") {
-                    const terminal = vscode.window.createTerminal("Instalar Backend Helper");
+            vscode.window.showErrorMessage("The CLI 'bck-nd' is not installed or not available in your system PATH.", "Install with pip").then(selection => {
+                if (selection === "Install with pip") {
+                    const terminal = vscode.window.createTerminal("Install Backend Helper");
                     terminal.show();
                     terminal.sendText("pip install bck-nd-hlpr");
                 }
             });
         }
         else {
-            vscode.window.showErrorMessage(`Error ejecutando comando: ${stderr || error.message}`);
+            vscode.window.showErrorMessage(`Error executing command: ${stderr || error.message}`);
         }
     }
     /**
@@ -423,84 +427,89 @@ class BackendHelperSidebarProvider {
 <body>
     <div class="header">
         <h2>Backend Helper</h2>
-        <p>Panel de Control de Arquitectura</p>
+        <p>Architecture Control Panel</p>
     </div>
 
-    <!-- SECCIÓN 1: INTELIGENCIA ARTIFICIAL -->
+    <!-- SECTION 1: ARTIFICIAL INTELLIGENCE -->
     <details open>
         <summary>
-            <span>🤖 Inteligencia Artificial (IA)</span>
+            <span>🤖 Artificial Intelligence (AI)</span>
             <svg class="chevron" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </summary>
         <div class="section-content">
             <button class="btn" onclick="copyContext()">
-                <span>🤖</span> Copiar Contexto al Portapapeles
+                <span>🤖</span> Copy Context to Clipboard
             </button>
-            <p class="btn-desc">Genera un volcado completo de contexto optimizado para ChatGPT y Claude.</p>
+            <p class="btn-desc">Generates a complete context dump optimized for ChatGPT and Claude.</p>
+
+            <button class="btn" onclick="generateDiagram('prompt')">
+                <span>📄</span> View AI Context in Editor
+            </button>
+            <p class="btn-desc">Generates the complete context dump and displays it in a tab for review and saving.</p>
         </div>
     </details>
 
-    <!-- SECCIÓN 2: DIAGRAMAS -->
+    <!-- SECTION 2: DIAGRAMS -->
     <details open>
         <summary>
-            <span>🗺️ Generación de Diagramas</span>
+            <span>🗺️ Diagram Generation</span>
             <svg class="chevron" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </summary>
         <div class="section-content">
             <button class="btn" onclick="generateDiagram('arch')">
-                <span>🏗️</span> Diagrama Completo de Arquitectura
+                <span>🏗️</span> Complete Architecture Diagram
             </button>
-            <p class="btn-desc">Estructura general de módulos, dependencias y carpetas.</p>
+            <p class="btn-desc">General structure of modules, dependencies, and folders.</p>
             
             <button class="btn" onclick="generateDiagram('tree')">
-                <span>🌳</span> Árbol de Proyecto
+                <span>🌳</span> Project Tree
             </button>
-            <p class="btn-desc">Árbol de carpetas y archivos.</p>
+            <p class="btn-desc">Tree of folders and files.</p>
             
             <button class="btn" onclick="generateDiagram('uml')">
-                <span>🧬</span> Diagrama UML de Clases
+                <span>🧬</span> UML Class Diagram
             </button>
-            <p class="btn-desc">Modelado de clases, herencias y métodos principales.</p>
+            <p class="btn-desc">Modeling of classes, inheritance, and main methods.</p>
             
             <button class="btn" onclick="generateDiagram('er')">
-                <span>🗄️</span> Diagrama Entidad-Relación (ER)
+                <span>🗄️</span> Entity-Relationship Diagram (ER)
             </button>
-            <p class="btn-desc">Mapeo lógico de tablas, llaves y esquemas de base de datos.</p>
+            <p class="btn-desc">Logical mapping of tables, keys, and database schemas.</p>
             
             <button class="btn" onclick="generateDiagram('trace')">
-                <span>🛣️</span> Mapa de Rutas a DB
+                <span>🛣️</span> Route-to-DB Map
             </button>
-            <p class="btn-desc">Trazabilidad de endpoints REST de la API hacia la base de datos.</p>
+            <p class="btn-desc">Traceability of REST endpoints from the API to the database.</p>
         </div>
     </details>
 
-    <!-- SECCIÓN 3: AUDITORÍA Y CALIDAD -->
+    <!-- SECTION 3: AUDITING AND QUALITY -->
     <details open>
         <summary>
-            <span>🛡️ Auditoría y Calidad</span>
+            <span>🛡️ Audit and Quality</span>
             <svg class="chevron" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </summary>
         <div class="section-content">
             <button class="btn" onclick="runAudit('security')">
-                <span>🛡️</span> Auditoría de Seguridad
+                <span>🛡️</span> Security Audit
             </button>
-            <p class="btn-desc">Análisis de claves expuestas, credenciales y malas prácticas.</p>
+            <p class="btn-desc">Analysis of exposed keys, credentials, and bad practices.</p>
             
             <button class="btn" onclick="runAudit('todo')">
-                <span>🧹</span> Escanear Deuda Técnica
+                <span>🧹</span> Scan Technical Debt
             </button>
-            <p class="btn-desc">Identifica comentarios pendientes como TODO, FIXME, HACK y BUG.</p>
+            <p class="btn-desc">Identifies pending comments like TODO, FIXME, HACK, and BUG.</p>
             
             <button class="btn" onclick="runAudit('docs')">
-                <span>🌐</span> Portal HTML Local
+                <span>🌐</span> Local HTML Portal
             </button>
-            <p class="btn-desc">Crea un sitio estático completo de documentación interactiva.</p>
+            <p class="btn-desc">Creates a complete static site of interactive documentation.</p>
         </div>
     </details>
 
@@ -829,5 +838,91 @@ function getMermaidWebviewContent(title, rawStdout) {
         init();
     </script>
 </body></html>`;
+}
+/**
+ * Webview HTML for the prompt dump (text-only XML context)
+ */
+function getPromptWebviewContent(title, rawStdout) {
+    const clean = stripAnsi(rawStdout);
+    const escaped = clean.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>${title}</title>
+    <style>
+        body {
+            background-color: var(--vscode-editor-background, #1e1e1e);
+            color: var(--vscode-editor-foreground, #d4d4d4);
+            font-family: var(--vscode-font-family, sans-serif);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 18px;
+            background-color: var(--vscode-sideBar-background, #252526);
+            border-bottom: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1));
+            flex-shrink: 0;
+        }
+        .header-bar h3 { margin: 0; font-size: 1rem; font-weight: 500; }
+        .controls { display: flex; gap: 8px; }
+        .btn {
+            background-color: var(--vscode-button-background, #007acc);
+            color: var(--vscode-button-foreground, #ffffff);
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn:hover { background-color: var(--vscode-button-hoverBackground, #0062a3); }
+        .content-area { flex-grow: 1; overflow: auto; padding: 20px 24px; }
+        pre {
+            font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            padding: 1.5rem;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            border: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1));
+            overflow-x: auto;
+            white-space: pre-wrap;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header-bar">
+        <h3>${title}</h3>
+        <div class="controls">
+            <button class="btn" onclick="copyPrompt()">📋 Copy Context</button>
+            <button class="btn" onclick="savePrompt()">💾 Save Context</button>
+        </div>
+    </div>
+    <div class="content-area">
+        <pre id="prompt-content">${escaped}</pre>
+    </div>
+    <script>
+        const vscode = acquireVsCodeApi();
+        const promptText = document.getElementById('prompt-content').textContent;
+        function copyPrompt() {
+            navigator.clipboard.writeText(promptText).then(() => {
+                vscode.postMessage({ command: 'notifyInfo', message: 'AI Context copied to clipboard!' });
+            });
+        }
+        function savePrompt() {
+            vscode.postMessage({ command: 'saveFile', content: promptText, defaultName: 'ai-context-dump.txt' });
+        }
+    </script>
+</body>
+</html>`;
 }
 //# sourceMappingURL=extension.js.map

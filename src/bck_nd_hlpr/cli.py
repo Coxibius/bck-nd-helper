@@ -729,6 +729,12 @@ def prompt_cmd(
       bck-nd prompt .                      # Generates ai_context.txt
       bck-nd prompt /my/project -o ctx.txt # Custom output file
     """
+    if output == "-":
+        dumper = ContextDumper(path=path, depth=depth)
+        context = dumper.build()
+        print(context)
+        return
+
     from rich.console import Console
     from rich.panel import Panel
     from rich import box

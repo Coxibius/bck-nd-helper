@@ -143,7 +143,7 @@ def generate_mermaid_traceability(traces: List[TraceNode]) -> str:
             node_id_counter += 1
             node_map[label] = node_id
             # Clean label for display
-            clean_label = label.replace('"', "'")
+            clean_label = " ".join(label.split()).replace('"', "'")
             diagram.append(f"    {node_id}[\"{clean_label}\"]")
         return node_map[label]
 

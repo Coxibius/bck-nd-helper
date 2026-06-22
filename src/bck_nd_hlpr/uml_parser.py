@@ -122,11 +122,13 @@ def generate_mermaid_class_diagram(all_classes: List[UMLClassInfo]) -> str:
             lines.append(f"      class {safe_cls_name} {{")
             for attr in cls.attributes:
                 # Basic sanitation for attributes to avoid breaking mermaid
-                safe_attr = attr.replace("{", "").replace("}", "").replace("<", "~").replace(">", "~")
+                clean_attr = " ".join(attr.split())
+                safe_attr = clean_attr.replace("{", "").replace("}", "").replace("<", "~").replace(">", "~")
                 lines.append(f"        +{safe_attr}")
             for method in cls.methods:
                 # Mermaid fails to parse { } or <> inside method signatures
-                safe_method = method.replace("{", "").replace("}", "").replace("<", "~").replace(">", "~")
+                clean_method = " ".join(method.split())
+                safe_method = clean_method.replace("{", "").replace("}", "").replace("<", "~").replace(">", "~")
                 lines.append(f"        +{safe_method}")
             lines.append("      }")
         lines.append("    }")

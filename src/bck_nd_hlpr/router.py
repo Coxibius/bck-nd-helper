@@ -174,11 +174,12 @@ class Router:
         # Let's use name as ID for simplicity, sanitizing it.
         
         def sanitize(text):
-            return text.replace(" ", "_").replace("[", "").replace("]", "").replace(".", "_").replace("-", "_")
+            clean = " ".join(text.split())
+            return clean.replace(" ", "_").replace("[", "").replace("]", "").replace(".", "_").replace("-", "_")
             
         def get_shape(text):
             u_text = text.upper()
-            clean = text.replace("[", "").replace("]", "")
+            clean = " ".join(text.split()).replace("[", "").replace("]", "").replace('"', "'")
             
             if any(k in u_text for k in ["DB", "SQL", "DATA"]): 
                 return f'[("{clean}")]' # Cylinder
