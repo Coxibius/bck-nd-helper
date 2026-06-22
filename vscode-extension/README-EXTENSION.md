@@ -1,4 +1,3 @@
-
 # Backend Helper VS Code Extension
 
 Backend Helper is a Visual Studio Code extension that integrates the `bck-nd-hlpr` CLI directly into the editor, providing AI context generation, architecture visualization, UML/ER diagrams, project insights, and security auditing from a unified control panel.
