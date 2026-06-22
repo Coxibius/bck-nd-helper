@@ -71,6 +71,13 @@ class ArchitectureDetector:
     def detect(self, root_path: str) -> Dict:
         """Analiza el proyecto y retorna información arquitectónica."""
         root = Path(root_path).resolve()
+        if not root.is_dir():
+            return {
+                'framework': 'Unknown',
+                'architecture': 'Single File',
+                'features': [],
+                'summary': f"Single file: {root.name}"
+            }
         
         # Cargar configuración personalizada
         self._load_config(root)

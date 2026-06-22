@@ -11,7 +11,7 @@ description = "The Backend Helper - Your CLI Context help for AI and Humans"
 
 readme = "README.md"
 authors = [
-  { name = "Coxibius", email = "[victormcox26@gmail.com]" },
+  { name = "Coxibius", email = "victormcox26@gmail.com" },
 ]
 license = { text = "MIT" }
 keywords = ["mcp", "architecture", "diagrams", "mermaid", "cli", "reverse-engineering", "backend"]

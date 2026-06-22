@@ -7,6 +7,7 @@ from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
 from bck_nd_hlpr.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram
 from bck_nd_hlpr.todo_hunter import scan_for_todos
 from bck_nd_hlpr.scanner import ProjectScanner
+from bck_nd_hlpr.tree_generator import generate_project_tree
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en" data-theme="light">
@@ -165,6 +166,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <div class="container">
         <div class="card">
+            <h2><span class="badge" style="background: #10b981;">TREE</span> Project Structure</h2>
+            <pre style="font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: var(--textarea-bg); border-radius: 8px; border: 1px solid var(--border); overflow-x: auto; white-space: pre; color: var(--text-main);">{project_tree}</pre>
+        </div>
+
+        <div class="card">
             <h2><span class="badge">INFRA</span> Infrastructure Map</h2>
             <div class="editor-container">
                 <div class="editor-pane">
@@ -296,6 +302,11 @@ class DocGenerator:
         is_spring = framework in ['Spring Boot', 'Java (Maven)', 'Java (Gradle)']
         is_laravel = framework in ['Laravel', 'PHP']
         
+        # 0. Project Tree
+        project_tree = generate_project_tree(root_path, depth=4)
+        if not project_tree:
+            project_tree = "No project structure detected."
+
         # 1. Infra
         compose_file = parse_infra(root_path)
         infra_diagram = "graph LR\n    empty[No data detected]"
@@ -381,6 +392,8 @@ class DocGenerator:
 
         # Render HTML
         html_content = HTML_TEMPLATE.replace(
+            "{project_tree}", project_tree
+        ).replace(
             "{infra_diagram}", infra_diagram
         ).replace(
             "{sequence_diagram}", sequence_diagram
@@ -393,10 +406,20 @@ class DocGenerator:
         )
 
         # Write to file
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        output_file = os.path.join(output_dir, "index.html")
-        
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(html_content)
+        try:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            output_file = os.path.join(output_dir, "index.html")
             
-        return output_file
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(html_content)
+                
+            return output_file
+        except OSError as e:
+            print(f"Error creating output directory or writing HTML file: {e}")
+            return None
+        except UnicodeEncodeError as e:
+            print(f"Encoding error while writing HTML file: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error generating documentation: {e}")
+            return None
