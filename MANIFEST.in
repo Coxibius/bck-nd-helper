@@ -17,3 +17,5 @@ prune .venv
 prune build
 prune dist
 prune *.egg-info
+
+prune vscode-extension
