@@ -837,6 +837,12 @@ def prompt_cmd(
       bck-nd prompt /my/project -o ctx.txt Custom output file
       bck-nd prompt . --depth 6            Deeper scan for nested projects
     """
+    if output == "-":
+        dumper = ContextDumper(path=path, depth=depth)
+        context = dumper.build()
+        print(context)
+        return
+
     from rich.console import Console
     from rich.panel import Panel
     from rich import box

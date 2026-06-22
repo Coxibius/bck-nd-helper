@@ -235,14 +235,21 @@ def generate_mermaid_sequence(all_routes: List[RouteInfo]) -> str:
     # Sort files to ensure consistent order
     files = sorted(list(set(r.filename for r in all_routes)))
     
-    for f in files:
-        diagram.append(f"    participant {f}")
+    alias_map = {}
+    for i, f in enumerate(files):
+        alias = f"P{i}"
+        alias_map[f] = alias
+        diagram.append(f'    participant {alias} as "{f}"')
         
     diagram.append("")
     
     for route in all_routes:
-        # Client ->> controller.py: GET /api/users
-        diagram.append(f"    Client->>{route.filename}: [{route.method}] {route.path}")
+        alias = alias_map[route.filename]
+        # Clean path and method to avoid breaking the diagram description
+        clean_path = " ".join(route.path.split()).replace('"', "'")
+        clean_method = " ".join(route.method.split()).replace('"', "'")
+        diagram.append(f"    Client->>+{alias}: [{clean_method}] {clean_path}")
+        diagram.append(f"    {alias}-->>-Client: Response")
         
     return "\n".join(diagram)
 
