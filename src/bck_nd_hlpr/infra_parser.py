@@ -96,11 +96,20 @@ def generate_mermaid_infra(services: Dict[str, Any]) -> str:
     if not services:
         return "graph LR\n    empty[No services found]"
     
+    import re
+    def sanitize_id(name: str) -> str:
+        s = re.sub(r'[^A-Za-z0-9_]', '_', str(name).strip())
+        if not s: return "srv_unknown"
+        if not s[0].isalpha():
+            s = 'srv_' + s
+        return s
+
     lines = ["graph LR"]
     edges = []
     
     # Generate nodes
     for service_name, service_config in services.items():
+        safe_id = sanitize_id(service_name)
         # Determine label (image or build info)
         if 'image' in service_config:
             label = f"{service_name} (image: {service_config['image']})"
@@ -112,13 +121,16 @@ def generate_mermaid_infra(services: Dict[str, Any]) -> str:
         else:
             label = service_name
         
+        # Clean label (quotes and newlines)
+        clean_label = " ".join(label.split()).replace('"', "'")
+        
         # Determine shape based on service type
         if is_database(service_config):
             # Cylinder shape for databases
-            node = f'    {service_name}[("{label}")]'
+            node = f'    {safe_id}[("{clean_label}")]'
         else:
             # Box shape for regular services
-            node = f'    {service_name}["{label}"]'
+            node = f'    {safe_id}["{clean_label}"]'
         
         lines.append(node)
         
@@ -132,14 +144,14 @@ def generate_mermaid_infra(services: Dict[str, Any]) -> str:
             depends_on = []
         
         for dependency in depends_on:
-            edges.append(f'    {service_name} --> {dependency}')
+            edges.append(f'    {safe_id} --> {sanitize_id(dependency)}')
         
         # Also check for 'links' (older docker-compose syntax)
         links = service_config.get('links', [])
         for link in links:
             # Links can be "service" or "service:alias"
             linked_service = link.split(':')[0]
-            edge = f'    {service_name} --> {linked_service}'
+            edge = f'    {safe_id} --> {sanitize_id(linked_service)}'
             if edge not in edges:  # Avoid duplicates
                 edges.append(edge)
     

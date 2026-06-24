@@ -115,29 +115,38 @@ def generate_mermaid_class_diagram(all_classes: List[UMLClassInfo]) -> str:
 
     # Dibujar clases agrupadas
     for namespace, classes in modules.items():
-        lines.append(f"    namespace {namespace} {{")
+        safe_ns = namespace.replace("-", "_")
+        lines.append(f"    namespace {safe_ns} {{")
         for cls in classes:
-            lines.append(f"      class {cls.name} {{")
+            safe_cls_name = cls.name.replace("-", "_")
+            lines.append(f"      class {safe_cls_name} {{")
             for attr in cls.attributes:
-                lines.append(f"        +{attr}")
+                # Basic sanitation for attributes to avoid breaking mermaid
+                clean_attr = " ".join(attr.split())
+                safe_attr = clean_attr.replace("{", "").replace("}", "").replace("<", "~").replace(">", "~")
+                lines.append(f"        +{safe_attr}")
             for method in cls.methods:
-                lines.append(f"        +{method}")
+                # Mermaid fails to parse { } or <> inside method signatures
+                clean_method = " ".join(method.split())
+                safe_method = clean_method.replace("{", "").replace("}", "").replace("<", "~").replace(">", "~")
+                lines.append(f"        +{safe_method}")
             lines.append("      }")
         lines.append("    }")
 
     # Dibujar relaciones (Herencia)
     # Mapeo rápido NombreClase -> ClaseObj para verificar existencia
-    class_map = {c.name: c for c in all_classes}
+    class_map = {c.name.replace("-", "_"): c for c in all_classes}
 
     for cls in all_classes:
+        safe_cls_name = cls.name.replace("-", "_")
         for base_name in cls.bases:
             # Intentar limpiar nombre si viene con módulo (models.User -> User)
-            clean_base = base_name.split(".")[-1]
+            clean_base = base_name.split(".")[-1].replace("-", "_")
             
             # Solo dibujamos si la clase base también está en nuestro proyecto
             # Ojo: esto omite herencias de librerías externas (como db.Model), lo cual suele ser deseado
             if clean_base in class_map:
-                lines.append(f"    {clean_base} <|-- {cls.name}")
+                lines.append(f"    {clean_base} <|-- {safe_cls_name}")
             else:
                 # Opcional: Mostrar herencia externa con estilo diferente o ignorar
                 pass
@@ -148,25 +157,27 @@ def generate_mermaid_class_diagram(all_classes: List[UMLClassInfo]) -> str:
     
     # Primero dibujamos asociaciones fuertes (basadas en atributos/propiedades)
     for cls in all_classes:
+        safe_cls_name = cls.name.replace("-", "_")
         for attr in cls.attributes:
             words = re.findall(r'\b[A-Z][a-zA-Z0-9_]*\b', attr)
             for word in words:
-                if word in class_map and word != cls.name:
-                    rel_pair = (cls.name, word)
+                if word in class_map and word != safe_cls_name:
+                    rel_pair = (safe_cls_name, word)
                     if rel_pair not in drawn_associations:
-                        lines.append(f"    {cls.name} --> {word}")
+                        lines.append(f"    {safe_cls_name} --> {word}")
                         drawn_associations.add(rel_pair)
                         
     # Luego dibujamos dependencias débiles (basadas en parámetros de métodos)
     for cls in all_classes:
+        safe_cls_name = cls.name.replace("-", "_")
         for method in cls.methods:
             words = re.findall(r'\b[A-Z][a-zA-Z0-9_]*\b', method)
             for word in words:
-                if word in class_map and word != cls.name:
-                    if (cls.name, word) not in drawn_associations:
-                        dep_pair = f"{cls.name}_dep_{word}"
+                if word in class_map and word != safe_cls_name:
+                    if (safe_cls_name, word) not in drawn_associations:
+                        dep_pair = f"{safe_cls_name}_dep_{word}"
                         if dep_pair not in drawn_associations:
-                            lines.append(f"    {cls.name} ..> {word}")
+                            lines.append(f"    {safe_cls_name} ..> {word}")
                             drawn_associations.add(dep_pair)
 
     return "\n".join(lines)

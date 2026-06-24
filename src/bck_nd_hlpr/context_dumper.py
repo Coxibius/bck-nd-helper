@@ -311,20 +311,24 @@ class ContextDumper:
             sections.append("<!-- No database models detected in this project. -->")
         sections.append("</architecture_er>\n")
 
-        # ── 4. Core Files ─────────────────────────────────────────────────
-        sections.append("<core_files>")
-        core_files = self.get_core_files()
-        if core_files:
-            for file_info in core_files:
-                lang = self._detect_lang(file_info["path"])
-                sections.append(f'<file path="{file_info["path"]}">')
-                sections.append(f"```{lang}")
-                sections.append(file_info["content"])
-                sections.append("```")
-                sections.append("</file>\n")
-        else:
-            sections.append("<!-- No core backend files detected. -->")
-        sections.append("</core_files>")
+        # ── 4. Core Files ── DISABLED to save tokens ─────────────────────
+        # The UML/ER diagrams above already provide structural context.
+        # Raw source code was consuming too many tokens.
+        # To re-enable, uncomment the block below.
+        #
+        # sections.append("<core_files>")
+        # core_files = self.get_core_files()
+        # if core_files:
+        #     for file_info in core_files:
+        #         lang = self._detect_lang(file_info["path"])
+        #         sections.append(f'<file path="{file_info["path"]}">')
+        #         sections.append(f"```{lang}")
+        #         sections.append(file_info["content"])
+        #         sections.append("```")
+        #         sections.append("</file>\n")
+        # else:
+        #     sections.append("<!-- No core backend files detected. -->")
+        # sections.append("</core_files>")
 
         return "\n".join(sections)
 

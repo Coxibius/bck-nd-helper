@@ -498,7 +498,6 @@ def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_conte
     - <project_tree>:      Clean ASCII directory tree (ignoring venv, node_modules, .git, etc.)
     - <architecture_uml>:  UML Class Diagram in Mermaid format
     - <architecture_er>:   Entity-Relationship Diagram in Mermaid format
-    - <core_files>:        Content of the 3-5 most important backend files (main.py, models.py, etc.)
 
     The user can open the file, Select All, Copy, and paste it as context into any LLM chat.
 
@@ -519,7 +518,6 @@ def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_conte
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(context)
 
-        core_files = dumper.get_core_files()
         uml = dumper.get_uml_diagram()
         er = dumper.get_er_diagram()
         file_size_kb = round(os.path.getsize(output_path) / 1024, 1)
@@ -529,8 +527,7 @@ def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_conte
             f"File: {output_path}\n"
             f"Size: {file_size_kb} KB\n"
             f"UML Diagram:  {'Generated' if uml else 'Not detected'}\n"
-            f"ER Diagram:   {'Generated' if er else 'Not detected'}\n"
-            f"Core files:   {len(core_files)} file(s) included\n\n"
+            f"ER Diagram:   {'Generated' if er else 'Not detected'}\n\n"
             f"The user can now open '{output}', Select All, Copy, and paste it into ChatGPT or Claude."
         )
     except Exception as e:

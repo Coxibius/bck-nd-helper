@@ -9,9 +9,29 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:backendHelperView.controlPanel"
+  ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "backendHelperView",
+          "title": "Backend Helper",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "backendHelperView": [
+        {
+          "type": "webview",
+          "id": "backendHelperView.controlPanel",
+          "name": "BCK-ND: Control Panel"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "bck-nd.generateDiagram",
