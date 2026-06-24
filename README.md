@@ -1,6 +1,8 @@
 # 🛠️ Backend Helper (`bck-nd-hlpr`)
 
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/bck-nd-hlpr?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/bck-nd-hlpr)
+[![PyPI version](https://badge.fury.io/py/bck-nd-hlpr.svg)](https://badge.fury.io/py/bck-nd-hlpr)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Backend Helper — Lightweight CLI that detects backend architectures and exports Mermaid diagrams, ASCII previews and CI-ready HTML docs.
 
@@ -432,8 +434,6 @@ bck-nd flow "User -> Auth [Service] -> JWT [Token] -> API"
 
 ---
 
-
-
 ## 📚 Command Manual
 
 ### 🖥️ `explore` - Interactive TUI Mode (Explorer) 🆕
@@ -454,8 +454,6 @@ bck-nd explore
 - **Shortcuts:** Press `D` to toggle dark/light mode, `Q` to quit.
 
 ---
-
-
 
 ## 🎯 Usage Examples
 
