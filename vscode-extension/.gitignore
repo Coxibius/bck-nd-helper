@@ -1,3 +1,6 @@
 .ai_context_tmp.txt
 
 TESTING.md
+out/
+node_modules/
+*.vsix
