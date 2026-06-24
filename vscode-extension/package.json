@@ -19,7 +19,7 @@
         {
           "id": "backendHelperView",
           "title": "Backend Helper",
-          "icon": "$(circuit-board)"
+          "icon": "resources/icon.svg"
         }
       ]
     },
@@ -28,7 +28,7 @@
         {
           "type": "webview",
           "id": "backendHelperView.controlPanel",
-          "name": "Panel de Control"
+          "name": "BCK-ND: Control Panel"
         }
       ]
     },

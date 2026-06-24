@@ -248,7 +248,7 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
             del dirs[:]
             continue
             
-        dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         
         for file in files:
             file_path = Path(root_dir) / file

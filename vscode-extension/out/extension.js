@@ -45,7 +45,7 @@ class BackendHelperSidebarProvider {
         webviewView.webview.onDidReceiveMessage(async (data) => {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders || workspaceFolders.length === 0) {
-                vscode.window.showErrorMessage('Please, open a project folder to use this extension.');
+                vscode.window.showErrorMessage('Por favor, abre una carpeta de proyecto para usar esta extensión.');
                 return;
             }
             const workspacePath = workspaceFolders[0].uri.fsPath;

@@ -720,7 +720,6 @@ def prompt_cmd(
     - Project directory tree (clean, no noise folders)
     - UML Class Diagram (Mermaid)
     - Entity-Relationship Diagram (Mermaid)
-    - Content of the 3-5 most important backend files
 
     Just copy-paste the output file into any LLM for instant project understanding!
 
@@ -752,19 +751,16 @@ def prompt_cmd(
 
     dumper = ContextDumper(path=path, depth=depth)
 
-    typer.secho("  [1/5] Building directory tree...", fg=typer.colors.CYAN)
+    typer.secho("  [1/4] Building directory tree...", fg=typer.colors.CYAN)
     tree = dumper.get_project_tree()
 
-    typer.secho("  [2/5] Generating UML diagram...", fg=typer.colors.MAGENTA)
+    typer.secho("  [2/4] Generating UML diagram...", fg=typer.colors.MAGENTA)
     uml = dumper.get_uml_diagram()
 
-    typer.secho("  [3/5] Generating ER diagram...", fg=typer.colors.MAGENTA)
+    typer.secho("  [3/4] Generating ER diagram...", fg=typer.colors.MAGENTA)
     er = dumper.get_er_diagram()
 
-    typer.secho("  [4/5] Reading core backend files...", fg=typer.colors.YELLOW)
-    core_files = dumper.get_core_files()
-
-    typer.secho("  [5/5] Assembling context file...", fg=typer.colors.GREEN)
+    typer.secho("  [4/4] Assembling context file...", fg=typer.colors.GREEN)
     context = dumper.build()
 
     # Write to disk
@@ -779,15 +775,13 @@ def prompt_cmd(
     # -- Summary report -------------------------------------------------------
     uml_status  = "[green][OK] Generated[/green]" if uml else "[yellow][--] No classes detected[/yellow]"
     er_status   = "[green][OK] Generated[/green]" if er  else "[yellow][--] No models detected[/yellow]"
-    files_count = len(core_files)
 
     console.print()
     console.print(
         Panel(
             f"[bold]Project:[/bold]   [cyan]{Path(path).resolve().name}[/cyan]\n"
             f"[bold]UML:[/bold]       {uml_status}\n"
-            f"[bold]ER:[/bold]        {er_status}\n"
-            f"[bold]Core files:[/bold] [green]{files_count} file(s) included[/green]\n\n"
+            f"[bold]ER:[/bold]        {er_status}\n\n"
             f"[bold green]Contexto generado en [underline]{output}[/underline].[/bold green]\n"
             f"[italic]Listo para copiar y pegar en tu IA![/italic]",
             title="[bold cyan]Context Dump Complete[/bold cyan]",
