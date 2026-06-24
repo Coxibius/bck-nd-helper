@@ -1,5 +1,9 @@
 # 🛠️ Backend Helper (`bck-nd-hlpr`)
 
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/bck-nd-hlpr?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/bck-nd-hlpr)
+[![PyPI version](https://badge.fury.io/py/bck-nd-hlpr.svg)](https://badge.fury.io/py/bck-nd-hlpr)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Backend Helper — Lightweight CLI that detects backend architectures and exports Mermaid diagrams, ASCII previews and CI-ready HTML docs.
 
 - Auto-detect frameworks (Flask, FastAPI, Django, Express, Spring, .NET, Go, Rust).
@@ -50,27 +54,6 @@ bck-nd --help
 # set OPENAI_API_KEY=sk-... (Windows)
 # export OPENAI_API_KEY=sk-... (Mac/Linux)
 ```
-
----
-
-## 📚 Command Manual
-
-### 🖥️ `explore` - Interactive TUI Mode (Explorer) 🆕
-
-Launch a full-screen Terminal User Interface (TUI) to interactively explore your project's architecture, powered by `textual`.
-
-#### **Usage**
-
-```bash
-bck-nd explore
-```
-
-**What you get:**
-
-- **Sidebar:** Directory tree to navigate your codebase.
-- **Main View:** Click on a `.py` file to instantly generate its ASCII diagram and Mermaid Sequence routes.
-- **Dynamic Analysis:** Click on a folder to see the high-level architecture of that specific directory.
-- **Shortcuts:** Press `D` to toggle dark/light mode, `Q` to quit.
 
 ---
 
@@ -134,7 +117,7 @@ bck-nd prompt . --depth 6
 
 #### **Example output structure**
 
-```xml
+````xml
 <!-- bck-nd-hlpr Context Dump -->
 <!-- Paste this file into ChatGPT / Claude for instant AI context -->
 
@@ -164,7 +147,7 @@ erDiagram
 </architecture_er>
 
 <core_files>
-`<file path="src/main.py">`
+<file path="src/main.py">
 
 ```python
 # ... file content ...
@@ -172,7 +155,7 @@ erDiagram
 
 </file>
 </core_files>
-```
+````
 
 ---
 
@@ -405,7 +388,6 @@ bck-nd scan . --tree
 - Generates a clean ASCII directory tree of the project using Unicode box-drawing characters.
 - Automatically and silently filters out ignored directories (such as `node_modules`, `venv`, `.git`, etc.) based on `GLOBAL_IGNORE_DIRS`.
 
-
 #### **AI Personalities**
 
 ```bash
@@ -449,6 +431,27 @@ bck-nd flow "User -> Auth [Service] -> JWT [Token] -> API"
 - `[DB]`, `[SQL]`, `[DATA]` - Rendered as database cylinders
 - `[Service]`, `[DIR]` - Rendered as soft boxes
 - `[?]`, `[IF]` - Rendered as diamonds
+
+---
+
+## 📚 Command Manual
+
+### 🖥️ `explore` - Interactive TUI Mode (Explorer) 🆕
+
+Launch a full-screen Terminal User Interface (TUI) to interactively explore your project's architecture, powered by `textual`.
+
+#### **Usage**
+
+```bash
+bck-nd explore
+```
+
+**What you get:**
+
+- **Sidebar:** Directory tree to navigate your codebase.
+- **Main View:** Click on a `.py` file to instantly generate its ASCII diagram and Mermaid Sequence routes.
+- **Dynamic Analysis:** Click on a folder to see the high-level architecture of that specific directory.
+- **Shortcuts:** Press `D` to toggle dark/light mode, `Q` to quit.
 
 ---
 
@@ -584,7 +587,8 @@ bck-nd scan . --er --format mermaid -o db.mmd
 
 ## 🧪 AI Providers Setup (BYO-Key)
 
-Backend Helper automatically loads `.env` files if they exist in your project root. 
+Backend Helper automatically loads `.env` files if they exist in your project root.
+
 > **⚠️ Security Warning:** Never commit `.env` to public repositories; `init-ci` does not inject keys into the repo.
 
 Preferred order (checked automatically):
@@ -681,7 +685,7 @@ For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED
 | `bck-nd scan . --audit`         | ✅                     | ❌             | ✅ (Sec. Risks)     | ❌               | ❌              |
 | `bck-nd scan . --impact`        | ✅                     | ❌             | ✅ (Impact Heatmap) | ❌               | ❌              |
 | `bck-nd scan . --trace`         | ✅                     | ✅ (Trace LR)  | ❌                  | ❌               | ❌              |
-| `bck-nd scan . --tree`          | ✅                     | ✅ (File Tree)  | ❌                  | ❌               | ❌              |
+| `bck-nd scan . --tree`          | ✅                     | ✅ (File Tree) | ❌                  | ❌               | ❌              |
 | `bck-nd prompt .`               | ✅                     | ✅ (Mermaid)   | ❌                  | ❌               | ✅ (XML)        |
 | `bck-nd flow "A -> B"`          | ❌                     | ✅             | ❌                  | ❌               | ❌              |
 | `bck-nd explore`                | ✅                     | ✅             | ✅                  | ❌               | ❌              |
@@ -803,11 +807,11 @@ bck-nd scan . --ai --style pro > review.md
 
 ### Documentation Generation
 
+```bash
 # Generate architecture docs
 
 bck-nd scan . --explain > docs/ARCHITECTURE.md
 bck-nd scan . --ai --style pro > docs/AI_ANALYSIS.md
-
 ```
 
 ---
@@ -841,4 +845,3 @@ MIT License - See LICENSE file for details
 ---
 
 **Built with ❤️ for developers who value clarity and speed.**
-```
