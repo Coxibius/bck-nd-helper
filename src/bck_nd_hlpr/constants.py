@@ -27,3 +27,14 @@ GLOBAL_IGNORE_DIRS = {
     # Go / Rust / Ruby
     "pkg", ".bundle"
 }
+
+# Nuevas constantes para el modulo que genera el context dump (bck-nd prompt)
+SKIP_DIRS = {".expo", ".next", "dist", "build", "coverage", "__pycache__", ".git"}
+SKIP_FILES = {"package-lock.json", "yarn.lock", "poetry.lock", "Pipfile.lock", ".DS_Store", "Thumbs.db"}
+SKIP_EXTENSIONS = {".lock", ".map", ".min.js", ".pyc", ".pyo", ".exe", ".dll"}
+CODE_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".cs", ".go", ".rs", ".java", ".php", ".rb", ".vue", ".svelte"}
+ENTRY_POINTS = {"App.js", "main.py", "Program.cs", "index.js", "app.py"}
+
+# Nombre por defecto del archivo de salida del context dump
+DEFAULT_OUTPUT_FILE = "ai_context.txt"
+
