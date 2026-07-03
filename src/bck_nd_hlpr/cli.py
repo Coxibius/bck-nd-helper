@@ -812,25 +812,19 @@ def prompt_cmd(
     path: str = typer.Argument(".", help="Path to the project to analyze. Use '.' for current directory or provide an absolute/relative path. Example: bck-nd prompt /home/user/my-api"),
     output: str = typer.Option("ai_context.txt", "--output", "-o", help="Output file path/name for the context dump (default: ai_context.txt in current dir). Example: bck-nd prompt . -o context.txt"),
     depth: int = typer.Option(4, "--depth", "-d", help="Directory scan depth (default: 4). Increase for deep project structures. Example: bck-nd prompt . --depth 6"),
+    max_core_files: Optional[int] = typer.Option(None, "--max-core-files", help="Maximum number of core files to include in the context dump (default: 8 for mobile, 5 for backend)."),
 ):
     """
     🧠 AI Context Dump: Export full project context for ChatGPT / Claude.
 
     \b
-<<<<<<< HEAD
     Generates a single LLM-optimized .txt file with XML-like tags:
-      <project_tree>       Clean ASCII directory tree (no venv/node_modules)
+      <project_tree>       Clean ASCII directory tree (no venv/node_modules/etc.)
       <architecture_uml>   UML Class Diagram in Mermaid format
       <architecture_er>    Entity-Relationship Diagram in Mermaid format
-      <core_files>         Content of the 3-5 most important backend files
-=======
-    Generates a single optimized .txt file with XML tags containing:
-    - Project directory tree (clean, no noise folders)
-    - UML Class Diagram (Mermaid)
-    - Entity-Relationship Diagram (Mermaid)
+      <core_files>         Content of the 3-5 most important files (with priority logic)
 
     Just copy-paste the output file into any LLM for instant project understanding!
->>>>>>> feat/vscode-extension
 
     \b
     How to use:
@@ -847,7 +841,7 @@ def prompt_cmd(
       bck-nd prompt . --depth 6            Deeper scan for nested projects
     """
     if output == "-":
-        dumper = ContextDumper(path=path, depth=depth)
+        dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
         context = dumper.build()
         print(context)
         return
@@ -867,7 +861,7 @@ def prompt_cmd(
         )
     )
 
-    dumper = ContextDumper(path=path, depth=depth)
+    dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
 
     typer.secho("  [1/4] Building directory tree...", fg=typer.colors.CYAN)
     tree = dumper.get_project_tree()

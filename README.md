@@ -34,6 +34,20 @@ bck-nd scan . --format mermaid -o architecture.mmd
 - 🧠 **AI Context Dump** (`bck-nd prompt`): Export a single, LLM-optimized `.txt` file with project tree + UML + ER + core files — just copy-paste into ChatGPT/Claude for instant codebase understanding **[NEW ✨]**
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
 - 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Next.js/Express.js/Drizzle ORM), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform, Prisma schemas (`schema.prisma`), and SQL migrations (`.sql`)
+- 📄 **Automatic .gitignore Support**: Respects `.gitignore`: automatically excludes files and folders listed in `.gitignore` from scans and context dumps.
+- 📱 **Expo/React Native Detection**: Auto-detects Expo and React Native projects for appropriate diagramming.
+- ⚙️ **`--max-core-files N` Flag**: Limits the number of core files exported by `bck-nd prompt`.
+
+### 🗄️ ORM Support
+
+| ORM | Parser | Status |
+|-----|--------|--------|
+| SQLAlchemy | tree-sitter | Completo |
+| Django ORM | tree-sitter | Completo |
+| Entity Framework Core | tree-sitter | Completo |
+| Prisma | regex | Maqueta |
+| TypeORM | regex | Maqueta |
+| Sequelize | regex | Maqueta |
 
 ---
 
@@ -263,6 +277,15 @@ bck-nd scan . --er
   - **Traditional ORMs**: Entity Framework (C#), Spring Boot / JPA (Java), Laravel / Eloquent (PHP), SQLAlchemy / Django models (Python), and Sequelize / Mongoose (JS/TS)
 - Bulletproof Mermaid Syntax: Safely handles Generics (e.g. `List<T>`), table brackets, and special characters.
 - Detects database columns, primary keys (`PK`), data annotations, and auto-generates bidirectional relationships (`||--o{`, `}o--||`) with intelligent schema deduplication and merging.
+
+| ORM | Nivel |
+|-----|-------|
+| SQLAlchemy | tree-sitter (completo) |
+| Django | tree-sitter (completo) |
+| EF Core | tree-sitter (completo) |
+| Prisma | regex (maqueta) |
+| TypeORM | regex (maqueta) |
+| Sequelize | regex (maqueta) |
 
 ##### 6. **API Route Map 🆕**
 
@@ -758,21 +781,14 @@ bck-nd scan . --ai
 | Middleware     | `*middleware.py`                            | Box → Request Pipeline    |
 | Database Files | `.sql`, `.db`, `.sqlite`                | Cylinder → Data Storage   |
 | Docker         | `Dockerfile`, `docker-compose.yml`        | Soft Box                   |
+| ORM            | SQLAlchemy, Django, Prisma, etc.          | Cylinder → DB Access      |
 | Infrastructure | `.tf` (Terraform)                           | Box → Infrastructure      |
 
 ---
 
-## 🚀 What's Different from ASCII Architect?
+## 🧬 How it Started
 
-| Feature                  | ASCII Architect | Backend Helper                   |
-| ------------------------ | --------------- | -------------------------------- |
-| Auto-Detection           | ❌              | ✅ Flask, FastAPI, Django, etc.  |
-| Architecture Patterns    | ❌              | ✅ MVC, Microservices, etc.      |
-| Component Classification | ❌              | ✅ Controllers, Models, Services |
-| Neural Engine (GPT-2)    | ✅              | ❌ Removed for speed             |
-| Installation Size        | ~500MB          | <50MB                            |
-| Installation Time        | ~2 min          | <3 sec                           |
-| Cloud AI                 | ✅              | ✅ 9 personalities               |
+bck-nd-hlpr evolved from an earlier experiment (ASCII Architect) that used GPT-2 to generate ASCII diagrams. It worked, but required ~2GB of dependencies just to draw a diamond. This project rebuilds the same idea from scratch: deterministic renderers, no model downloads, installs in under 3 seconds.
 
 ---
 

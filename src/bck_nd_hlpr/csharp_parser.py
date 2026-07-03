@@ -107,10 +107,11 @@ class CSharpUMLVisitor:
 
 
 class CSharpERVisitor:
-    def __init__(self, source_bytes: bytes):
+    def __init__(self, source_bytes: bytes, is_controller: bool = False):
         self.source_bytes = source_bytes
         self.entities: List[EREntity] = []
         self.current_entity: Optional[EREntity] = None
+        self.is_controller = is_controller
 
     def visit(self, node: tree_sitter.Node):
         if node.type == 'class_declaration':
@@ -198,10 +199,23 @@ class CSharpERVisitor:
                     is_relation = True
                     target_class = clean_type
                     rel_type = "}o--||" # Many to 1 (Foreign key)
+
+            # Check if property is primitive but has [ForeignKey("Target")] annotation
+            if not is_relation and fk_target:
+                import re
+                match = re.search(r'ForeignKey\s*\(\s*["\']?(?:nameof\s*\(\s*)?([^"\')\s]+)(?:\s*\))?["\']?\s*\)', fk_target)
+                if match:
+                    fk_class = match.group(1).strip()
+                    is_relation = True
+                    target_class = fk_class
+                    rel_type = "}o--||"
             
             if is_relation and target_class:
                 label = "FK" if fk_target else n_str
-                self.current_entity.relationships.append((target_class, rel_type, label))
+                if self.is_controller:
+                    self.current_entity.relationships.append((target_class, rel_type, label, "inferred from controller/collection"))
+                else:
+                    self.current_entity.relationships.append((target_class, rel_type, label))
             else:
                 # Si es columna normal
                 col_type = t_str
@@ -258,9 +272,6 @@ def parse_project_for_csharp_er(root_path: str, max_depth: int = 3) -> List[EREn
          
     all_entities = []
     root = Path(root_path)
-    
-    # Heurística: normalmente buscamos en carpetas "Models", "Entities", "Data" o archivos directos.
-    # Pero el walk lo hará general.
 
     for root_dir, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
@@ -275,17 +286,21 @@ def parse_project_for_csharp_er(root_path: str, max_depth: int = 3) -> List[EREn
             
         for file in files:
             if file.endswith(".cs"):
-                # Omitimos program, startup, controllers si podemos.
-                if file.lower() in ["program.cs", "startup.cs"] or "Controller" in file:
-                     continue
+                file_lower = file.lower()
+                # Include only *Model*.cs, *Entity*.cs, *Controller*.cs
+                if not (any(k in file_lower for k in ["model", "entity", "controller"])):
+                    continue
+                if file_lower in ["program.cs", "startup.cs"]:
+                    continue
                      
                 file_path = Path(root_dir) / file
+                is_controller = "controller" in file_lower
                 try:
                     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                         source_bytes = f.read().encode('utf-8')
                     
                     tree = PARSER.parse(source_bytes)
-                    visitor = CSharpERVisitor(source_bytes)
+                    visitor = CSharpERVisitor(source_bytes, is_controller=is_controller)
                     visitor.visit(tree.root_node)
                     
                     all_entities.extend(visitor.entities)
