@@ -952,6 +952,7 @@ class EFCoreParser(ORMParserStub):
     """
     Detecta modelos Entity Framework Core via regex.
     Señales: DbSet<T>, virtual ICollection<T>, [ForeignKey], HasMany(), WithMany()
+    """
     name = "efcore"
 
     def detect(self, root_path: str) -> bool:
