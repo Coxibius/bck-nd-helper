@@ -54,6 +54,11 @@ QUICK REFERENCE:
     bck-nd scan . --explain    Offline text report (Controllers/Models/Services)
     bck-nd scan . --ai         AI-powered analysis (BYO-Key: OpenAI/Anthropic/Gemini/Ollama)
 
+  Coming Soon:
+    bck-nd scan . --teach      Guided onboarding walkthrough (dependency heatmap tour)
+    bck-nd scan . --health     Project Health Score (TODOs + Security + Dependencies)
+    bck-nd scan . --export-dict  Export Data Dictionary (JSON/CSV from ORM models)
+
   Other Commands:
     bck-nd prompt .            Export LLM-optimized context file for ChatGPT/Claude
     bck-nd flow "A -> B -> C"  Generate quick ASCII flow diagram from string
@@ -135,6 +140,12 @@ def scan(
     impact: bool = typer.Option(False, "--impact", help="Dependency heatmap: ranks files by import count. Risk categories: CORE, SHARED, PERIPHERAL. Example: bck-nd scan . --impact"),
     trace: bool = typer.Option(False, "--trace", help="Route-to-DB traceability graph (Mermaid graph LR). Traces routes -> services -> models via AST. Supports Python (FastAPI/Flask). Example: bck-nd scan . --trace"),
     tree: bool = typer.Option(False, "--tree", help="ASCII directory tree with Unicode box-drawing. Auto-filters noise (node_modules, venv, .git, __pycache__). Example: bck-nd scan . --tree --depth 5"),
+    # TODO: [Teach] - Flag para onboarding guiado que recorre el heatmap de dependencias paso a paso
+    teach: bool = typer.Option(False, "--teach", hidden=True, help="[COMING SOON] Guided onboarding walkthrough using the dependency heatmap."),
+    # TODO: [Health] - Flag para Project Health Score consolidando TODOs, Seguridad y Dependencias
+    health: bool = typer.Option(False, "--health", hidden=True, help="[COMING SOON] Project Health Score (TODOs + Security + Dependencies)."),
+    # TODO: [ExportDict] - Flag para exportar Data Dictionary JSON/CSV basado en los ORMs detectados
+    export_dict: bool = typer.Option(False, "--export-dict", hidden=True, help="[COMING SOON] Export Data Dictionary (JSON/CSV from ORM models)."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
     provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook. Example: bck-nd scan . --ai --provider ollama")
 ):
@@ -427,7 +438,34 @@ def scan(
             typer.secho("⚠️ Could not generate the traceability graph.", fg=typer.colors.YELLOW)
         return
 
-    
+    # ═══════════════════════════════════════════════════════════════════
+    # FUTURE FLAGS — Stubs inactivos (no rompen ejecución actual)
+    # ═══════════════════════════════════════════════════════════════════
+
+    # TODO: [Teach] - Implementar lógica de sendero pedagógico
+    # Usar dependency_tracker.get_dependency_heatmap() para ordenar archivos por impacto
+    # y guiar al usuario desde los nodos CORE hasta los PERIPHERAL con explicaciones.
+    if teach:
+        typer.secho("\n🎓 [TEACH] Feature coming soon! Guided onboarding using dependency heatmap.", fg=typer.colors.YELLOW)
+        typer.secho("This will walk you through the codebase from CORE → SHARED → PERIPHERAL.", fg=typer.colors.BRIGHT_BLACK)
+        return
+
+    # TODO: [Health] - Implementar cálculo de Project Health Score
+    # Consolidar: scan_for_todos() + scan_security_risks() + analyze_impact()
+    # Generar un score numérico (0-100) con breakdown por categoría.
+    if health:
+        typer.secho("\n🏥 [HEALTH] Feature coming soon! Project Health Score.", fg=typer.colors.YELLOW)
+        typer.secho("Will consolidate: TODOs + Security + Dependencies into a single score.", fg=typer.colors.BRIGHT_BLACK)
+        return
+
+    # TODO: [ExportDict] - Implementar exportación de Data Dictionary
+    # Reutilizar parse_project_for_er() para obtener entidades,
+    # serializar a JSON/CSV con columnas, tipos, relaciones.
+    if export_dict:
+        typer.secho("\n📖 [EXPORT-DICT] Feature coming soon! Data Dictionary export.", fg=typer.colors.YELLOW)
+        typer.secho("Will export ORM entities to JSON/CSV format.", fg=typer.colors.BRIGHT_BLACK)
+        return
+
     if arch_info['framework'] != 'Unknown':
         typer.secho(f"💻 Framework detected: {arch_info['framework']}", fg=typer.colors.GREEN)
     if arch_info.get('architecture'):
@@ -776,18 +814,18 @@ def init_ci(
     🤖 Setup "Living Documentation" via GitHub Actions + GitHub Pages.
 
     \b
-    Creates .github/workflows/documentation.yml that:
-      - Triggers on every push to any branch
+    Creates .github/workflows/bck-nd-docs.yml that:
+      - Triggers on push to main branch
       - Installs bck-nd-hlpr in the CI runner
       - Generates the full HTML documentation portal
-      - Deploys to GitHub Pages (branches as subdirectories: /main/, /developer/)
+      - Deploys to GitHub Pages
 
     \b
     After running:
       1. git add . && git commit -m 'ci: add auto-docs' && git push
       2. Go to GitHub > Settings > Pages
       3. Set source to 'GitHub Actions'
-      4. Done! Docs update on every push.
+      4. Done! Docs update on push to main.
 
     \b
     Example:
@@ -803,7 +841,7 @@ def init_ci(
         typer.secho("1. Push the changes to GitHub: git add . && git commit -m 'ci: add auto-docs' && git push origin main")
         typer.secho("2. Go to your repo on GitHub > Settings > Pages.")
         typer.secho("3. Under 'Build and deployment', choose 'GitHub Actions' as the source.")
-        typer.secho("4. Done! Your documentation will update on every push.", fg=typer.colors.CYAN)
+        typer.secho("4. Done! Your documentation will update on push to main.", fg=typer.colors.CYAN)
     except Exception as e:
         typer.secho(f"❌ Error configuring CI: {e}", fg=typer.colors.RED)
 

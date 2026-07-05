@@ -274,3 +274,49 @@ class ProjectScanner:
                         pass # Si falla leer uno, seguimos
         
         return "\n".join(docs_buffer)
+
+    # ═══════════════════════════════════════════════════════════════════
+    # FUTURE METHODS — Cimientos para features planificadas
+    # ═══════════════════════════════════════════════════════════════════
+
+    # TODO: [Health] - Calcular Project Health Score consolidado
+    # Orquestar: todo_hunter.scan_for_todos() + security_auditor.scan_security_risks()
+    #           + dependency_tracker.analyze_impact()
+    # Retornar un dict con score global (0-100) y breakdown por categoría.
+    def calculate_health_score(self, root_path: str, max_depth: int = 5) -> dict:
+        """[STUB] Calcula un Project Health Score consolidado.
+        
+        Diseño futuro:
+        1. TODOs: Penalizar por cantidad y severidad (FIXME > TODO).
+        2. Security: Penalizar por CRITICAL (-20), HIGH (-10), WARNING (-3).
+        3. Dependencies: Bonificar bajo acoplamiento, penalizar CORE files sin tests.
+        4. Retornar: {score: int, grade: str, breakdown: {todos: {}, security: {}, deps: {}}}.
+        """
+        pass  # TODO: [Health] - Implementar cálculo y ponderación de métricas
+
+    # TODO: [DataScience] - Soporte para parsear notebooks Jupyter (.ipynb)
+    # Extraer celdas de código, detectar imports de pandas/sklearn/torch,
+    # identificar pipelines ETL y generar nodos en el diagrama de arquitectura.
+    def scan_notebooks(self, root_path: str, max_depth: int = 3) -> list:
+        """[STUB] Escanea archivos .ipynb para detectar pipelines de Data Science.
+        
+        Diseño futuro:
+        1. Parsear JSON del .ipynb (cells[].source donde cell_type=='code').
+        2. Detectar imports: pandas, numpy, sklearn, torch, tensorflow, pyspark.
+        3. Identificar patrones ETL: read_csv → transform → to_sql/to_parquet.
+        4. Retornar lista de dicts: [{notebook, imports, pipeline_stages}].
+        """
+        pass  # TODO: [DataScience] - Implementar parser de notebooks .ipynb
+
+    # TODO: [Teach] - Punto de integración con el onboarding guiado
+    # Este método será llamado por cli.py --teach para obtener el recorrido pedagógico.
+    # Internamente usa DependencyTracker.get_dependency_heatmap().
+    def get_onboarding_path(self, root_path: str) -> list:
+        """[STUB] Genera un recorrido pedagógico ordenado del codebase.
+        
+        Diseño futuro:
+        1. Llamar a DependencyTracker(root_path).get_dependency_heatmap().
+        2. Para cada archivo CORE, leer las primeras líneas y docstrings.
+        3. Generar un "tour" con: [{step, file, category, summary, tip}].
+        """
+        pass  # TODO: [Teach] - Implementar generación de tour pedagógico

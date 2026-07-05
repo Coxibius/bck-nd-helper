@@ -8,7 +8,6 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -36,9 +35,9 @@ jobs:
             pip install bck-nd-hlpr
           fi
 
-      - name: Run Backend Helper Scan (generate HTML with embedded Mermaid)
+      - name: Run Backend Helper Scan
         run: |
-          bck-nd docs . -o docs
+          bck-nd docs .
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
@@ -52,7 +51,7 @@ def generate_ci_workflow(root_path: str = "."):
     Generates the GitHub Action workflow file for auto-documentation.
     """
     workflows_dir = Path(root_path) / ".github" / "workflows"
-    workflow_file = workflows_dir / "documentation.yml"
+    workflow_file = workflows_dir / "bck-nd-docs.yml"
 
     # Create directories if they don't exist
     workflows_dir.mkdir(parents=True, exist_ok=True)
