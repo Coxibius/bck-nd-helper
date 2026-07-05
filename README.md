@@ -40,14 +40,14 @@ bck-nd scan . --format mermaid -o architecture.mmd
 
 ### 🗄️ ORM Support
 
-| ORM | Parser | Status |
-|-----|--------|--------|
-| SQLAlchemy | tree-sitter | Completo |
-| Django ORM | tree-sitter | Completo |
+| ORM                   | Parser      | Status   |
+| --------------------- | ----------- | -------- |
+| SQLAlchemy            | tree-sitter | Completo |
+| Django ORM            | tree-sitter | Completo |
 | Entity Framework Core | tree-sitter | Completo |
-| Prisma | regex | Maqueta |
-| TypeORM | regex | Maqueta |
-| Sequelize | regex | Maqueta |
+| Prisma                | regex       | Completo |
+| TypeORM               | regex       | Completo |
+| Sequelize             | regex       | Completo |
 
 ---
 
@@ -185,11 +185,11 @@ bck-nd init-ci
 
 **What it does:**
 
-- Creates `.github/workflows/documentation.yml`.
-- Configures an automatic trigger on `push` to any branch (`**`).
+- Creates `.github/workflows/bck-nd-docs.yml`.
+- Configures an automatic trigger on `push` to the `main` branch.
 - Installs `bck-nd-hlpr` in the CI runner.
 - Generates the full HTML portal (UML, ER, Infra, Routes).
-- Deploys the result automatically to **GitHub Pages**, separating branches into subdirectories (e.g. `/main/`, `/developer/`) to allow easy comparison!
+- Deploys the result automatically to **GitHub Pages**.
 
 ---
 
@@ -278,14 +278,14 @@ bck-nd scan . --er
 - Bulletproof Mermaid Syntax: Safely handles Generics (e.g. `List<T>`), table brackets, and special characters.
 - Detects database columns, primary keys (`PK`), data annotations, and auto-generates bidirectional relationships (`||--o{`, `}o--||`) with intelligent schema deduplication and merging.
 
-| ORM | Nivel |
-|-----|-------|
+| ORM        | Nivel                  |
+| ---------- | ---------------------- |
 | SQLAlchemy | tree-sitter (completo) |
-| Django | tree-sitter (completo) |
-| EF Core | tree-sitter (completo) |
-| Prisma | regex (maqueta) |
-| TypeORM | regex (maqueta) |
-| Sequelize | regex (maqueta) |
+| Django     | tree-sitter (completo) |
+| EF Core    | tree-sitter (completo) |
+| Prisma     | regex (maqueta)        |
+| TypeORM    | regex (maqueta)        |
+| Sequelize  | regex (maqueta)        |
 
 ##### 6. **API Route Map 🆕**
 
@@ -781,7 +781,7 @@ bck-nd scan . --ai
 | Middleware     | `*middleware.py`                            | Box → Request Pipeline    |
 | Database Files | `.sql`, `.db`, `.sqlite`                | Cylinder → Data Storage   |
 | Docker         | `Dockerfile`, `docker-compose.yml`        | Soft Box                   |
-| ORM            | SQLAlchemy, Django, Prisma, etc.          | Cylinder → DB Access      |
+| ORM            | SQLAlchemy, Django, Prisma, etc.              | Cylinder → DB Access      |
 | Infrastructure | `.tf` (Terraform)                           | Box → Infrastructure      |
 
 ---

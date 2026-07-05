@@ -70,6 +70,46 @@ class Post(Base):
         fk_targets = [r[0] for r in post.relationships]
         assert "users" in fk_targets
 
+    def test_detect_and_extract_mapped_syntax(self, tmp_path):
+        _create_project(tmp_path, {
+            "models.py": '''
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import relationship, declarative_base, Mapped, mapped_column
+
+Base = declarative_base()
+
+class Employee(Base):
+    __tablename__ = "employees"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    tasks: Mapped[list["Task"]] = relationship()
+
+class Task(Base):
+    __tablename__ = "tasks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    employee: Mapped["Employee"] = relationship()
+'''
+        })
+
+        parser = SQLAlchemyParser()
+        assert parser.detect(str(tmp_path)) is True
+
+        entities = parser.extract(str(tmp_path))
+        names = {e.name for e in entities}
+        assert "Employee" in names
+        assert "Task" in names
+
+        # Verificar relaciones
+        emp = next(e for e in entities if e.name == "Employee")
+        emp_targets = [r[0] for r in emp.relationships]
+        assert "Task" in emp_targets
+
+        task = next(e for e in entities if e.name == "Task")
+        task_targets = [r[0] for r in task.relationships]
+        assert "employees" in task_targets
+
     def test_detect_false(self, tmp_path):
         _create_project(tmp_path, {
             "models.py": "# No SQLAlchemy here\nclass Foo:\n    pass\n"

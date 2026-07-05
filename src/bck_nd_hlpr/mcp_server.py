@@ -722,7 +722,7 @@ def get_traceability_diagram(path: str = ".", depth: int = 3) -> str:
 @mcp.tool()
 @redirect_stdout_to_stderr
 def init_ci(path: str = ".") -> str:
-    """Configure GitHub Actions workflow for auto-documentation on GitHub Pages.
+    """Configure GitHub Actions workflow (bck-nd-docs.yml) for auto-documentation on GitHub Pages (triggered on push to main).
 
     Use this tool when:
     - The user asks to "setup CI", "integrate with GitHub Actions", or "configure auto-docs".
@@ -743,6 +743,51 @@ def init_ci(path: str = ".") -> str:
         )
     except Exception as e:
         return f"Error configuring CI: {str(e)}\n{traceback.format_exc()}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FUTURE MCP TOOLS — Stubs para features planificadas
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# TODO: [Health] - Exponer Project Health Score como tool MCP
+# Llamará a scanner.calculate_health_score() cuando esté implementado.
+# @mcp.tool()
+# @redirect_stdout_to_stderr
+# def get_health_score(path: str = ".", depth: int = 3) -> str:
+#     """Get a consolidated Project Health Score (0-100) combining TODOs, Security, and Dependencies."""
+#     pass
+
+# TODO: [Teach] - Exponer onboarding guiado como tool MCP
+# Llamará a scanner.get_onboarding_path() cuando esté implementado.
+# @mcp.tool()
+# @redirect_stdout_to_stderr
+# def get_onboarding_tour(path: str = ".", depth: int = 3) -> str:
+#     """Generate a guided onboarding walkthrough of the codebase ordered by dependency criticality."""
+#     pass
+
+# TODO: [ExportDict] - Exponer Data Dictionary como tool MCP
+# Llamará a er_parser.export_entities_as_dict() cuando esté implementado.
+# @mcp.tool()
+# @redirect_stdout_to_stderr
+# def export_data_dictionary(path: str = ".", format: str = "json", depth: int = 3) -> str:
+#     """Export detected ORM entities as a Data Dictionary in JSON or CSV format."""
+#     pass
+
+# TODO: [ImpactRadius] - Exponer Impact Radius para QA como tool MCP
+# Llamará a route_parser.get_routes_affected_by_file() cuando esté implementado.
+# @mcp.tool()
+# @redirect_stdout_to_stderr
+# def get_impact_radius(path: str = ".", changed_file: str = "", depth: int = 3) -> str:
+#     """Given a changed file, return which API routes are affected (for QA test prioritization)."""
+#     pass
+
+# TODO: [APIContractMap] - Exponer API Contract Map como tool MCP
+# Llamará a route_parser.get_routes_with_models() cuando esté implementado.
+# @mcp.tool()
+# @redirect_stdout_to_stderr
+# def get_api_contract_map(path: str = ".", depth: int = 3) -> str:
+#     """Generate an API Contract Map crossing routes with ER models and exposed fields."""
+#     pass
 
 
 def main():

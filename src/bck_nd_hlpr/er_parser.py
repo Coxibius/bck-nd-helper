@@ -27,114 +27,250 @@ class ERExtractor(ast.NodeVisitor):
         self.imports: Dict[str, str] = {}
         self.is_model_file = is_model_file
 
+    def _extract_type_from_annotation(self, node: ast.AST) -> str:
+        try:
+            if isinstance(node, ast.Name):
+                return node.id
+            if isinstance(node, (ast.Constant, ast.Str)):
+                val = getattr(node, 'value', getattr(node, 's', ''))
+                return str(val)
+            if isinstance(node, ast.Attribute):
+                return node.attr
+            if isinstance(node, ast.Subscript):
+                container = self._extract_type_from_annotation(node.value)
+                slice_node = node.slice
+                if isinstance(slice_node, ast.Index):
+                    slice_node = slice_node.value
+                inner = self._extract_type_from_annotation(slice_node)
+                if container == 'Mapped':
+                    return inner
+                return f"{container}[{inner}]"
+        except Exception:
+            pass
+        return ""
+
+    def _clean_target_type(self, typ_str: str) -> tuple[str, str]:
+        typ_str = typ_str.strip()
+        is_list = False
+        for prefix in ["List[", "list[", "Set[", "set[", "ICollection[", "Collection["]:
+            if typ_str.startswith(prefix) and typ_str.endswith("]"):
+                typ_str = typ_str[len(prefix):-1].strip()
+                is_list = True
+                break
+        typ_str = typ_str.strip("'\"")
+        if "." in typ_str:
+            typ_str = typ_str.split(".")[-1]
+        rel_symbol = "||--o{" if is_list else "}o--||"
+        return typ_str, rel_symbol
+
+    def _extract_relationship_target_from_call(self, call_node: ast.Call) -> Optional[str]:
+        try:
+            if call_node.args:
+                arg0 = call_node.args[0]
+                if isinstance(arg0, (ast.Constant, ast.Str)):
+                    val = getattr(arg0, 'value', getattr(arg0, 's', ''))
+                    return str(val).strip("'\"")
+                if isinstance(arg0, ast.Name):
+                    return arg0.id
+        except Exception:
+            pass
+        return None
+
     def visit_ImportFrom(self, node: ast.ImportFrom):
-        module = node.module or ""
-        for alias in node.names:
-            name = alias.name
-            asname = alias.asname or name
-            self.imports[asname] = f"{module}.{name}" if module else name
-        self.generic_visit(node)
+        try:
+            module = node.module or ""
+            for alias in node.names:
+                name = alias.name
+                asname = alias.asname or name
+                self.imports[asname] = f"{module}.{name}" if module else name
+            self.generic_visit(node)
+        except Exception:
+            pass
 
     def _is_model(self, bases: List[Any]) -> bool:
-        """Heurística para determinar si es un modelo ORM."""
-        model_bases = {'Base', 'Model', 'db.Model', 'models.Model', 'DeclarativeBase'}
-        for base in bases:
-            if isinstance(base, ast.Name) and base.id in model_bases:
-                return True
-            if isinstance(base, ast.Attribute) and base.attr == 'Model':
-                return True
+        try:
+            model_bases = {'Base', 'Model', 'db.Model', 'models.Model', 'DeclarativeBase'}
+            for base in bases:
+                if isinstance(base, ast.Name) and base.id in model_bases:
+                    return True
+                if isinstance(base, ast.Attribute) and base.attr == 'Model':
+                    return True
+        except Exception:
+            pass
         return False
 
     def visit_ClassDef(self, node: ast.ClassDef):
-        if self._is_model(node.bases) or self.is_model_file:
-            self.current_entity = EREntity(node.name)
-            self.entities.append(self.current_entity)
-            self.generic_visit(node)
-            self.current_entity = None
-        else:
-            # Aún si no hereda explícitamente, buscamos si tiene __tablename__
-            has_tablename = any(
-                isinstance(n, ast.Assign) and 
-                any(isinstance(t, ast.Name) and t.id == '__tablename__' for t in n.targets)
-                for n in node.body
-            )
-            if has_tablename:
+        try:
+            if self._is_model(node.bases) or self.is_model_file:
                 self.current_entity = EREntity(node.name)
                 self.entities.append(self.current_entity)
                 self.generic_visit(node)
                 self.current_entity = None
+            else:
+                has_tablename = any(
+                    isinstance(n, ast.Assign) and 
+                    any(isinstance(t, ast.Name) and t.id == '__tablename__' for t in n.targets)
+                    for n in node.body
+                )
+                if has_tablename:
+                    self.current_entity = EREntity(node.name)
+                    self.entities.append(self.current_entity)
+                    self.generic_visit(node)
+                    self.current_entity = None
+        except Exception:
+            pass
 
     def visit_Assign(self, node: ast.Assign):
-        if not self.current_entity:
-            return
+        try:
+            if not self.current_entity:
+                return
 
-        target_name = ""
-        for target in node.targets:
-            if isinstance(target, ast.Name):
-                target_name = target.id
-        
-        if not target_name:
-            return
+            target_name = ""
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    target_name = target.id
+            
+            if not target_name:
+                return
 
-        if isinstance(node.value, ast.Call):
-            func_name = ""
-            if isinstance(node.value.func, ast.Name):
-                func_name = node.value.func.id
-            elif isinstance(node.value.func, ast.Attribute):
-                func_name = node.value.func.attr
+            if isinstance(node.value, ast.Call):
+                func_name = ""
+                if isinstance(node.value.func, ast.Name):
+                    func_name = node.value.func.id
+                elif isinstance(node.value.func, ast.Attribute):
+                    func_name = node.value.func.attr
 
-            # SQLAlchemy
-            if func_name in ['Column', 'Mapped']:
-                col_type = "Unknown"
-                if node.value.args:
-                    arg0 = node.value.args[0]
-                    if isinstance(arg0, ast.Name):
-                        col_type = arg0.id
-                    elif isinstance(arg0, ast.Attribute):
-                        col_type = arg0.attr
-                self.current_entity.columns.append((target_name, col_type))
-                
-                # Busqueda simple de ForeignKey en args
-                for arg in node.value.args:
-                    if isinstance(arg, ast.Call) and getattr(arg.func, 'id', '') == 'ForeignKey':
-                         if arg.args and isinstance(arg.args[0], ast.Constant):
-                             # 'users.id' -> target 'User' (heuristic)
-                             fk_ref = str(arg.args[0].value)
-                             target_table = fk_ref.split('.')[0]
-                             self.current_entity.relationships.append((target_table, "}o--||", "FK"))
+                # SQLAlchemy relationship
+                if func_name == 'relationship':
+                    rel_target = self._extract_relationship_target_from_call(node.value)
+                    if rel_target:
+                        rel_symbol = "||--o{" if target_name.endswith('s') else "}o--||"
+                        is_one_to_one = False
+                        for kw in node.value.keywords:
+                            if kw.arg == 'uselist':
+                                val = getattr(kw.value, 'value', getattr(kw.value, 'value', None))
+                                if val is False:
+                                    is_one_to_one = True
+                        if is_one_to_one:
+                            rel_symbol = "||--||"
+                        self.current_entity.relationships.append((rel_target, rel_symbol, target_name))
+                    return
 
-            # Django
-            elif 'Field' in func_name or 'ManyToManyField' in func_name:
-                col_type = func_name.replace("Field", "")
-                self.current_entity.columns.append((target_name, col_type))
-                
-                if 'ForeignKey' in func_name or 'OneToOne' in func_name or 'ManyToManyField' in func_name:
-                     if node.value.args:
+                # SQLAlchemy Column / mapped_column
+                if func_name in ['Column', 'Mapped', 'mapped_column']:
+                    col_type = "Unknown"
+                    if node.value.args:
                         arg0 = node.value.args[0]
-                        target = "Unknown"
                         if isinstance(arg0, ast.Name):
-                            target = arg0.id
-                        elif isinstance(arg0, ast.Constant):
-                            target = str(arg0.value)
-                        elif isinstance(arg0, ast.Str): # Python < 3.8
-                             target = arg0.s
-                        
-                        target = target.strip("'\"")
-                        if "." in target:
-                            target = target.split(".")[-1]
-                        
-                        if 'ManyToManyField' in func_name:
-                            rel_type = "}o--o{"
-                        elif 'OneToOne' in func_name:
-                            rel_type = "||--||"
-                        else:
-                            rel_type = "}o--||"
+                            col_type = arg0.id
+                        elif isinstance(arg0, ast.Attribute):
+                            col_type = arg0.attr
+                    self.current_entity.columns.append((target_name, col_type))
+                    
+                    # Busqueda de ForeignKey en args
+                    for arg in node.value.args:
+                        if isinstance(arg, ast.Call) and getattr(arg.func, 'id', '') == 'ForeignKey':
+                             if arg.args and isinstance(arg.args[0], (ast.Constant, ast.Str)):
+                                 fk_ref = str(getattr(arg.args[0], 'value', getattr(arg.args[0], 's', '')))
+                                 target_table = fk_ref.split('.')[0]
+                                 self.current_entity.relationships.append((target_table, "}o--||", target_name))
+                    return
+
+                # Django
+                if 'Field' in func_name or 'ManyToManyField' in func_name:
+                    col_type = func_name.replace("Field", "")
+                    self.current_entity.columns.append((target_name, col_type))
+                    
+                    if 'ForeignKey' in func_name or 'OneToOne' in func_name or 'ManyToManyField' in func_name:
+                        if node.value.args:
+                            arg0 = node.value.args[0]
+                            target = "Unknown"
+                            if isinstance(arg0, ast.Name):
+                                target = arg0.id
+                            elif isinstance(arg0, (ast.Constant, ast.Str)):
+                                target = str(getattr(arg0, 'value', getattr(arg0, 's', '')))
                             
-                        self.current_entity.relationships.append((target, rel_type, "FK"))
+                            target = target.strip("'\"")
+                            if "." in target:
+                                target = target.split(".")[-1]
+                            
+                            if 'ManyToManyField' in func_name:
+                                rel_type = "}o--o{"
+                            elif 'OneToOne' in func_name:
+                                rel_type = "||--||"
+                            else:
+                                rel_type = "}o--||"
+                                
+                            self.current_entity.relationships.append((target, rel_type, target_name))
+        except Exception:
+            pass
 
     def visit_AnnAssign(self, node: ast.AnnAssign):
-        # TODO: Soportar Mapped[int] si es necesario en el futuro
-        pass
+        try:
+            if not self.current_entity:
+                return
+                
+            if not isinstance(node.target, ast.Name):
+                return
+            target_name = node.target.id
+            
+            typ_str = self._extract_type_from_annotation(node.annotation)
+            
+            is_relationship = False
+            rel_target = None
+            rel_symbol = "}o--||"
+            
+            func_name = ""
+            if node.value and isinstance(node.value, ast.Call):
+                if isinstance(node.value.func, ast.Name):
+                    func_name = node.value.func.id
+                elif isinstance(node.value.func, ast.Attribute):
+                    func_name = node.value.func.attr
+                    
+            if func_name == 'relationship':
+                is_relationship = True
+                rel_target = self._extract_relationship_target_from_call(node.value)
+                
+                is_one_to_one = False
+                for kw in node.value.keywords:
+                    if kw.arg == 'uselist':
+                        val = getattr(kw.value, 'value', getattr(kw.value, 'value', None))
+                        if val is False:
+                            is_one_to_one = True
+                
+                if is_one_to_one:
+                    rel_symbol = "||--||"
+                elif typ_str:
+                    _, inferred_symbol = self._clean_target_type(typ_str)
+                    if inferred_symbol == "||--o{":
+                        rel_symbol = "||--o{"
+            
+            if not rel_target and typ_str:
+                clean_t, inferred_symbol = self._clean_target_type(typ_str)
+                primitives = {"int", "str", "float", "bool", "bytes", "datetime", "date", "time", "decimal", "Decimal", "dict", "list", "set"}
+                if clean_t and clean_t not in primitives and clean_t[0].isupper():
+                    is_relationship = True
+                    rel_target = clean_t
+                    rel_symbol = inferred_symbol
+                    
+            if is_relationship and rel_target:
+                self.current_entity.relationships.append((rel_target, rel_symbol, target_name))
+            else:
+                col_type = typ_str or "Unknown"
+                if col_type.startswith("Mapped[") and col_type.endswith("]"):
+                    col_type = col_type[7:-1]
+                
+                if func_name in ('mapped_column', 'Column') and node.value and isinstance(node.value, ast.Call):
+                    for arg in node.value.args:
+                        if isinstance(arg, ast.Call) and getattr(arg.func, 'id', '') == 'ForeignKey':
+                            if arg.args and isinstance(arg.args[0], (ast.Constant, ast.Str)):
+                                fk_ref = str(getattr(arg.args[0], 'value', getattr(arg.args[0], 's', '')))
+                                target_table = fk_ref.split('.')[0]
+                                self.current_entity.relationships.append((target_table, "}o--||", target_name))
+                
+                self.current_entity.columns.append((target_name, col_type))
+        except Exception:
+            pass
 
 def parse_prisma_schema(file_path: Path) -> List[EREntity]:
     entities = []
@@ -629,58 +765,95 @@ class SQLAlchemyParser(ORMParserStub):
     name = "sqlalchemy"
 
     def detect(self, root_path: str) -> bool:
-        for _, content in self._walk_files(root_path, (".py",), ["model", "schema"]):
-            if re.search(r'(?:declarative_base|Column|relationship)\s*\(', content):
-                return True
+        try:
+            for _, content in self._walk_files(root_path, (".py",), ["model", "schema"]):
+                if re.search(r'(?:declarative_base|Column|relationship|mapped_column|Mapped)\s*\(?', content):
+                    return True
+        except Exception:
+            pass
         return False
 
     def extract(self, root_path: str) -> List[EREntity]:
         entities = []
-        for _, content in self._walk_files(root_path, (".py",), ["model", "schema"]):
-            # Buscar clases que heredan de Base / DeclarativeBase
-            class_matches = re.finditer(
-                r'class\s+(\w+)\s*\(\s*(?:\w+\.)*(?:Base|DeclarativeBase|Model)\s*(?:,\s*\w+)*\s*\)\s*:',
-                content
-            )
-            for cm in class_matches:
-                class_name = cm.group(1)
-                class_start = cm.end()
-                class_body = self._extract_indented_block(content, class_start)
+        try:
+            for _, content in self._walk_files(root_path, (".py",), ["model", "schema"]):
+                try:
+                    # Buscar clases que heredan de Base / DeclarativeBase / Model
+                    class_matches = re.finditer(
+                        r'class\s+(\w+)\s*\(\s*(?:\w+\.)*(?:Base|DeclarativeBase|Model)\s*(?:,\s*\w+)*\s*\)\s*:',
+                        content
+                    )
+                    for cm in class_matches:
+                        class_name = cm.group(1)
+                        class_start = cm.end()
+                        class_body = self._extract_indented_block(content, class_start)
 
-                entity = EREntity(class_name)
+                        entity = EREntity(class_name)
 
-                # Columnas: name = Column(Type, ...) o mapped_column(Type, ...)
-                col_matches = re.finditer(
-                    r'(\w+)\s*=\s*(?:mapped_column|Column)\s*\(\s*(\w+)?',
-                    class_body
-                )
-                for col in col_matches:
-                    col_name = col.group(1)
-                    col_type = col.group(2) or "Unknown"
-                    entity.columns.append((col_name, col_type))
+                        # Parse lines inside class body
+                        for line in class_body.splitlines():
+                            line = line.strip()
+                            if not line or line.startswith('#'):
+                                continue
+                            
+                            try:
+                                # 1. Look for relationship
+                                rel_match = re.search(
+                                    r'(\w+)\s*(?::\s*Mapped\s*\[\s*([\w\[\]\'"]+)\s*\])?\s*=\s*relationship\s*\(\s*["\']?(\w+)["\']?',
+                                    line
+                                )
+                                if rel_match:
+                                    rel_name = rel_match.group(1)
+                                    target = rel_match.group(3)
+                                    rel_type = "||--o{" if rel_name.endswith('s') or 'List' in (rel_match.group(2) or '') else "}o--||"
+                                    if 'uselist=False' in line:
+                                        rel_type = "||--||"
+                                    entity.relationships.append((target, rel_type, rel_name))
+                                    continue
+                                    
+                                # 2. Look for annotated column: name: Mapped[Type] = ...
+                                ann_col_match = re.search(
+                                    r'(\w+)\s*:\s*Mapped\s*\[\s*([\w\[\]\'"]+)\s*\](?:\s*=\s*(?:mapped_column|Column)\s*\((.*?)\))?',
+                                    line
+                                )
+                                if ann_col_match:
+                                    col_name = ann_col_match.group(1)
+                                    raw_type = ann_col_match.group(2)
+                                    clean_type = raw_type.replace('"', '').replace("'", "")
+                                    if any(p in clean_type for p in ['List', 'list', 'Set', 'set']):
+                                        target = clean_type.replace('List[', '').replace('list[', '').replace('Set[', '').replace('set[', '').replace(']', '')
+                                        entity.relationships.append((target, "||--o{", col_name))
+                                    else:
+                                        entity.columns.append((col_name, clean_type))
+                                        fk_match = re.search(r'ForeignKey\s*\(\s*["\']([^"\']+)["\']\s*\)', line)
+                                        if fk_match:
+                                            fk_ref = fk_match.group(1)
+                                            target_table = fk_ref.split('.')[0]
+                                            entity.relationships.append((target_table, "}o--||", col_name))
+                                    continue
+                                    
+                                # 3. Look for standard Column assignment
+                                col_match = re.search(r'(\w+)\s*=\s*(?:mapped_column|Column)\s*\(\s*(\w+)?', line)
+                                if col_match:
+                                    col_name = col_match.group(1)
+                                    col_type = col_match.group(2) or "Unknown"
+                                    entity.columns.append((col_name, col_type))
+                                    
+                                    fk_match = re.search(r'ForeignKey\s*\(\s*["\']([^"\']+)["\']\s*\)', line)
+                                    if fk_match:
+                                        fk_ref = fk_match.group(1)
+                                        target_table = fk_ref.split('.')[0]
+                                        entity.relationships.append((target_table, "}o--||", col_name))
+                                    continue
+                            except Exception:
+                                pass
 
-                # ForeignKey dentro de Column
-                fk_matches = re.finditer(
-                    r'(\w+)\s*=\s*(?:mapped_column|Column)\s*\([^)]*ForeignKey\s*\(\s*["\']([^"\']+)["\']\s*\)',
-                    class_body
-                )
-                for fk in fk_matches:
-                    fk_ref = fk.group(2)  # e.g. "users.id"
-                    target_table = fk_ref.split('.')[0]
-                    entity.relationships.append((target_table, "}o--||", fk.group(1)))
-
-                # relationship()
-                rel_matches = re.finditer(
-                    r'(\w+)\s*=\s*relationship\s*\(\s*["\'](\w+)["\']',
-                    class_body
-                )
-                for rel in rel_matches:
-                    rel_name = rel.group(1)
-                    rel_target = rel.group(2)
-                    entity.relationships.append((rel_target, "||--o{", rel_name))
-
-                if entity.columns or entity.relationships:
-                    entities.append(entity)
+                        if entity.columns or entity.relationships:
+                            entities.append(entity)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         return entities
 
 
@@ -692,61 +865,73 @@ class DjangoORMParser(ORMParserStub):
     name = "django"
 
     def detect(self, root_path: str) -> bool:
-        for _, content in self._walk_files(root_path, (".py",), ["model"]):
-            if re.search(r'models\.Model', content):
-                return True
+        try:
+            for _, content in self._walk_files(root_path, (".py",), ["model"]):
+                if re.search(r'(?:models\.Model|ForeignKey|ManyToManyField|OneToOneField)', content):
+                    return True
+        except Exception:
+            pass
         return False
 
     def extract(self, root_path: str) -> List[EREntity]:
         entities = []
-        for _, content in self._walk_files(root_path, (".py",), ["model"]):
-            class_matches = re.finditer(
-                r'class\s+(\w+)\s*\(\s*(?:\w+\.)*(?:Model|AbstractUser)\s*(?:,\s*\w+)*\s*\)\s*:',
-                content
-            )
-            for cm in class_matches:
-                class_name = cm.group(1)
-                class_start = cm.end()
-                class_body = self._extract_indented_block(content, class_start)
+        try:
+            for _, content in self._walk_files(root_path, (".py",), ["model"]):
+                try:
+                    class_matches = re.finditer(
+                        r'class\s+(\w+)\s*\(\s*(?:\w+\.)*(?:Model|AbstractUser)\s*(?:,\s*\w+)*\s*\)\s*:',
+                        content
+                    )
+                    for cm in class_matches:
+                        class_name = cm.group(1)
+                        class_start = cm.end()
+                        class_body = self._extract_indented_block(content, class_start)
 
-                entity = EREntity(class_name)
+                        entity = EREntity(class_name)
 
-                # Campos Django: name = models.CharField(...) / models.IntegerField(...)
-                field_matches = re.finditer(
-                    r'(\w+)\s*=\s*models\.(\w+)\s*\(',
-                    class_body
-                )
-                for fm in field_matches:
-                    field_name = fm.group(1)
-                    field_type = fm.group(2)
-
-                    if field_type == 'ForeignKey':
-                        target_match = re.search(
-                            r'models\.ForeignKey\s*\(\s*(?:["\'])?(\w+)(?:["\'])?\s*[,)]',
-                            class_body[fm.start():]
+                        # Campos Django
+                        field_matches = re.finditer(
+                            r'(\w+)\s*=\s*(?:models\.)?(\w+)\s*\(',
+                            class_body
                         )
-                        target = target_match.group(1) if target_match else "Unknown"
-                        entity.relationships.append((target, "}o--||", field_name))
-                    elif field_type == 'ManyToManyField':
-                        target_match = re.search(
-                            r'models\.ManyToManyField\s*\(\s*(?:["\'])?(\w+)(?:["\'])?\s*[,)]',
-                            class_body[fm.start():]
-                        )
-                        target = target_match.group(1) if target_match else "Unknown"
-                        entity.relationships.append((target, "}o--o{", field_name))
-                    elif field_type == 'OneToOneField':
-                        target_match = re.search(
-                            r'models\.OneToOneField\s*\(\s*(?:["\'])?(\w+)(?:["\'])?\s*[,)]',
-                            class_body[fm.start():]
-                        )
-                        target = target_match.group(1) if target_match else "Unknown"
-                        entity.relationships.append((target, "||--||", field_name))
-                    else:
-                        col_type = field_type.replace("Field", "")
-                        entity.columns.append((field_name, col_type))
+                        for fm in field_matches:
+                            try:
+                                field_name = fm.group(1)
+                                field_type = fm.group(2)
 
-                if entity.columns or entity.relationships:
-                    entities.append(entity)
+                                if field_type == 'ForeignKey':
+                                    target_match = re.search(
+                                        r'(?:models\.)?ForeignKey\s*\(\s*(?:["\'])?(\w+)(?:["\'])?\s*[,)]',
+                                        class_body[fm.start():]
+                                    )
+                                    target = target_match.group(1) if target_match else "Unknown"
+                                    entity.relationships.append((target, "}o--||", field_name))
+                                elif field_type == 'ManyToManyField':
+                                    target_match = re.search(
+                                        r'(?:models\.)?ManyToManyField\s*\(\s*(?:["\'])?(\w+)(?:["\'])?\s*[,)]',
+                                        class_body[fm.start():]
+                                    )
+                                    target = target_match.group(1) if target_match else "Unknown"
+                                    entity.relationships.append((target, "}o--o{", field_name))
+                                elif field_type == 'OneToOneField':
+                                    target_match = re.search(
+                                        r'(?:models\.)?OneToOneField\s*\(\s*(?:["\'])?(\w+)(?:["\'])?\s*[,)]',
+                                        class_body[fm.start():]
+                                    )
+                                    target = target_match.group(1) if target_match else "Unknown"
+                                    entity.relationships.append((target, "||--||", field_name))
+                                else:
+                                    col_type = field_type.replace("Field", "")
+                                    entity.columns.append((field_name, col_type))
+                            except Exception:
+                                pass
+
+                        if entity.columns or entity.relationships:
+                            entities.append(entity)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         return entities
 
 
@@ -758,21 +943,27 @@ class PrismaParser(ORMParserStub):
     name = "prisma"
 
     def detect(self, root_path: str) -> bool:
-        root = Path(root_path)
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-            if "schema.prisma" in files:
-                return True
+        try:
+            root = Path(root_path)
+            for root_dir, dirs, files in os.walk(root):
+                dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
+                if "schema.prisma" in files:
+                    return True
+        except Exception:
+            pass
         return False
 
     def extract(self, root_path: str) -> List[EREntity]:
         entities = []
-        root = Path(root_path)
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-            if "schema.prisma" in files:
-                fp = Path(root_dir) / "schema.prisma"
-                entities.extend(parse_prisma_schema(fp))
+        try:
+            root = Path(root_path)
+            for root_dir, dirs, files in os.walk(root):
+                dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
+                if "schema.prisma" in files:
+                    fp = Path(root_dir) / "schema.prisma"
+                    entities.extend(parse_prisma_schema(fp))
+        except Exception:
+            pass
         return entities
 
 
@@ -785,75 +976,74 @@ class TypeORMParser(ORMParserStub):
     name = "typeorm"
 
     def detect(self, root_path: str) -> bool:
-        for _, content in self._walk_files(root_path, (".ts",), ["entity", "model"]):
-            # Remove line and block comments to avoid false positives
-            cleaned = re.sub(r'//.*', '', content)
-            cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
-            if re.search(r'@Entity\s*\(', cleaned):
-                return True
+        try:
+            for _, content in self._walk_files(root_path, (".ts",), ["entity", "model"]):
+                cleaned = re.sub(r'//.*', '', content)
+                cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+                if re.search(r'@Entity\s*\(', cleaned):
+                    return True
+        except Exception:
+            pass
         return False
 
     def extract(self, root_path: str) -> List[EREntity]:
         entities = []
-        for _, content in self._walk_files(root_path, (".ts",), ["entity", "model"]):
-            if not re.search(r'@Entity\s*\(', content):
-                continue
+        try:
+            for _, content in self._walk_files(root_path, (".ts",), ["entity", "model"]):
+                try:
+                    if not re.search(r'@Entity\s*\(', content):
+                        continue
+                    class_matches = re.finditer(
+                        r'@Entity\s*\([^)]*\)\s*(?:export\s+)?class\s+(\w+)',
+                        content
+                    )
+                    for cm in class_matches:
+                        class_name = cm.group(1)
+                        brace_start = content.find('{', cm.end())
+                        if brace_start == -1:
+                            continue
+                        class_body = extract_bracket_content(content, brace_start + 1, '{', '}')
 
-            # Buscar clases con @Entity()
-            class_matches = re.finditer(
-                r'@Entity\s*\([^)]*\)\s*(?:export\s+)?class\s+(\w+)',
-                content
-            )
-            for cm in class_matches:
-                class_name = cm.group(1)
-                # Extraer cuerpo de la clase con balance de llaves
-                brace_start = content.find('{', cm.end())
-                if brace_start == -1:
-                    continue
-                class_body = extract_bracket_content(content, brace_start + 1, '{', '}')
+                        entity = EREntity(class_name)
 
-                entity = EREntity(class_name)
+                        col_matches = re.finditer(
+                            r'@Column\s*\([^)]*\)\s*(\w+)\s*(?::\s*(\w+))?',
+                            class_body
+                        )
+                        for col in col_matches:
+                            col_name = col.group(1)
+                            col_type = col.group(2) or "Unknown"
+                            entity.columns.append((col_name, col_type))
 
-                # @Column() fields: capturar nombre y tipo
-                col_matches = re.finditer(
-                    r'@Column\s*\([^)]*\)\s*(\w+)\s*(?::\s*(\w+))?',
-                    class_body
-                )
-                for col in col_matches:
-                    col_name = col.group(1)
-                    col_type = col.group(2) or "Unknown"
-                    entity.columns.append((col_name, col_type))
+                        pk_matches = re.finditer(
+                            r'@PrimaryGeneratedColumn\s*\([^)]*\)\s*(\w+)\s*(?::\s*(\w+))?',
+                            class_body
+                        )
+                        for pk in pk_matches:
+                            pk_name = pk.group(1)
+                            pk_type = pk.group(2) or "number"
+                            entity.columns.append((pk_name, pk_type + " PK"))
 
-                # @PrimaryGeneratedColumn()
-                pk_matches = re.finditer(
-                    r'@PrimaryGeneratedColumn\s*\([^)]*\)\s*(\w+)\s*(?::\s*(\w+))?',
-                    class_body
-                )
-                for pk in pk_matches:
-                    pk_name = pk.group(1)
-                    pk_type = pk.group(2) or "number"
-                    entity.columns.append((pk_name, pk_type + " PK"))
+                        rel_patterns = [
+                            (r'@ManyToOne\s*\(\s*\(\)\s*=>\s*(\w+)', "}o--||"),
+                            (r'@OneToMany\s*\(\s*\(\)\s*=>\s*(\w+)', "||--o{"),
+                            (r'@ManyToMany\s*\(\s*\(\)\s*=>\s*(\w+)', "}o--o{"),
+                            (r'@OneToOne\s*\(\s*\(\)\s*=>\s*(\w+)', "||--||"),
+                        ]
+                        for pattern, rel_type in rel_patterns:
+                            for rel_match in re.finditer(pattern, class_body):
+                                target = rel_match.group(1)
+                                after = class_body[rel_match.end():]
+                                field_match = re.search(r'(?:[^;]*\n\s*)?(\w+)\s*(?:[\?!]?\s*:\s*|\s*;)', after)
+                                field_name = field_match.group(1) if field_match else target.lower()
+                                entity.relationships.append((target, rel_type, field_name))
 
-                # Relaciones: @ManyToOne(() => Target, ...), @OneToMany(() => Target, ...),
-                #             @ManyToMany(() => Target, ...), @OneToOne(() => Target, ...)
-                # Captura el target del arrow function: () => ClassName
-                rel_patterns = [
-                    (r'@ManyToOne\s*\(\s*\(\)\s*=>\s*(\w+)', "}o--||"),
-                    (r'@OneToMany\s*\(\s*\(\)\s*=>\s*(\w+)', "||--o{"),
-                    (r'@ManyToMany\s*\(\s*\(\)\s*=>\s*(\w+)', "}o--o{"),
-                    (r'@OneToOne\s*\(\s*\(\)\s*=>\s*(\w+)', "||--||"),
-                ]
-                for pattern, rel_type in rel_patterns:
-                    for rel_match in re.finditer(pattern, class_body):
-                        target = rel_match.group(1)
-                        # Buscar el nombre del campo en la línea siguiente
-                        after = class_body[rel_match.end():]
-                        field_match = re.search(r'(?:[^;]*\n\s*)?(\w+)\s*(?:[\?!]?\s*:\s*|\s*;)', after)
-                        field_name = field_match.group(1) if field_match else target.lower()
-                        entity.relationships.append((target, rel_type, field_name))
-
-                if entity.columns or entity.relationships:
-                    entities.append(entity)
+                        if entity.columns or entity.relationships:
+                            entities.append(entity)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         return entities
 
 
@@ -866,85 +1056,94 @@ class SequelizeParser(ORMParserStub):
     name = "sequelize"
 
     def detect(self, root_path: str) -> bool:
-        for _, content in self._walk_files(root_path, (".js", ".ts"), ["model"]):
-            if re.search(r'(?:Model\.init|sequelize\.define|\.belongsTo|\.hasMany|\.hasOne|\.belongsToMany)\s*\(', content):
-                return True
+        try:
+            for _, content in self._walk_files(root_path, (".js", ".ts"), ["model"]):
+                if re.search(r'(?:Model\.init|sequelize\.define|\.belongsTo|\.hasMany|\.hasOne|\.belongsToMany)\s*\(', content):
+                    return True
+        except Exception:
+            pass
         return False
 
     def extract(self, root_path: str) -> List[EREntity]:
         entities = []
-        for fp, content in self._walk_files(root_path, (".js", ".ts"), ["model"]):
-            file_entities = []
+        try:
+            for fp, content in self._walk_files(root_path, (".js", ".ts"), ["model"]):
+                try:
+                    file_entities = []
 
-            # Método 1: class X extends Model — init({ fields }, { ... })
-            class_matches = re.finditer(
-                r'class\s+(\w+)\s+extends\s+Model\s*\{',
-                content
-            )
-            for cm in class_matches:
-                class_name = cm.group(1)
-                entity = EREntity(class_name)
-
-                # Buscar ModelName.init({ field: DataTypes.X, ... }, ...)
-                init_match = re.search(
-                    rf'{class_name}\.init\s*\(\s*\{{',
-                    content
-                )
-                if init_match:
-                    init_body = extract_bracket_content(content, init_match.end(), '{', '}')
-                    field_matches = re.finditer(
-                        r'(\w+)\s*:\s*(?:DataTypes\.)?(\w+)',
-                        init_body
+                    # Método 1: class X extends Model — init({ fields }, { ... })
+                    class_matches = re.finditer(
+                        r'class\s+(\w+)\s+extends\s+Model\s*\{',
+                        content
                     )
-                    for fm in field_matches:
-                        entity.columns.append((fm.group(1), fm.group(2)))
+                    for cm in class_matches:
+                        class_name = cm.group(1)
+                        entity = EREntity(class_name)
 
-                if entity.columns or entity.relationships:
-                    file_entities.append(entity)
+                        # Buscar ModelName.init({ field: DataTypes.X, ... }, ...)
+                        init_match = re.search(
+                            rf'{class_name}\.init\s*\(\s*\{{',
+                            content
+                        )
+                        if init_match:
+                            init_body = extract_bracket_content(content, init_match.end(), '{', '}')
+                            field_matches = re.finditer(
+                                r'(\w+)\s*:\s*(?:DataTypes\.)?(\w+)',
+                                init_body
+                            )
+                            for fm in field_matches:
+                                entity.columns.append((fm.group(1), fm.group(2)))
 
-            # Método 2: sequelize.define('ModelName', { ... })
-            define_matches = re.finditer(
-                r'sequelize\.define\s*\(\s*["\'](\w+)["\']\s*,\s*\{',
-                content
-            )
-            for dm in define_matches:
-                model_name = dm.group(1)
-                entity = EREntity(model_name)
-                body = extract_bracket_content(content, dm.end(), '{', '}')
-                field_matches = re.finditer(
-                    r'(\w+)\s*:\s*(?:DataTypes\.)?(\w+)',
-                    body
-                )
-                for fm in field_matches:
-                    entity.columns.append((fm.group(1), fm.group(2)))
-                if entity.columns:
-                    file_entities.append(entity)
+                        if entity.columns or entity.relationships:
+                            file_entities.append(entity)
 
-            # Relaciones: Model.belongsTo(Target), Model.hasMany(Target), etc.
-            rel_patterns = [
-                (r'(\w+)\.belongsTo\s*\(\s*(\w+)', "}o--||"),
-                (r'(\w+)\.hasMany\s*\(\s*(\w+)', "||--o{"),
-                (r'(\w+)\.hasOne\s*\(\s*(\w+)', "||--||"),
-                (r'(\w+)\.belongsToMany\s*\(\s*(\w+)', "}o--o{"),
-            ]
-            for pattern, rel_type in rel_patterns:
-                for rel_match in re.finditer(pattern, content):
-                    source_model = rel_match.group(1)
-                    target_model = rel_match.group(2)
-                    # Buscar la entidad source y agregar relación
-                    found = False
-                    for ent in file_entities:
-                        if ent.name == source_model:
-                            ent.relationships.append((target_model, rel_type, target_model.lower()))
-                            found = True
-                            break
-                    if not found:
-                        # Si no existe la entidad, crearla stub
-                        stub = EREntity(source_model)
-                        stub.relationships.append((target_model, rel_type, target_model.lower()))
-                        file_entities.append(stub)
+                    # Método 2: sequelize.define('ModelName', { ... })
+                    define_matches = re.finditer(
+                        r'sequelize\.define\s*\(\s*["\'](\w+)["\']\s*,\s*\{',
+                        content
+                    )
+                    for dm in define_matches:
+                        model_name = dm.group(1)
+                        entity = EREntity(model_name)
+                        body = extract_bracket_content(content, dm.end(), '{', '}')
+                        field_matches = re.finditer(
+                            r'(\w+)\s*:\s*(?:DataTypes\.)?(\w+)',
+                            body
+                        )
+                        for fm in field_matches:
+                            entity.columns.append((fm.group(1), fm.group(2)))
+                        if entity.columns:
+                            file_entities.append(entity)
 
-            entities.extend(file_entities)
+                    # Relaciones: Model.belongsTo(Target), Model.hasMany(Target), etc.
+                    rel_patterns = [
+                        (r'(\w+)\.belongsTo\s*\(\s*(\w+)', "}o--||"),
+                        (r'(\w+)\.hasMany\s*\(\s*(\w+)', "||--o{"),
+                        (r'(\w+)\.hasOne\s*\(\s*(\w+)', "||--||"),
+                        (r'(\w+)\.belongsToMany\s*\(\s*(\w+)', "}o--o{"),
+                    ]
+                    for pattern, rel_type in rel_patterns:
+                        for rel_match in re.finditer(pattern, content):
+                            source_model = rel_match.group(1)
+                            target_model = rel_match.group(2)
+                            # Buscar la entidad source y agregar relación
+                            found = False
+                            for ent in file_entities:
+                                if ent.name == source_model:
+                                    ent.relationships.append((target_model, rel_type, target_model.lower()))
+                                    found = True
+                                    break
+                            if not found:
+                                # Si no existe la entidad, crearla stub
+                                stub = EREntity(source_model)
+                                stub.relationships.append((target_model, rel_type, target_model.lower()))
+                                file_entities.append(stub)
+
+                    entities.extend(file_entities)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         return entities
 
 
@@ -956,82 +1155,94 @@ class EFCoreParser(ORMParserStub):
     name = "efcore"
 
     def detect(self, root_path: str) -> bool:
-        for _, content in self._walk_files(root_path, (".cs",), ["context", "dbcontext", "model"]):
-            # Remove line and block comments to avoid false positives
-            cleaned = re.sub(r'//.*', '', content)
-            cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
-            if re.search(r'DbSet\s*<\s*\w+\s*>', cleaned) or re.search(r'DbContext', cleaned):
-                return True
+        try:
+            for _, content in self._walk_files(root_path, (".cs",), ["context", "dbcontext", "model"]):
+                # Remove line and block comments to avoid false positives
+                cleaned = re.sub(r'//.*', '', content)
+                cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+                if re.search(r'DbSet\s*<\s*\w+\s*>', cleaned) or re.search(r'DbContext', cleaned):
+                    return True
+        except Exception:
+            pass
         return False
 
     def extract(self, root_path: str) -> List[EREntity]:
         entities = []
-        entities_from_dbset = set()
+        try:
+            entities_from_dbset = set()
 
-        # Paso 1: Buscar DbContext para extraer DbSet<T> como entidades
-        for _, content in self._walk_files(root_path, (".cs",), ["context", "dbcontext"]):
-            dbset_matches = re.finditer(r'DbSet\s*<\s*(\w+)\s*>', content)
-            for dm in dbset_matches:
-                entity_name = dm.group(1)
-                entities_from_dbset.add(entity_name)
+            # Paso 1: Buscar DbContext para extraer DbSet<T> como entidades
+            for _, content in self._walk_files(root_path, (".cs",), ["context", "dbcontext"]):
+                try:
+                    dbset_matches = re.finditer(r'DbSet\s*<\s*(\w+)\s*>', content)
+                    for dm in dbset_matches:
+                        entity_name = dm.group(1)
+                        entities_from_dbset.add(entity_name)
+                except Exception:
+                    pass
 
-        # Paso 2: Buscar archivos de modelo para extraer propiedades
-        for _, content in self._walk_files(root_path, (".cs",), ["model", "entity"]):
-            class_matches = re.finditer(
-                r'(?:public\s+)?class\s+(\w+)\s*(?::\s*[^{]+)?\s*\{',
-                content
-            )
-            for cm in class_matches:
-                class_name = cm.group(1)
-                # Solo parsear si fue registrado como DbSet o tiene nombre sugerente
-                if class_name not in entities_from_dbset and not any(
-                    class_name.endswith(s) for s in ["Model", "Entity"]
-                ):
-                    continue
+            # Paso 2: Buscar archivos de modelo para extraer propiedades
+            for _, content in self._walk_files(root_path, (".cs",), ["model", "entity"]):
+                try:
+                    class_matches = re.finditer(
+                        r'(?:public\s+)?class\s+(\w+)\s*(?::\s*[^{]+)?\s*\{',
+                        content
+                    )
+                    for cm in class_matches:
+                        class_name = cm.group(1)
+                        # Solo parsear si fue registrado como DbSet o tiene nombre sugerente
+                        if class_name not in entities_from_dbset and not any(
+                            class_name.endswith(s) for s in ["Model", "Entity"]
+                        ):
+                            continue
 
-                brace_start = content.find('{', cm.end() - 1)
-                if brace_start == -1:
-                    continue
-                class_body = extract_bracket_content(content, brace_start + 1, '{', '}')
+                        brace_start = content.find('{', cm.end() - 1)
+                        if brace_start == -1:
+                            continue
+                        class_body = extract_bracket_content(content, brace_start + 1, '{', '}')
 
-                entity = EREntity(class_name)
+                        entity = EREntity(class_name)
 
-                # Propiedades: public Type Name { get; set; }
-                prop_matches = re.finditer(
-                    r'public\s+(?:virtual\s+)?([\w<>?\[\]]+)\s+(\w+)\s*\{',
-                    class_body
-                )
-                for pm in prop_matches:
-                    prop_type = pm.group(1)
-                    prop_name = pm.group(2)
+                        # Propiedades: public Type Name { get; set; }
+                        prop_matches = re.finditer(
+                            r'public\s+(?:virtual\s+)?([\w<>?\[\]]+)\s+(\w+)\s*\{',
+                            class_body
+                        )
+                        for pm in prop_matches:
+                            prop_type = pm.group(1)
+                            prop_name = pm.group(2)
 
-                    # Detectar colecciones como relaciones
-                    collection_match = re.match(r'(?:ICollection|List|IEnumerable|IList)<(\w+)>', prop_type)
-                    if collection_match:
-                        target = collection_match.group(1)
-                        entity.relationships.append((target, "||--o{", prop_name))
-                    elif prop_type.replace("?", "") not in {
-                        "int", "string", "bool", "double", "float", "decimal",
-                        "DateTime", "Guid", "long", "short", "byte", "char"
-                    } and not prop_type.startswith("I") and prop_type[0].isupper():
-                        # Propiedad de navegación (FK implícita)
-                        entity.relationships.append((prop_type.replace("?", ""), "}o--||", prop_name))
-                    else:
-                        col_type = prop_type
-                        # Detectar [Key] antes de esta propiedad
-                        before = class_body[:pm.start()]
-                        if re.search(r'\[Key\]\s*$', before):
-                            col_type += " PK"
-                        entity.columns.append((prop_name, col_type))
+                            # Detectar colecciones como relaciones
+                            collection_match = re.match(r'(?:ICollection|List|IEnumerable|IList)<(\w+)>', prop_type)
+                            if collection_match:
+                                target = collection_match.group(1)
+                                entity.relationships.append((target, "||--o{", prop_name))
+                            elif prop_type.replace("?", "") not in {
+                                "int", "string", "bool", "double", "float", "decimal",
+                                "DateTime", "Guid", "long", "short", "byte", "char"
+                            } and not prop_type.startswith("I") and prop_type[0].isupper():
+                                # Propiedad de navegación (FK implícita)
+                                entity.relationships.append((prop_type.replace("?", ""), "}o--||", prop_name))
+                            else:
+                                col_type = prop_type
+                                # Detectar [Key] antes de esta propiedad
+                                before = class_body[:pm.start()]
+                                if re.search(r'\[Key\]\s*$', before):
+                                    col_type += " PK"
+                                entity.columns.append((prop_name, col_type))
 
-                if entity.columns or entity.relationships:
-                    entities.append(entity)
+                        if entity.columns or entity.relationships:
+                            entities.append(entity)
+                except Exception:
+                    pass
 
-        # Agregar entidades detectadas en DbSet que no se encontraron como clase
-        found_names = {e.name for e in entities}
-        for db_ent in entities_from_dbset:
-            if db_ent not in found_names:
-                entities.append(EREntity(db_ent))
+            # Agregar entidades detectadas en DbSet que no se encontraron como clase
+            found_names = {e.name for e in entities}
+            for db_ent in entities_from_dbset:
+                if db_ent not in found_names:
+                    entities.append(EREntity(db_ent))
+        except Exception:
+            pass
 
         return entities
 
@@ -1256,3 +1467,35 @@ def generate_mermaid_er(entities: List[EREntity]) -> str:
             lines.append(rel_line)
             
     return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FUTURE FUNCTIONS — Cimientos para features planificadas
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# TODO: [ExportDict] - Exportar entidades ER como Data Dictionary en JSON/CSV
+# Reutilizar parse_project_for_er() y serializar las entidades con metadatos.
+def export_entities_as_dict(root_path: str, format: str = "json", max_depth: int = 3) -> str:
+    """[STUB] Exporta las entidades ER detectadas como Data Dictionary.
+    
+    Diseño futuro:
+    1. Llamar a parse_project_for_er(root_path, max_depth).
+    2. Para cada EREntity, generar: {name, columns: [{name, type, is_pk}], relationships: [{target, type}]}.
+    3. Si format == 'json': json.dumps(). Si format == 'csv': csv con headers Entity, Column, Type, FK.
+    4. Retornar string del contenido exportable.
+    """
+    pass  # TODO: [ExportDict] - Implementar serialización de entidades a JSON/CSV
+
+
+# TODO: [APIContractMap] - Preparar entidades ER para cruzar con rutas API
+# Será consumido por el API Contract Map para generar: Ruta → Modelo → Campos.
+def get_entities_for_contract_map(root_path: str, max_depth: int = 3) -> dict:
+    """[STUB] Retorna entidades indexadas por nombre para cruce con rutas.
+    
+    Diseño futuro:
+    1. Llamar a parse_project_for_er() y deduplicar.
+    2. Indexar: {entity_name: {columns: [...], relationships: [...]}}.
+    3. Este dict será consumido por DependencyTracker.get_dependency_graph_for_routes()
+       para construir el mapa completo: Route → Handler → Service → Model → Columns.
+    """
+    pass  # TODO: [APIContractMap] - Implementar indexación de entidades para contract map

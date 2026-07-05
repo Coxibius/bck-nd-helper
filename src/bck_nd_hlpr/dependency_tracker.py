@@ -154,6 +154,48 @@ class DependencyTracker:
         except ValueError:
             return False
 
+    # ═══════════════════════════════════════════════════════════════════
+    # FUTURE METHODS — Cimientos para features planificadas
+    # ═══════════════════════════════════════════════════════════════════
+
+    # TODO: [ImpactRadius] - Calcular radio de impacto conectando dependencias con rutas API
+    # Dado un archivo modificado, retornar qué rutas HTTP se ven afectadas.
+    # Input: archivo cambiado → Output: lista de RouteInfo afectados.
+    # Requiere integración con route_parser.parse_project_routes().
+    def calculate_impact_radius(self, changed_file: str) -> list:
+        """[STUB] Calcula qué rutas API se ven afectadas por un cambio en `changed_file`.
+        
+        Diseño futuro:
+        1. Obtener dependientes transitivos de `changed_file` vía usage_map.
+        2. Cruzar con route_parser para identificar qué endpoints tocan esos archivos.
+        3. Retornar lista de RouteInfo con método HTTP, path y handler afectado.
+        """
+        pass  # TODO: [ImpactRadius] - Implementar traversal transitivo + cruce con RouteInfo
+
+    # TODO: [Teach] - Generar datos para el sendero pedagógico de onboarding
+    # Ordenar archivos desde CORE → SHARED → PERIPHERAL con metadatos útiles.
+    def get_dependency_heatmap(self) -> list:
+        """[STUB] Retorna archivos ordenados por criticidad para onboarding guiado.
+        
+        Diseño futuro:
+        1. Ejecutar scan_dependencies() si no se ha hecho.
+        2. Clasificar en CORE (>5 dependientes), SHARED (2-5), PERIPHERAL (<2).
+        3. Retornar lista de dicts: [{file, score, category, dependents}].
+        """
+        pass  # TODO: [Teach] - Implementar clasificación y ranking de archivos
+
+    # TODO: [APIContractMap] - Retornar el grafo de dependencias filtrado por archivos de rutas
+    # Para cruzar con modelos ER y generar el API Contract Map.
+    def get_dependency_graph_for_routes(self, route_files: list) -> dict:
+        """[STUB] Filtra el grafo de dependencias para incluir solo la cadena de archivos de rutas.
+        
+        Diseño futuro:
+        1. Dado un set de archivos que contienen rutas API,
+           retornar subgrafo: route_file → servicios → modelos.
+        2. Será consumido por el API Contract Map para cruzar con ER.
+        """
+        pass  # TODO: [APIContractMap] - Implementar filtrado de subgrafo
+
 def analyze_impact(root_path: str):
     tracker = DependencyTracker(root_path)
     tracker.scan_dependencies()

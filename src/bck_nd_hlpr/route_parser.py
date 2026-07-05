@@ -253,3 +253,34 @@ def generate_mermaid_sequence(all_routes: List[RouteInfo]) -> str:
         
     return "\n".join(diagram)
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FUTURE FUNCTIONS — Cimientos para features planificadas
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# TODO: [APIContractMap] - Cruzar rutas API con modelos ER
+# Generar un mapa de contratos: Ruta → Modelo(s) que toca → Campos expuestos.
+def get_routes_with_models(root_path: str, max_depth: int = 3) -> list:
+    """[STUB] Cruza rutas API detectadas con entidades ER para generar el API Contract Map.
+    
+    Diseño futuro:
+    1. Llamar a parse_project_routes() para obtener RouteInfo[].
+    2. Llamar a er_parser.get_entities_for_contract_map() para obtener entidades indexadas.
+    3. Usar DependencyTracker.get_dependency_graph_for_routes() para trazar la cadena.
+    4. Retornar: [{route: RouteInfo, models: [entity_name], fields_exposed: [col_name]}].
+    """
+    pass  # TODO: [APIContractMap] - Implementar cruce ruta ↔ modelo ER
+
+
+# TODO: [ImpactRadius] - Identificar rutas API afectadas por un archivo modificado
+# Para uso de QA: dado un archivo en un PR, saber qué endpoints testear.
+def get_routes_affected_by_file(root_path: str, changed_file: str, max_depth: int = 3) -> list:
+    """[STUB] Retorna las rutas API que podrían verse afectadas por un cambio en `changed_file`.
+    
+    Diseño futuro:
+    1. Usar DependencyTracker.calculate_impact_radius(changed_file) para obtener archivos afectados.
+    2. Filtrar solo los archivos que contienen definiciones de rutas.
+    3. Re-parsear esos archivos con RouteExtractor para obtener las rutas específicas.
+    4. Retornar: [{method, path, handler_file, risk_level}].
+    """
+    pass  # TODO: [ImpactRadius] - Implementar detección de rutas afectadas para QA
