@@ -3,6 +3,9 @@ Módulo para la generación de Diagramas E-R (Entity-Relationship) mediante aná
 Soporta detección básica de modelos SQLAlchemy y Django.
 """
 import ast
+import csv
+import io
+import json
 import os
 import re
 import sys
@@ -1386,12 +1389,15 @@ def parse_project_for_er(root_path: str, max_depth: int = 3) -> List[EREntity]:
             existing.columns.extend([col for col in ent.columns if col not in existing.columns])
             
             # Deduplicate relationships by (target, type, label) key
+            # Safe unpack: tuples may be 3 or 4+ elements
             rel_seen = {}
             for rel in existing.relationships:
-                key = (rel[0], rel[1], rel[2])
+                target, rel_type, label, *rest = rel
+                key = (target, rel_type, label)
                 rel_seen[key] = rel
             for rel in ent.relationships:
-                key = (rel[0], rel[1], rel[2])
+                target, rel_type, label, *rest = rel
+                key = (target, rel_type, label)
                 if key not in rel_seen:
                     rel_seen[key] = rel
                     existing.relationships.append(rel)
@@ -1438,10 +1444,8 @@ def generate_mermaid_er(entities: List[EREntity]) -> str:
     for entity in entities:
         safe_entity_name = sanitize(entity.name)
         for rel in entity.relationships:
-            target = rel[0]
-            rel_type = rel[1]
-            label = rel[2]
-            comment = rel[3] if len(rel) > 3 else None
+            target, rel_type, label, *rest = rel
+            comment = rest[0] if rest else None
             
             safe_target = sanitize(target)
             
@@ -1473,29 +1477,114 @@ def generate_mermaid_er(entities: List[EREntity]) -> str:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# TODO: [ExportDict] - Exportar entidades ER como Data Dictionary en JSON/CSV
-# Reutilizar parse_project_for_er() y serializar las entidades con metadatos.
 def export_entities_as_dict(root_path: str, format: str = "json", max_depth: int = 3) -> str:
-    """[STUB] Exporta las entidades ER detectadas como Data Dictionary.
-    
-    Diseño futuro:
-    1. Llamar a parse_project_for_er(root_path, max_depth).
-    2. Para cada EREntity, generar: {name, columns: [{name, type, is_pk}], relationships: [{target, type}]}.
-    3. Si format == 'json': json.dumps(). Si format == 'csv': csv con headers Entity, Column, Type, FK.
-    4. Retornar string del contenido exportable.
+    """Exporta las entidades ER detectadas como Data Dictionary.
+
+    Args:
+        root_path: Ruta raíz del proyecto a analizar.
+        format: Formato de salida — ``"json"`` o ``"csv"``.
+        max_depth: Profundidad máxima de recorrido en el árbol de directorios.
+
+    Returns:
+        String formateado con el diccionario de datos del proyecto.
     """
-    pass  # TODO: [ExportDict] - Implementar serialización de entidades a JSON/CSV
+    entities = parse_project_for_er(root_path, max_depth)
+
+    # Serializar cada entidad a un dict plano
+    tables: List[Dict[str, Any]] = []
+    for entity in entities:
+        columns_list: List[Dict[str, str]] = []
+        for col_name, col_type in entity.columns:
+            is_pk = "PK" in col_type
+            clean_type = col_type.replace(" PK", "").strip() if is_pk else col_type
+            columns_list.append({
+                "name": col_name,
+                "type": clean_type,
+                "is_pk": is_pk,
+            })
+
+        relationships_list: List[Dict[str, str]] = []
+        for rel in entity.relationships:
+            target, rel_type, label, *rest = rel
+            comment = rest[0] if rest else ""
+            relationships_list.append({
+                "target": target,
+                "type": rel_type,
+                "label": label,
+                "comment": comment,
+            })
+
+        tables.append({
+            "name": entity.name,
+            "columns": columns_list,
+            "relationships": relationships_list,
+        })
+
+    if format == "csv":
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["Table", "Type", "Name", "Details"])
+        for table in tables:
+            for col in table["columns"]:
+                details = "PK" if col["is_pk"] else ""
+                writer.writerow([table["name"], "column", col["name"], col["type"] + (" PK" if details else "")])
+            for rel in table["relationships"]:
+                detail_parts = [f"{rel['type']} -> {rel['target']}"]
+                if rel.get("comment"):
+                    detail_parts.append(rel["comment"])
+                writer.writerow([table["name"], "relationship", rel["label"], " | ".join(detail_parts)])
+        return buf.getvalue()
+
+    # Default: JSON
+    return json.dumps(tables, indent=2, ensure_ascii=False)
 
 
-# TODO: [APIContractMap] - Preparar entidades ER para cruzar con rutas API
-# Será consumido por el API Contract Map para generar: Ruta → Modelo → Campos.
 def get_entities_for_contract_map(root_path: str, max_depth: int = 3) -> dict:
-    """[STUB] Retorna entidades indexadas por nombre para cruce con rutas.
-    
-    Diseño futuro:
-    1. Llamar a parse_project_for_er() y deduplicar.
-    2. Indexar: {entity_name: {columns: [...], relationships: [...]}}.
-    3. Este dict será consumido por DependencyTracker.get_dependency_graph_for_routes()
-       para construir el mapa completo: Route → Handler → Service → Model → Columns.
+    """Retorna entidades indexadas por nombre para cruce con rutas API.
+
+    El diccionario resultante tiene la forma::
+
+        {
+            "NombreEntidad": {
+                "columns": {"nombre_col": "tipo_col", ...},
+                "relationships": [
+                    {"target": "Destino", "relation_type": "Simbolo", "label": "NombreCampo"},
+                    ...
+                ]
+            },
+            ...
+        }
+
+    Será consumido por ``DependencyTracker.get_dependency_graph_for_routes()``
+    para construir el mapa completo: Route → Handler → Service → Model → Columns.
+
+    Args:
+        root_path: Ruta raíz del proyecto a analizar.
+        max_depth: Profundidad máxima de recorrido en el árbol de directorios.
+
+    Returns:
+        Diccionario indexado por nombre de entidad.
     """
-    pass  # TODO: [APIContractMap] - Implementar indexación de entidades para contract map
+    entities = parse_project_for_er(root_path, max_depth)
+
+    result: Dict[str, Dict[str, Any]] = {}
+    for entity in entities:
+        columns: Dict[str, str] = {}
+        for col_name, col_type in entity.columns:
+            columns[col_name] = col_type
+
+        relationships: List[Dict[str, str]] = []
+        for rel in entity.relationships:
+            target, rel_type, label, *_rest = rel
+            relationships.append({
+                "target": target,
+                "relation_type": rel_type,
+                "label": label,
+            })
+
+        result[entity.name] = {
+            "columns": columns,
+            "relationships": relationships,
+        }
+
+    return result

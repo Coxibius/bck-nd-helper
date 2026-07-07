@@ -32,6 +32,8 @@ bck-nd scan . --format mermaid -o architecture.mmd
 - 🎨 **Visual & Mermaid**: Output Unicode diagrams or copy-paste Mermaid code
 - 🚀 **Auto-Documentation (CI/CD)**: One-command setup for GitHub Actions to host living docs on GitHub Pages (`init-ci`)
 - 🧠 **AI Context Dump** (`bck-nd prompt`): Export a single, LLM-optimized `.txt` file with project tree + UML + ER + core files — just copy-paste into ChatGPT/Claude for instant codebase understanding **[NEW ✨]**
+- 🎓 **Guided Onboarding** (`--teach`): Automatically generates a sequential, tier-ordered learning curriculum of the codebase using dependency-graph heatmaps to quickly ramp up new developers.
+- 📊 **Jupyter Notebook Lineage** (`--datascience`): Scans and extracts raw data flow/lineage from `.ipynb` files to draw a beautiful Mermaid `graph LR` flowchart of your data pipeline, completely offline and without heavy dependencies (like pandas or nbformat).
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
 - 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Next.js/Express.js/Drizzle ORM), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform, Prisma schemas (`schema.prisma`), and SQL migrations (`.sql`)
 - 📄 **Automatic .gitignore Support**: Respects `.gitignore`: automatically excludes files and folders listed in `.gitignore` from scans and context dumps.
@@ -363,6 +365,28 @@ bck-nd scan . --trace
 - Generates `graph LR` for Mermaid.js.
 - Traces API calls starting from your routes down to your services and models.
 - Parses AST (currently supports Python: FastAPI/Flask).
+
+##### 10.6 **Guided Onboarding** [NEW 🎓]
+
+```bash
+bck-nd scan . --teach
+```
+
+**Output:**
+
+- Evaluates file relationships to calculate reading hierarchy.
+- Outputs a color-coded sequential table dividing the codebase into Entrypoints, Core Logic, and Infra/Database files.
+
+##### 10.7 **Data Science Lineage Map** [NEW 📊]
+
+```bash
+bck-nd scan . --datascience
+```
+
+**Output:**
+
+- Parses `.ipynb` JSON nodes and analyzes cells.
+- Generates a Mermaid `graph LR` lineage flowchart mapping input files, notebooks, and outputs/models.
 
 ##### 11. **Diagram + AI Analysis**
 
@@ -697,6 +721,8 @@ For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED
 | --------------------------------- | ---------------------- | -------------- | ------------------- | ---------------- | --------------- |
 | `bck-nd scan .`                 | ✅                     | ✅ (Full Arch) | ❌                  | ❌               | ❌              |
 | `bck-nd scan . --explain`       | ✅                     | ✅             | ✅                  | ❌               | ❌              |
+| `bck-nd scan . --teach`         | ✅                     | ❌             | ✅ (Onboarding)     | ❌               | ❌              |
+| `bck-nd scan . --datascience`   | ✅                     | ✅ (Data Line) | ❌                  | ❌               | ❌              |
 | `bck-nd scan . --ai`            | ✅                     | ✅             | ❌                  | ✅               | ❌              |
 | `bck-nd scan . --explain --ai`  | ✅                     | ✅             | ✅                  | ✅               | ❌              |
 | `bck-nd scan . --no-graph --ai` | ✅                     | ❌             | ❌                  | ✅               | ❌              |

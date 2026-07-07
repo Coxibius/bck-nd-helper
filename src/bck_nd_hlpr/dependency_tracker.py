@@ -11,8 +11,10 @@ from rich.text import Text
 class DependencyTracker:
     def __init__(self, root_path: str):
         self.root = Path(root_path).resolve()
-        # Map: File -> Set of Files that import it
+        # Map: File -> Set of Files that import it (In-degree)
         self.usage_map: Dict[str, Set[str]] = {}
+        # Map: File -> Set of Files that it imports (Out-degree)
+        self.imports_map: Dict[str, Set[str]] = defaultdict(set)
         self.all_files: Set[str] = set()
 
     def scan_dependencies(self):
@@ -75,6 +77,7 @@ class DependencyTracker:
                     if target_file not in self.usage_map:
                         self.usage_map[target_file] = set()
                     self.usage_map[target_file].add(rel_source_path)
+                    self.imports_map[rel_source_path].add(target_file)
 
         except Exception:
             pass
@@ -173,16 +176,71 @@ class DependencyTracker:
         pass  # TODO: [ImpactRadius] - Implementar traversal transitivo + cruce con RouteInfo
 
     # TODO: [Teach] - Generar datos para el sendero pedagógico de onboarding
-    # Ordenar archivos desde CORE → SHARED → PERIPHERAL con metadatos útiles.
-    def get_dependency_heatmap(self) -> list:
-        """[STUB] Retorna archivos ordenados por criticidad para onboarding guiado.
+    def get_onboarding_path(self) -> list:
+        """Generates a structured pedagogical reading path based on in/out degrees."""
+        if not self.all_files:
+            self.scan_dependencies()
+            
+        onboarding_list = []
         
-        Diseño futuro:
-        1. Ejecutar scan_dependencies() si no se ha hecho.
-        2. Clasificar en CORE (>5 dependientes), SHARED (2-5), PERIPHERAL (<2).
-        3. Retornar lista de dicts: [{file, score, category, dependents}].
-        """
-        pass  # TODO: [Teach] - Implementar clasificación y ranking de archivos
+        # Determine roles based on in/out degree and naming heuristics
+        for file in self.all_files:
+            file_lower = file.lower()
+            
+            # Skip noise
+            if any(n in file_lower for n in ["test_", ".test.", ".spec.", "conftest"]): continue
+            if file_lower.endswith((".json", ".yaml", ".yml", ".toml", ".ini", ".md", ".txt")): continue
+            if file_lower.startswith((".", "node_modules", "venv", "__pycache__")): continue
+            
+            in_degree = len(self.usage_map.get(file, set()))
+            out_degree = len(self.imports_map.get(file, set()))
+            
+            tier = 4
+            role = "Peripheral / Helper"
+            hint = "Auxiliary or utility logic."
+            
+            # TIER 3: Database & Infra Setup
+            # Evaluated first to prevent high-in-degree DB files from being marked as CORE.
+            if any(k in file_lower for k in ["db", "models", "schema", "orm", "database", "infra", "config", "settings"]):
+                tier = 3
+                role = "Database & Infra"
+                hint = "Defines data schemas, ORM setup, or infrastructure configurations."
+                
+            # TIER 1: Entrypoints & Routers
+            elif (in_degree <= 1 and out_degree >= 1) or any(k in file_lower for k in ["main", "app", "index", "router", "server"]):
+                tier = 1
+                role = "Entrypoint & Router"
+                hint = "Acts as the application entrypoint or defines primary HTTP routes."
+                
+            # TIER 2: Core Business Logic
+            elif in_degree >= 2 or any(k in file_lower for k in ["service", "controller", "util", "helper", "manager", "handler"]):
+                tier = 2
+                role = "Core Business Logic"
+                hint = "Contains central domain logic imported by multiple other files."
+                
+            onboarding_list.append({
+                "file": file,
+                "tier": tier,
+                "role": role,
+                "hint": hint,
+                "in_degree": in_degree,
+                "out_degree": out_degree
+            })
+            
+        # Fallback if usage_map is completely empty (no internal imports detected)
+        if not self.usage_map:
+            # We already populated tier 1,2,3 based on name heuristics.
+            pass
+            
+        # Sort by tier (1->2->3->4), then descending in_degree (more important first)
+        onboarding_list.sort(key=lambda x: (x["tier"], -x["in_degree"], x["file"]))
+        
+        # Filter out tier 4 to keep it concise, unless everything is tier 4
+        filtered_list = [item for item in onboarding_list if item["tier"] <= 3]
+        if not filtered_list:
+            filtered_list = onboarding_list[:15] # Just show up to 15 files if nothing else
+            
+        return filtered_list
 
     # TODO: [APIContractMap] - Retornar el grafo de dependencias filtrado por archivos de rutas
     # Para cruzar con modelos ER y generar el API Contract Map.

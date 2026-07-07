@@ -141,11 +141,12 @@ def scan(
     trace: bool = typer.Option(False, "--trace", help="Route-to-DB traceability graph (Mermaid graph LR). Traces routes -> services -> models via AST. Supports Python (FastAPI/Flask). Example: bck-nd scan . --trace"),
     tree: bool = typer.Option(False, "--tree", help="ASCII directory tree with Unicode box-drawing. Auto-filters noise (node_modules, venv, .git, __pycache__). Example: bck-nd scan . --tree --depth 5"),
     # TODO: [Teach] - Flag para onboarding guiado que recorre el heatmap de dependencias paso a paso
-    teach: bool = typer.Option(False, "--teach", hidden=True, help="[COMING SOON] Guided onboarding walkthrough using the dependency heatmap."),
+    teach: bool = typer.Option(False, "--teach", help="Guided onboarding walkthrough using the dependency heatmap. Example: bck-nd scan . --teach"),
     # TODO: [Health] - Flag para Project Health Score consolidando TODOs, Seguridad y Dependencias
     health: bool = typer.Option(False, "--health", hidden=True, help="[COMING SOON] Project Health Score (TODOs + Security + Dependencies)."),
     # TODO: [ExportDict] - Flag para exportar Data Dictionary JSON/CSV basado en los ORMs detectados
-    export_dict: bool = typer.Option(False, "--export-dict", hidden=True, help="[COMING SOON] Export Data Dictionary (JSON/CSV from ORM models)."),
+    export_dict: Optional[str] = typer.Option(None, "--export-dict", help="Export Data Dictionary (JSON/CSV from ORM models). Example: bck-nd scan . --export-dict json"),
+    datascience: bool = typer.Option(False, "--datascience", help="Generate Data Lineage Map (Mermaid graph LR) from Jupyter Notebooks. Example: bck-nd scan . --datascience"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
     provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook. Example: bck-nd scan . --ai --provider ollama")
 ):
@@ -443,12 +444,43 @@ def scan(
     # ═══════════════════════════════════════════════════════════════════
 
     # TODO: [Teach] - Implementar lógica de sendero pedagógico
-    # Usar dependency_tracker.get_dependency_heatmap() para ordenar archivos por impacto
-    # y guiar al usuario desde los nodos CORE hasta los PERIPHERAL con explicaciones.
     if teach:
-        typer.secho("\n🎓 [TEACH] Feature coming soon! Guided onboarding using dependency heatmap.", fg=typer.colors.YELLOW)
-        typer.secho("This will walk you through the codebase from CORE → SHARED → PERIPHERAL.", fg=typer.colors.BRIGHT_BLACK)
-        return
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.table import Table
+        from rich.text import Text
+        
+        console = Console()
+        scanner = ProjectScanner()
+        path_list = scanner.get_onboarding_path(path)
+        
+        if not path_list:
+            console.print(Panel("[bold red]No project structure detected to create an onboarding path.[/bold red]"))
+            sys.exit(1)
+            
+        console.print("\n[bold cyan]🎓 Pedagogical Reading Path Generated![/bold cyan]")
+        console.print("[italic]Follow this sequence to quickly understand the project architecture:[/italic]\n")
+        
+        table = Table(show_header=True, header_style="bold magenta", border_style="bright_black")
+        table.add_column("Step", style="bold white", justify="right")
+        table.add_column("File Path", style="cyan")
+        table.add_column("Calculated Role", style="yellow")
+        table.add_column("Hint / Why it matters", style="white")
+        
+        for i, item in enumerate(path_list, 1):
+            tier = item["tier"]
+            role_color = "bold cyan" if tier == 1 else "bold magenta" if tier == 2 else "bold yellow"
+            
+            table.add_row(
+                str(i),
+                item["file"],
+                f"[{role_color}]{item['role']}[/{role_color}]",
+                item["hint"]
+            )
+            
+        console.print(table)
+        console.print("\n[bold green]Happy Onboarding![/bold green] 🚀")
+        sys.exit(0)
 
     # TODO: [Health] - Implementar cálculo de Project Health Score
     # Consolidar: scan_for_todos() + scan_security_risks() + analyze_impact()
@@ -458,13 +490,44 @@ def scan(
         typer.secho("Will consolidate: TODOs + Security + Dependencies into a single score.", fg=typer.colors.BRIGHT_BLACK)
         return
 
+    if datascience:
+        typer.secho("\n📊 [DATA SCIENCE] Data Lineage Map", fg=typer.colors.CYAN)
+        scanner = ProjectScanner()
+        mermaid_chart = scanner.scan_notebooks(path)
+        
+        if not mermaid_chart:
+            typer.secho("No Jupyter Notebooks (.ipynb) with data lineages found.", fg=typer.colors.YELLOW)
+        else:
+            if output:
+                with open(output, "w", encoding="utf-8") as f:
+                    f.write(mermaid_chart)
+                typer.secho(f"✅ Data Lineage Map saved to {output}", fg=typer.colors.GREEN)
+            else:
+                print(mermaid_chart)
+                
+        sys.exit(0)
+
     # TODO: [ExportDict] - Implementar exportación de Data Dictionary
     # Reutilizar parse_project_for_er() para obtener entidades,
     # serializar a JSON/CSV con columnas, tipos, relaciones.
     if export_dict:
-        typer.secho("\n📖 [EXPORT-DICT] Feature coming soon! Data Dictionary export.", fg=typer.colors.YELLOW)
-        typer.secho("Will export ORM entities to JSON/CSV format.", fg=typer.colors.BRIGHT_BLACK)
-        return
+        from bck_nd_hlpr.er_parser import export_entities_as_dict
+        
+        fmt = export_dict.lower()
+        if fmt not in ["json", "csv"]:
+            typer.secho(f"❌ Error: Invalid format '{fmt}' for --export-dict. Use 'json' or 'csv'.", fg=typer.colors.RED)
+            sys.exit(1)
+            
+        result = export_entities_as_dict(path, fmt)
+        
+        if output:
+            with open(output, "w", encoding="utf-8") as f:
+                f.write(result)
+            typer.secho(f"✅ Data Dictionary exported to {output}", fg=typer.colors.GREEN)
+        else:
+            print(result)
+            
+        sys.exit(0)
 
     if arch_info['framework'] != 'Unknown':
         typer.secho(f"💻 Framework detected: {arch_info['framework']}", fg=typer.colors.GREEN)
