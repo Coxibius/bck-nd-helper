@@ -259,28 +259,86 @@ def generate_mermaid_sequence(all_routes: List[RouteInfo]) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # TODO: [APIContractMap] - Cruzar rutas API con modelos ER
-# Generar un mapa de contratos: Ruta → Modelo(s) que toca → Campos expuestos.
-def get_routes_with_models(root_path: str, max_depth: int = 3) -> list:
-    """[STUB] Cruza rutas API detectadas con entidades ER para generar el API Contract Map.
+def generate_api_contract_map(root_path: str, max_depth: int = 3) -> list:
+    from bck_nd_hlpr.er_parser import get_entities_for_contract_map
     
-    Diseño futuro:
-    1. Llamar a parse_project_routes() para obtener RouteInfo[].
-    2. Llamar a er_parser.get_entities_for_contract_map() para obtener entidades indexadas.
-    3. Usar DependencyTracker.get_dependency_graph_for_routes() para trazar la cadena.
-    4. Retornar: [{route: RouteInfo, models: [entity_name], fields_exposed: [col_name]}].
-    """
-    pass  # TODO: [APIContractMap] - Implementar cruce ruta ↔ modelo ER
+    routes = parse_project_routes(root_path, max_depth)
+    entities = get_entities_for_contract_map(root_path, max_depth)
+    
+    contract_map = []
+    
+    for route in routes:
+        best_match_name = None
+        columns = {}
+        
+        route_path_lower = route.path.lower()
+        file_lower = route.filename.lower()
+        handler_name = getattr(route, "handler_name", "unknown")
+        handler_lower = handler_name.lower()
+        
+        for entity_name, entity_data in entities.items():
+            ent_lower = entity_name.lower()
+            
+            path_match = False
+            for part in route_path_lower.split('/'):
+                if ent_lower == part or ent_lower + "s" == part or ent_lower + "es" == part or (ent_lower.endswith("y") and ent_lower[:-1] + "ies" == part):
+                    path_match = True
+                    break
+            
+            handler_match = False
+            if handler_name != "unknown" and ent_lower in handler_lower:
+                handler_match = True
+                
+            file_match = False
+            # Check if file has the entity name (e.g. user.controller.ts)
+            name_parts = file_lower.replace("\\", "/").split("/")[-1].split(".")
+            if ent_lower in name_parts:
+                file_match = True
+                
+            if path_match or handler_match or file_match:
+                best_match_name = entity_name
+                columns = entity_data["columns"]
+                break
+
+        contract_map.append({
+            "route": f"{route.method} {route.path}",
+            "handler": handler_name,
+            "file": route.filename,
+            "matched_model": best_match_name,
+            "columns": columns
+        })
+        
+    return contract_map
 
 
 # TODO: [ImpactRadius] - Identificar rutas API afectadas por un archivo modificado
-# Para uso de QA: dado un archivo en un PR, saber qué endpoints testear.
-def get_routes_affected_by_file(root_path: str, changed_file: str, max_depth: int = 3) -> list:
-    """[STUB] Retorna las rutas API que podrían verse afectadas por un cambio en `changed_file`.
+def get_routes_affected_by_file(root_path: str, changed_file: str, max_depth: int = 3) -> dict:
+    from bck_nd_hlpr.dependency_tracker import DependencyTracker
+    tracker = DependencyTracker(root_path)
+    impact_data = tracker.calculate_impact_radius(changed_file)
     
-    Diseño futuro:
-    1. Usar DependencyTracker.calculate_impact_radius(changed_file) para obtener archivos afectados.
-    2. Filtrar solo los archivos que contienen definiciones de rutas.
-    3. Re-parsear esos archivos con RouteExtractor para obtener las rutas específicas.
-    4. Retornar: [{method, path, handler_file, risk_level}].
-    """
-    pass  # TODO: [ImpactRadius] - Implementar detección de rutas afectadas para QA
+    affected_files = impact_data["affected_files"]
+    if not affected_files:
+        return {"changed_file": changed_file, "affected_files": [], "affected_routes": []}
+        
+    all_routes = parse_project_routes(root_path, max_depth)
+    
+    affected_routes = []
+    try:
+        rel_changed = str(Path(changed_file).resolve().relative_to(Path(root_path).resolve())).replace("\\", "/")
+    except ValueError:
+        rel_changed = changed_file
+        
+    for route in all_routes:
+        if route.filename in affected_files or route.filename == rel_changed:
+            affected_routes.append({
+                "method": route.method,
+                "path": route.path,
+                "file": route.filename
+            })
+            
+    return {
+        "changed_file": changed_file,
+        "affected_files": affected_files,
+        "affected_routes": affected_routes
+    }

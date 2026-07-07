@@ -32,6 +32,11 @@ bck-nd scan . --format mermaid -o architecture.mmd
 - 🎨 **Visual & Mermaid**: Output Unicode diagrams or copy-paste Mermaid code
 - 🚀 **Auto-Documentation (CI/CD)**: One-command setup for GitHub Actions to host living docs on GitHub Pages (`init-ci`)
 - 🧠 **AI Context Dump** (`bck-nd prompt`): Export a single, LLM-optimized `.txt` file with project tree + UML + ER + core files — just copy-paste into ChatGPT/Claude for instant codebase understanding **[NEW ✨]**
+- 🎓 **Guided Onboarding** (`--teach`): Automatically generates a sequential, tier-ordered learning curriculum of the codebase using dependency-graph heatmaps to quickly ramp up new developers.
+- 🛡️ **QA Impact Radius Analysis** (`--impact-radius <file>`): Performs a transitive reverse-dependency traversal to calculate exactly which upstream files and API endpoints might break when a specific file is modified.
+- 🔌 **API Contract Map** (`--contract`): Uses advanced static heuristics to match your backend API endpoints with their corresponding ORM database tables and column schemas.
+- ❤️ **Project Health Score** (`--health`): Computes a consolidated 0-100 score and letter grade (A-F) evaluating hardcoded secrets, technical debt density (TODOs/FIXMEs), and circular dependency risks.
+- 📊 **Jupyter Notebook Lineage** (`--datascience`): Scans and extracts raw data flow/lineage from `.ipynb` files to draw a beautiful Mermaid `graph LR` flowchart of your data pipeline, completely offline and without heavy dependencies (like pandas or nbformat).
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
 - 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Next.js/Express.js/Drizzle ORM), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform, Prisma schemas (`schema.prisma`), and SQL migrations (`.sql`)
 - 📄 **Automatic .gitignore Support**: Respects `.gitignore`: automatically excludes files and folders listed in `.gitignore` from scans and context dumps.
@@ -364,6 +369,61 @@ bck-nd scan . --trace
 - Traces API calls starting from your routes down to your services and models.
 - Parses AST (currently supports Python: FastAPI/Flask).
 
+##### 10.6 **Guided Onboarding** [NEW 🎓]
+
+```bash
+bck-nd scan . --teach
+```
+
+**Output:**
+
+- Evaluates file relationships to calculate reading hierarchy.
+- Outputs a color-coded sequential table dividing the codebase into Entrypoints, Core Logic, and Infra/Database files.
+
+##### 10.7 **Data Science Lineage Map** [NEW 📊]
+
+```bash
+bck-nd scan . --datascience
+```
+
+**Output:**
+
+- Parses `.ipynb` JSON nodes and analyzes cells.
+- Generates a Mermaid `graph LR` lineage flowchart mapping input files, notebooks, and outputs/models.
+
+##### 10.8 **QA Impact Radius** [NEW 🛡️]
+
+```bash
+bck-nd scan . --impact-radius src/bck_nd_hlpr/route_parser.py
+```
+
+**Output:**
+
+- Traverses reverse-dependencies transitively using BFS.
+- Outputs a clean report showing the complete affected file chain and a list of impacted API endpoints.
+
+##### 10.9 **API Contract Map** [NEW 🔌]
+
+```bash
+bck-nd scan . --contract
+```
+
+**Output:**
+
+- Matches backend API routes with ORM models using path-matching, handler-naming, and import-based heuristics.
+- Renders a structured terminal table displaying endpoints, matched database tables, and their column schemas.
+
+##### 10.10 **Project Health Score** [NEW ❤️]
+
+```bash
+bck-nd scan . --health
+```
+
+**Output:**
+
+- Calculates a consolidated 0-100 quality score.
+- Renders a beautifully styled Rich report card featuring letter grades (A-F) and details of security/debt point deductions.
+
 ##### 11. **Diagram + AI Analysis**
 
 ```bash
@@ -685,7 +745,13 @@ export BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
 
 ## 🤖 MCP Integration (Claude Desktop / Cursor)
 
-Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**, providing 11 powerful architecture tools directly to your AI assistants.
+Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**, providing 16 powerful architecture tools directly to your AI assistants, including our 5 newly supported AI co-pilot tools:
+
+- `get_project_health` (Calculates and displays the project health scorecard)
+- `get_guided_onboarding` (Retrieves the step-by-step reading sequence for new devs)
+- `export_data_dictionary` (Outputs schema schemas in JSON/CSV formats)
+- `get_impact_radius` (Maps file modifications transitively to affected API routes)
+- `get_api_contract_map` (Bridges API routes directly to database columns)
 
 For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED.md](ADVANCED.md).
 
@@ -697,6 +763,8 @@ For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED
 | --------------------------------- | ---------------------- | -------------- | ------------------- | ---------------- | --------------- |
 | `bck-nd scan .`                 | ✅                     | ✅ (Full Arch) | ❌                  | ❌               | ❌              |
 | `bck-nd scan . --explain`       | ✅                     | ✅             | ✅                  | ❌               | ❌              |
+| `bck-nd scan . --teach`         | ✅                     | ❌             | ✅ (Onboarding)     | ❌               | ❌              |
+| `bck-nd scan . --datascience`   | ✅                     | ✅ (Data Line) | ❌                  | ❌               | ❌              |
 | `bck-nd scan . --ai`            | ✅                     | ✅             | ❌                  | ✅               | ❌              |
 | `bck-nd scan . --explain --ai`  | ✅                     | ✅             | ✅                  | ✅               | ❌              |
 | `bck-nd scan . --no-graph --ai` | ✅                     | ❌             | ❌                  | ✅               | ❌              |
@@ -707,6 +775,9 @@ For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED
 | `bck-nd scan . --todo`          | ✅                     | ❌             | ✅ (Debt)           | ❌               | ❌              |
 | `bck-nd scan . --audit`         | ✅                     | ❌             | ✅ (Sec. Risks)     | ❌               | ❌              |
 | `bck-nd scan . --impact`        | ✅                     | ❌             | ✅ (Impact Heatmap) | ❌               | ❌              |
+| `bck-nd scan . --impact-radius` | ✅                     | ❌             | ✅ (Impact Chain)   | ❌               | ❌              |
+| `bck-nd scan . --contract`      | ✅                     | ✅ (Contract)  | ❌                  | ❌               | ❌              |
+| `bck-nd scan . --health`        | ✅                     | ❌             | ✅ (Health Grade)   | ❌               | ❌              |
 | `bck-nd scan . --trace`         | ✅                     | ✅ (Trace LR)  | ❌                  | ❌               | ❌              |
 | `bck-nd scan . --tree`          | ✅                     | ✅ (File Tree) | ❌                  | ❌               | ❌              |
 | `bck-nd prompt .`               | ✅                     | ✅ (Mermaid)   | ❌                  | ❌               | ✅ (XML)        |

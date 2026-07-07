@@ -138,14 +138,16 @@ def scan(
     todo: bool = typer.Option(False, "--todo", help="Scan for technical debt: TODO, FIXME, HACK, XXX, BUG comments. Color-coded Rich table with file, line, type, message. Example: bck-nd scan . --todo -o debt.txt"),
     audit: bool = typer.Option(False, "--audit", help="Security audit: detects hardcoded AWS keys, private PEMs, DB passwords, API tokens, IPs. Reports Critical/High/Warning risks. Example: bck-nd scan . --audit"),
     impact: bool = typer.Option(False, "--impact", help="Dependency heatmap: ranks files by import count. Risk categories: CORE, SHARED, PERIPHERAL. Example: bck-nd scan . --impact"),
+    impact_radius: Optional[str] = typer.Option(None, "--impact-radius", help="Path of the modified file to calculate its transitive impact radius on API routes."),
+    contract: bool = typer.Option(False, "--contract", help="Generate an API Contract Map matching HTTP routes to database models and columns."),
     trace: bool = typer.Option(False, "--trace", help="Route-to-DB traceability graph (Mermaid graph LR). Traces routes -> services -> models via AST. Supports Python (FastAPI/Flask). Example: bck-nd scan . --trace"),
     tree: bool = typer.Option(False, "--tree", help="ASCII directory tree with Unicode box-drawing. Auto-filters noise (node_modules, venv, .git, __pycache__). Example: bck-nd scan . --tree --depth 5"),
     # TODO: [Teach] - Flag para onboarding guiado que recorre el heatmap de dependencias paso a paso
-    teach: bool = typer.Option(False, "--teach", hidden=True, help="[COMING SOON] Guided onboarding walkthrough using the dependency heatmap."),
-    # TODO: [Health] - Flag para Project Health Score consolidando TODOs, Seguridad y Dependencias
-    health: bool = typer.Option(False, "--health", hidden=True, help="[COMING SOON] Project Health Score (TODOs + Security + Dependencies)."),
+    teach: bool = typer.Option(False, "--teach", help="Guided onboarding walkthrough using the dependency heatmap. Example: bck-nd scan . --teach"),
+    health: bool = typer.Option(False, "--health", help="Calculate and print a consolidated Project Health Score report card."),
     # TODO: [ExportDict] - Flag para exportar Data Dictionary JSON/CSV basado en los ORMs detectados
-    export_dict: bool = typer.Option(False, "--export-dict", hidden=True, help="[COMING SOON] Export Data Dictionary (JSON/CSV from ORM models)."),
+    export_dict: Optional[str] = typer.Option(None, "--export-dict", help="Export Data Dictionary (JSON/CSV from ORM models). Example: bck-nd scan . --export-dict json"),
+    datascience: bool = typer.Option(False, "--datascience", help="Generate Data Lineage Map (Mermaid graph LR) from Jupyter Notebooks. Example: bck-nd scan . --datascience"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
     provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook. Example: bck-nd scan . --ai --provider ollama")
 ):
@@ -422,6 +424,42 @@ def scan(
             print(report_str)
         return
 
+    # MODO IMPACT RADIUS (NEW)
+    if impact_radius:
+        typer.secho(f"\n[IMPACT RADIUS] 💥 CALCULATING TRANSITIVE IMPACT FOR: {impact_radius}", fg=typer.colors.MAGENTA, bold=True)
+        
+        from bck_nd_hlpr.route_parser import get_routes_affected_by_file
+        
+        try:
+            abs_path = str(Path(impact_radius).resolve())
+            if not Path(abs_path).exists():
+                typer.secho(f"⚠️ Friendly warning: The file '{impact_radius}' does not exist.", fg=typer.colors.YELLOW)
+                sys.exit(0)
+                
+            report = get_routes_affected_by_file(path, abs_path, max_depth=depth)
+            
+            typer.secho(f"\n🎯 Target File: {report['changed_file']}", fg=typer.colors.CYAN)
+            
+            if not report["affected_files"]:
+                typer.secho("✨ Good news! This file has no dependencies or does not affect any other files in the project.", fg=typer.colors.GREEN)
+                sys.exit(0)
+                
+            typer.secho(f"\n🔗 Transitively Affected Files ({len(report['affected_files'])}):", fg=typer.colors.YELLOW)
+            for f in report["affected_files"]:
+                typer.secho(f"  - {f}")
+                
+            typer.secho(f"\n🚨 Affected API Routes ({len(report['affected_routes'])}):", fg=typer.colors.RED, bold=True)
+            if not report["affected_routes"]:
+                typer.secho("  None. No API endpoints seem to be transitively broken by this change.", fg=typer.colors.GREEN)
+            else:
+                for r in report["affected_routes"]:
+                    typer.secho(f"  - [{r['method']}] {r['path']} (in {r['file']})")
+                    
+        except Exception as e:
+            typer.secho(f"⚠️ Could not calculate impact radius: {e}", fg=typer.colors.YELLOW)
+            
+        sys.exit(0)
+
     # MODO TRACE (NEW)
     if trace:
         typer.secho(f"\n[TRACE] 🔗 GENERATING ROUTE-TO-DB TRACEABILITY MAP (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
@@ -438,33 +476,188 @@ def scan(
             typer.secho("⚠️ Could not generate the traceability graph.", fg=typer.colors.YELLOW)
         return
 
+    # MODO CONTRACT MAP (NEW)
+    if contract:
+        typer.secho(f"\n[CONTRACT] 📜 GENERATING API CONTRACT MAP:", fg=typer.colors.MAGENTA, bold=True)
+        
+        from bck_nd_hlpr.route_parser import generate_api_contract_map
+        
+        try:
+            contracts = generate_api_contract_map(path, max_depth=depth)
+            
+            if not contracts:
+                typer.secho("⚠️ No routes or models found to generate a contract map.", fg=typer.colors.YELLOW)
+                sys.exit(0)
+                
+            if output:
+                import json
+                if output.endswith(".json"):
+                    output_handler(json.dumps(contracts, indent=2), "")
+                else:
+                    # Markdown table
+                    md_lines = ["| Route | File | Matched Model | Columns |", "|---|---|---|---|"]
+                    for c in contracts:
+                        cols = ", ".join(c['columns'].keys()) if c['columns'] else "None"
+                        model = c['matched_model'] or "None (Pure HTTP)"
+                        md_lines.append(f"| {c['route']} | {c['file']} | {model} | {cols} |")
+                    output_handler("\n".join(md_lines), "")
+            else:
+                from rich.console import Console
+                from rich.table import Table
+                
+                console = Console()
+                table = Table(show_header=True, header_style="bold magenta", title="API Contract Map")
+                table.add_column("Route", style="cyan")
+                table.add_column("File", style="yellow")
+                table.add_column("Matched Model", style="bold green")
+                table.add_column("Exposed Columns", style="white")
+                
+                for c in contracts:
+                    model = c['matched_model'] or "[italic bright_black]None (Pure HTTP)[/italic bright_black]"
+                    cols = ", ".join(c['columns'].keys()) if c['columns'] else "-"
+                    table.add_row(c['route'], c['file'], model, cols)
+                    
+                console.print(table)
+                
+        except Exception as e:
+            typer.secho(f"⚠️ Could not generate contract map: {e}", fg=typer.colors.RED)
+            
+        sys.exit(0)
+
     # ═══════════════════════════════════════════════════════════════════
     # FUTURE FLAGS — Stubs inactivos (no rompen ejecución actual)
     # ═══════════════════════════════════════════════════════════════════
 
     # TODO: [Teach] - Implementar lógica de sendero pedagógico
-    # Usar dependency_tracker.get_dependency_heatmap() para ordenar archivos por impacto
-    # y guiar al usuario desde los nodos CORE hasta los PERIPHERAL con explicaciones.
     if teach:
-        typer.secho("\n🎓 [TEACH] Feature coming soon! Guided onboarding using dependency heatmap.", fg=typer.colors.YELLOW)
-        typer.secho("This will walk you through the codebase from CORE → SHARED → PERIPHERAL.", fg=typer.colors.BRIGHT_BLACK)
-        return
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.table import Table
+        from rich.text import Text
+        
+        console = Console()
+        scanner = ProjectScanner()
+        path_list = scanner.get_onboarding_path(path)
+        
+        if not path_list:
+            console.print(Panel("[bold red]No project structure detected to create an onboarding path.[/bold red]"))
+            sys.exit(1)
+            
+        console.print("\n[bold cyan]🎓 Pedagogical Reading Path Generated![/bold cyan]")
+        console.print("[italic]Follow this sequence to quickly understand the project architecture:[/italic]\n")
+        
+        table = Table(show_header=True, header_style="bold magenta", border_style="bright_black")
+        table.add_column("Step", style="bold white", justify="right")
+        table.add_column("File Path", style="cyan")
+        table.add_column("Calculated Role", style="yellow")
+        table.add_column("Hint / Why it matters", style="white")
+        
+        for i, item in enumerate(path_list, 1):
+            tier = item["tier"]
+            role_color = "bold cyan" if tier == 1 else "bold magenta" if tier == 2 else "bold yellow"
+            
+            table.add_row(
+                str(i),
+                item["file"],
+                f"[{role_color}]{item['role']}[/{role_color}]",
+                item["hint"]
+            )
+            
+        console.print(table)
+        console.print("\n[bold green]Happy Onboarding![/bold green] 🚀")
+        sys.exit(0)
 
-    # TODO: [Health] - Implementar cálculo de Project Health Score
-    # Consolidar: scan_for_todos() + scan_security_risks() + analyze_impact()
-    # Generar un score numérico (0-100) con breakdown por categoría.
     if health:
-        typer.secho("\n🏥 [HEALTH] Feature coming soon! Project Health Score.", fg=typer.colors.YELLOW)
-        typer.secho("Will consolidate: TODOs + Security + Dependencies into a single score.", fg=typer.colors.BRIGHT_BLACK)
-        return
+        typer.secho(f"\n🏥 [HEALTH] CALCULATING PROJECT HEALTH SCORE:", fg=typer.colors.CYAN, bold=True)
+        
+        result = scanner.calculate_health_score(path, max_depth=depth)
+        score = result["score"]
+        grade = result["grade"]
+        breakdown = result["breakdown"]
+        
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.text import Text
+        
+        console = Console()
+        
+        if grade in ["A", "B"]:
+            color = "green"
+        elif grade in ["C", "D"]:
+            color = "yellow"
+        else:
+            color = "red bold"
+            
+        report_text = Text()
+        report_text.append(f"Score: {score}/100\n", style=f"{color}")
+        report_text.append(f"Grade: {grade}\n\n", style=f"{color}")
+        
+        c_risks = breakdown["critical_risks"]
+        if c_risks > 0:
+            report_text.append(f" -{c_risks * 25} points due to {c_risks} Critical Security risk(s)\n", style="red")
+            
+        h_risks = breakdown["high_risks"]
+        if h_risks > 0:
+            report_text.append(f" -{h_risks * 10} points due to {h_risks} High/Warning Security risk(s)\n", style="yellow")
+            
+        f_bugs = breakdown["fixme_bugs"]
+        if f_bugs > 0:
+            report_text.append(f" -{f_bugs * 3} points due to {f_bugs} FIXME/BUG/XXX(s)\n", style="magenta")
+            
+        t_hacks = breakdown["todos_hacks"]
+        if t_hacks > 0:
+            report_text.append(f" -{t_hacks * 1} points due to {t_hacks} TODO/HACK(s)\n", style="bright_black")
+            
+        if score == 100:
+            report_text.append(" 🎉 Perfect Score! No technical debt or security risks detected.\n", style="green")
+            
+        panel = Panel(report_text, title="Project Health Report Card", border_style=color)
+        
+        if output:
+            output_handler(report_text.plain, "")
+        else:
+            console.print(panel)
+            
+        sys.exit(0)
+
+    if datascience:
+        typer.secho("\n📊 [DATA SCIENCE] Data Lineage Map", fg=typer.colors.CYAN)
+        scanner = ProjectScanner()
+        mermaid_chart = scanner.scan_notebooks(path)
+        
+        if not mermaid_chart:
+            typer.secho("No Jupyter Notebooks (.ipynb) with data lineages found.", fg=typer.colors.YELLOW)
+        else:
+            if output:
+                with open(output, "w", encoding="utf-8") as f:
+                    f.write(mermaid_chart)
+                typer.secho(f"✅ Data Lineage Map saved to {output}", fg=typer.colors.GREEN)
+            else:
+                print(mermaid_chart)
+                
+        sys.exit(0)
 
     # TODO: [ExportDict] - Implementar exportación de Data Dictionary
     # Reutilizar parse_project_for_er() para obtener entidades,
     # serializar a JSON/CSV con columnas, tipos, relaciones.
     if export_dict:
-        typer.secho("\n📖 [EXPORT-DICT] Feature coming soon! Data Dictionary export.", fg=typer.colors.YELLOW)
-        typer.secho("Will export ORM entities to JSON/CSV format.", fg=typer.colors.BRIGHT_BLACK)
-        return
+        from bck_nd_hlpr.er_parser import export_entities_as_dict
+        
+        fmt = export_dict.lower()
+        if fmt not in ["json", "csv"]:
+            typer.secho(f"❌ Error: Invalid format '{fmt}' for --export-dict. Use 'json' or 'csv'.", fg=typer.colors.RED)
+            sys.exit(1)
+            
+        result = export_entities_as_dict(path, fmt)
+        
+        if output:
+            with open(output, "w", encoding="utf-8") as f:
+                f.write(result)
+            typer.secho(f"✅ Data Dictionary exported to {output}", fg=typer.colors.GREEN)
+        else:
+            print(result)
+            
+        sys.exit(0)
 
     if arch_info['framework'] != 'Unknown':
         typer.secho(f"💻 Framework detected: {arch_info['framework']}", fg=typer.colors.GREEN)

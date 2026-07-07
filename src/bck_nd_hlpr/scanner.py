@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
 from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
@@ -284,39 +285,184 @@ class ProjectScanner:
     #           + dependency_tracker.analyze_impact()
     # Retornar un dict con score global (0-100) y breakdown por categoría.
     def calculate_health_score(self, root_path: str, max_depth: int = 5) -> dict:
-        """[STUB] Calcula un Project Health Score consolidado.
+        """Calcula un Project Health Score consolidado."""
+        try:
+            from bck_nd_hlpr.todo_hunter import scan_for_todos
+            todos = scan_for_todos(root_path, max_depth=max_depth) or []
+        except Exception:
+            todos = []
+            
+        try:
+            from bck_nd_hlpr.security_auditor import scan_security_risks
+            risks = scan_security_risks(root_path, max_depth=max_depth) or []
+        except Exception:
+            risks = []
+            
+        from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+        from pathlib import Path
         
-        Diseño futuro:
-        1. TODOs: Penalizar por cantidad y severidad (FIXME > TODO).
-        2. Security: Penalizar por CRITICAL (-20), HIGH (-10), WARNING (-3).
-        3. Dependencies: Bonificar bajo acoplamiento, penalizar CORE files sin tests.
-        4. Retornar: {score: int, grade: str, breakdown: {todos: {}, security: {}, deps: {}}}.
-        """
-        pass  # TODO: [Health] - Implementar cálculo y ponderación de métricas
+        def is_test_file(file_path: str) -> bool:
+            if not file_path:
+                return False
+            p = Path(file_path)
+            # check directory names in the path
+            for part in p.parts[:-1]:
+                if part in ["tests", "test_project"] or part in GLOBAL_IGNORE_DIRS:
+                    return True
+            # check file name
+            if p.name.startswith("test_"):
+                return True
+            return False
+
+        todos = [t for t in todos if not is_test_file(t.get("file", ""))]
+        risks = [r for r in risks if not is_test_file(r.get("file", ""))]
+            
+        critical_risks = 0
+        high_risks = 0
+        for risk in risks:
+            sev = risk.get("severity", "").upper()
+            if sev == "CRITICAL":
+                critical_risks += 1
+            elif sev in ["HIGH", "WARNING"]:
+                high_risks += 1
+                
+        fixme_bugs = 0
+        todos_hacks = 0
+        for t in todos:
+            ttype = t.get("type", "").upper()
+            if ttype in ["FIXME", "BUG", "XXX"]:
+                fixme_bugs += 1
+            elif ttype in ["TODO", "HACK"]:
+                todos_hacks += 1
+                
+        score = 100
+        score -= (critical_risks * 25)
+        score -= (high_risks * 10)
+        score -= (fixme_bugs * 3)
+        score -= (todos_hacks * 1)
+        
+        score = max(0, min(100, score))
+        
+        if score >= 90:
+            grade = "A"
+        elif score >= 80:
+            grade = "B"
+        elif score >= 70:
+            grade = "C"
+        elif score >= 60:
+            grade = "D"
+        else:
+            grade = "F"
+        
+        return {
+            "score": score,
+            "grade": grade,
+            "breakdown": {
+                "critical_risks": critical_risks,
+                "high_risks": high_risks,
+                "fixme_bugs": fixme_bugs,
+                "todos_hacks": todos_hacks
+            }
+        }
+
+    def _parse_notebook_lineage(self, file_path: Path) -> dict:
+        """Parse a Jupyter Notebook for input and output data references."""
+        result = {"notebook": file_path.name, "inputs": [], "outputs": []}
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                data = json.load(f)
+        except Exception:
+            return result
+
+        cells = data.get("cells", [])
+        if not isinstance(cells, list):
+            return result
+
+        code_text = []
+        for cell in cells:
+            if isinstance(cell, dict) and cell.get("cell_type") == "code":
+                source = cell.get("source", [])
+                if isinstance(source, list):
+                    code_text.extend(source)
+                elif isinstance(source, str):
+                    code_text.append(source)
+                    
+        full_code = "\n".join(code_text)
+        
+        # Regex to find inputs and outputs
+        input_pattern = re.compile(r"(?:read_csv|read_parquet|read_sql|read_json|read_excel|open)\s*\(\s*['\"]([^'\"]+)['\"]")
+        output_pattern = re.compile(r"(?:to_csv|to_parquet|to_sql|to_json|to_excel|save|dump)\s*\(\s*['\"]([^'\"]+)['\"]")
+        
+        inputs = input_pattern.findall(full_code)
+        outputs = output_pattern.findall(full_code)
+        
+        # Deduplicate while preserving order mostly
+        result["inputs"] = list(dict.fromkeys(inputs))
+        result["outputs"] = list(dict.fromkeys(outputs))
+        
+        return result
 
     # TODO: [DataScience] - Soporte para parsear notebooks Jupyter (.ipynb)
-    # Extraer celdas de código, detectar imports de pandas/sklearn/torch,
-    # identificar pipelines ETL y generar nodos en el diagrama de arquitectura.
-    def scan_notebooks(self, root_path: str, max_depth: int = 3) -> list:
-        """[STUB] Escanea archivos .ipynb para detectar pipelines de Data Science.
+    def scan_notebooks(self, root_path: str, max_depth: int = 3) -> str:
+        """Generates a Mermaid graph LR representing the data lineage from Jupyter Notebooks."""
+        root = Path(root_path).resolve()
+        if not root.exists(): return ""
         
-        Diseño futuro:
-        1. Parsear JSON del .ipynb (cells[].source donde cell_type=='code').
-        2. Detectar imports: pandas, numpy, sklearn, torch, tensorflow, pyspark.
-        3. Identificar patrones ETL: read_csv → transform → to_sql/to_parquet.
-        4. Retornar lista de dicts: [{notebook, imports, pipeline_stages}].
-        """
-        pass  # TODO: [DataScience] - Implementar parser de notebooks .ipynb
+        lineages = []
+        
+        for root_dir, dirs, files in os.walk(root):
+            rel_path = Path(root_dir).relative_to(root)
+            depth_level = len(rel_path.parts) if str(rel_path) != "." else 0
+
+            if depth_level > max_depth:
+                del dirs[:] 
+                continue
+            
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
+            
+            for f in files:
+                if f.endswith(".ipynb"):
+                    full_path = Path(root_dir) / f
+                    lineage = self._parse_notebook_lineage(full_path)
+                    if lineage["inputs"] or lineage["outputs"]:
+                        lineages.append(lineage)
+                        
+        if not lineages:
+            return ""
+            
+        mermaid_lines = ["graph LR"]
+        
+        def sanitize_id(name: str) -> str:
+            return name.replace(".", "_").replace("-", "_").replace(" ", "_").replace("/", "_").replace("\\", "_")
+            
+        for lin in lineages:
+            nb_name = lin["notebook"]
+            nb_id = sanitize_id(nb_name)
+            
+            for inp in lin["inputs"]:
+                inp_id = sanitize_id(inp)
+                # Input Data (Cylinder) --> Notebook (Rounded)
+                mermaid_lines.append(f"    {inp_id}[(\"{inp}\")] --> {nb_id}(\"{nb_name}\")")
+                
+            for out in lin["outputs"]:
+                out_id = sanitize_id(out)
+                # Notebook (Rounded) --> Output Data (Cylinder)
+                mermaid_lines.append(f"    {nb_id}(\"{nb_name}\") --> {out_id}[(\"{out}\")]")
+                
+        # Deduplicate connection lines
+        seen_lines = set()
+        dedup_lines = []
+        for line in mermaid_lines:
+            if line not in seen_lines:
+                seen_lines.add(line)
+                dedup_lines.append(line)
+                
+        return "\n".join(dedup_lines)
 
     # TODO: [Teach] - Punto de integración con el onboarding guiado
-    # Este método será llamado por cli.py --teach para obtener el recorrido pedagógico.
-    # Internamente usa DependencyTracker.get_dependency_heatmap().
     def get_onboarding_path(self, root_path: str) -> list:
-        """[STUB] Genera un recorrido pedagógico ordenado del codebase.
-        
-        Diseño futuro:
-        1. Llamar a DependencyTracker(root_path).get_dependency_heatmap().
-        2. Para cada archivo CORE, leer las primeras líneas y docstrings.
-        3. Generar un "tour" con: [{step, file, category, summary, tip}].
-        """
-        pass  # TODO: [Teach] - Implementar generación de tour pedagógico
+        """Genera un recorrido pedagógico ordenado del codebase."""
+        from bck_nd_hlpr.dependency_tracker import DependencyTracker
+        tracker = DependencyTracker(root_path)
+        tracker.scan_dependencies()
+        return tracker.get_onboarding_path()
