@@ -162,18 +162,36 @@ class DependencyTracker:
     # ═══════════════════════════════════════════════════════════════════
 
     # TODO: [ImpactRadius] - Calcular radio de impacto conectando dependencias con rutas API
-    # Dado un archivo modificado, retornar qué rutas HTTP se ven afectadas.
-    # Input: archivo cambiado → Output: lista de RouteInfo afectados.
-    # Requiere integración con route_parser.parse_project_routes().
-    def calculate_impact_radius(self, changed_file: str) -> list:
-        """[STUB] Calcula qué rutas API se ven afectadas por un cambio en `changed_file`.
+    def calculate_impact_radius(self, changed_file: str) -> dict:
+        """Calculates what files are transitively affected by a change in `changed_file`."""
+        if not self.all_files:
+            self.scan_dependencies()
+            
+        try:
+            rel_changed = str(Path(changed_file).resolve().relative_to(self.root)).replace("\\", "/")
+        except ValueError:
+            return {"changed_file": changed_file, "affected_files": []}
+
+        affected = []
+        visited = set()
+        queue = [(rel_changed, 0)]
         
-        Diseño futuro:
-        1. Obtener dependientes transitivos de `changed_file` vía usage_map.
-        2. Cruzar con route_parser para identificar qué endpoints tocan esos archivos.
-        3. Retornar lista de RouteInfo con método HTTP, path y handler afectado.
-        """
-        pass  # TODO: [ImpactRadius] - Implementar traversal transitivo + cruce con RouteInfo
+        while queue:
+            current, depth = queue.pop(0)
+            if current not in visited:
+                visited.add(current)
+                if current != rel_changed:
+                    affected.append({"file": current, "depth": depth})
+                
+                for dependent in self.usage_map.get(current, set()):
+                    queue.append((dependent, depth + 1))
+                    
+        affected.sort(key=lambda x: x["depth"])
+        
+        return {
+            "changed_file": changed_file,
+            "affected_files": [item["file"] for item in affected]
+        }
 
     # TODO: [Teach] - Generar datos para el sendero pedagógico de onboarding
     def get_onboarding_path(self) -> list:
@@ -187,10 +205,32 @@ class DependencyTracker:
         for file in self.all_files:
             file_lower = file.lower()
             
+            p = Path(file)
+            skip = False
+            
+            # Check extensions
+            skip_extensions = {".exe", ".bat", ".ps1", ".cfg", ".json", ".yaml", ".yml", ".toml", ".ini", ".md", ".txt"}
+            if p.suffix.lower() in skip_extensions:
+                skip = True
+                
+            # Check path parts for exclusions
+            for part in p.parts:
+                part_lower = part.lower()
+                if part in GLOBAL_IGNORE_DIRS:
+                    skip = True
+                    break
+                if part_lower in ["cuarentena_env", ".venv", "env", "venv", "__pycache__"]:
+                    skip = True
+                    break
+                if part.startswith(".") and part not in [".", ".."]:
+                    skip = True
+                    break
+                    
+            if skip:
+                continue
+                
             # Skip noise
             if any(n in file_lower for n in ["test_", ".test.", ".spec.", "conftest"]): continue
-            if file_lower.endswith((".json", ".yaml", ".yml", ".toml", ".ini", ".md", ".txt")): continue
-            if file_lower.startswith((".", "node_modules", "venv", "__pycache__")): continue
             
             in_degree = len(self.usage_map.get(file, set()))
             out_degree = len(self.imports_map.get(file, set()))

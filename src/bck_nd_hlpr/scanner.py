@@ -285,15 +285,85 @@ class ProjectScanner:
     #           + dependency_tracker.analyze_impact()
     # Retornar un dict con score global (0-100) y breakdown por categoría.
     def calculate_health_score(self, root_path: str, max_depth: int = 5) -> dict:
-        """[STUB] Calcula un Project Health Score consolidado.
+        """Calcula un Project Health Score consolidado."""
+        try:
+            from bck_nd_hlpr.todo_hunter import scan_for_todos
+            todos = scan_for_todos(root_path, max_depth=max_depth) or []
+        except Exception:
+            todos = []
+            
+        try:
+            from bck_nd_hlpr.security_auditor import scan_security_risks
+            risks = scan_security_risks(root_path, max_depth=max_depth) or []
+        except Exception:
+            risks = []
+            
+        from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+        from pathlib import Path
         
-        Diseño futuro:
-        1. TODOs: Penalizar por cantidad y severidad (FIXME > TODO).
-        2. Security: Penalizar por CRITICAL (-20), HIGH (-10), WARNING (-3).
-        3. Dependencies: Bonificar bajo acoplamiento, penalizar CORE files sin tests.
-        4. Retornar: {score: int, grade: str, breakdown: {todos: {}, security: {}, deps: {}}}.
-        """
-        pass  # TODO: [Health] - Implementar cálculo y ponderación de métricas
+        def is_test_file(file_path: str) -> bool:
+            if not file_path:
+                return False
+            p = Path(file_path)
+            # check directory names in the path
+            for part in p.parts[:-1]:
+                if part in ["tests", "test_project"] or part in GLOBAL_IGNORE_DIRS:
+                    return True
+            # check file name
+            if p.name.startswith("test_"):
+                return True
+            return False
+
+        todos = [t for t in todos if not is_test_file(t.get("file", ""))]
+        risks = [r for r in risks if not is_test_file(r.get("file", ""))]
+            
+        critical_risks = 0
+        high_risks = 0
+        for risk in risks:
+            sev = risk.get("severity", "").upper()
+            if sev == "CRITICAL":
+                critical_risks += 1
+            elif sev in ["HIGH", "WARNING"]:
+                high_risks += 1
+                
+        fixme_bugs = 0
+        todos_hacks = 0
+        for t in todos:
+            ttype = t.get("type", "").upper()
+            if ttype in ["FIXME", "BUG", "XXX"]:
+                fixme_bugs += 1
+            elif ttype in ["TODO", "HACK"]:
+                todos_hacks += 1
+                
+        score = 100
+        score -= (critical_risks * 25)
+        score -= (high_risks * 10)
+        score -= (fixme_bugs * 3)
+        score -= (todos_hacks * 1)
+        
+        score = max(0, min(100, score))
+        
+        if score >= 90:
+            grade = "A"
+        elif score >= 80:
+            grade = "B"
+        elif score >= 70:
+            grade = "C"
+        elif score >= 60:
+            grade = "D"
+        else:
+            grade = "F"
+        
+        return {
+            "score": score,
+            "grade": grade,
+            "breakdown": {
+                "critical_risks": critical_risks,
+                "high_risks": high_risks,
+                "fixme_bugs": fixme_bugs,
+                "todos_hacks": todos_hacks
+            }
+        }
 
     def _parse_notebook_lineage(self, file_path: Path) -> dict:
         """Parse a Jupyter Notebook for input and output data references."""

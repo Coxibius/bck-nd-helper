@@ -746,48 +746,165 @@ def init_ci(path: str = ".") -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FUTURE MCP TOOLS — Stubs para features planificadas
+# NEW MCP TOOLS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# TODO: [Health] - Exponer Project Health Score como tool MCP
-# Llamará a scanner.calculate_health_score() cuando esté implementado.
-# @mcp.tool()
-# @redirect_stdout_to_stderr
-# def get_health_score(path: str = ".", depth: int = 3) -> str:
-#     """Get a consolidated Project Health Score (0-100) combining TODOs, Security, and Dependencies."""
-#     pass
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_project_health(root_path: str = ".", depth: int = 3) -> str:
+    """Get a consolidated Project Health Score combining TODOs, Security, and Dependencies.
+    
+    Use this tool when:
+    - The user asks about the overall health, score, or tech debt metrics of the codebase.
+    
+    Args:
+        root_path: Path to the project root. Default "." is the current directory.
+        depth: Scan depth.
+    """
+    try:
+        scanner = ProjectScanner()
+        result = scanner.calculate_health_score(root_path, max_depth=depth)
+        
+        report = []
+        report.append(f"Project Health Score: {result['score']}/100")
+        report.append(f"Grade: {result['grade']}\n")
+        
+        breakdown = result["breakdown"]
+        report.append("Deductions Breakdown:")
+        if breakdown['critical_risks'] > 0:
+            report.append(f"- {breakdown['critical_risks']} Critical Security risks (-{breakdown['critical_risks'] * 25} pts)")
+        if breakdown['high_risks'] > 0:
+            report.append(f"- {breakdown['high_risks']} High/Warning Security risks (-{breakdown['high_risks'] * 10} pts)")
+        if breakdown['fixme_bugs'] > 0:
+            report.append(f"- {breakdown['fixme_bugs']} FIXMEs/BUGs (-{breakdown['fixme_bugs'] * 3} pts)")
+        if breakdown['todos_hacks'] > 0:
+            report.append(f"- {breakdown['todos_hacks']} TODOs/HACKs (-{breakdown['todos_hacks'] * 1} pts)")
+            
+        if result['score'] == 100:
+            report.append("No technical debt or security risks detected. Perfect score!")
+            
+        return "\n".join(report)
+    except Exception as e:
+        return f"Error calculating health score: {str(e)}\n{traceback.format_exc()}"
 
-# TODO: [Teach] - Exponer onboarding guiado como tool MCP
-# Llamará a scanner.get_onboarding_path() cuando esté implementado.
-# @mcp.tool()
-# @redirect_stdout_to_stderr
-# def get_onboarding_tour(path: str = ".", depth: int = 3) -> str:
-#     """Generate a guided onboarding walkthrough of the codebase ordered by dependency criticality."""
-#     pass
 
-# TODO: [ExportDict] - Exponer Data Dictionary como tool MCP
-# Llamará a er_parser.export_entities_as_dict() cuando esté implementado.
-# @mcp.tool()
-# @redirect_stdout_to_stderr
-# def export_data_dictionary(path: str = ".", format: str = "json", depth: int = 3) -> str:
-#     """Export detected ORM entities as a Data Dictionary in JSON or CSV format."""
-#     pass
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_guided_onboarding(root_path: str = ".", depth: int = 3) -> str:
+    """Generate a guided onboarding walkthrough of the codebase ordered by dependency criticality.
+    
+    Use this tool when:
+    - The user is new to the project and wants to know where to start reading.
+    
+    Args:
+        root_path: Path to the project root. Default ".".
+        depth: Scan depth.
+    """
+    try:
+        from bck_nd_hlpr.dependency_tracker import DependencyTracker
+        tracker = DependencyTracker(root_path)
+        tracker.scan_dependencies()
+        path_list = tracker.get_onboarding_path()
+        
+        if not path_list:
+            return "No project structure detected to create an onboarding path."
+            
+        report = ["Guided Onboarding Path:"]
+        for i, item in enumerate(path_list, 1):
+            report.append(f"{i}. {item['file']} ({item['role']}) - {item['hint']}")
+            
+        return "\n".join(report)
+    except Exception as e:
+        return f"Error generating onboarding path: {str(e)}\n{traceback.format_exc()}"
 
-# TODO: [ImpactRadius] - Exponer Impact Radius para QA como tool MCP
-# Llamará a route_parser.get_routes_affected_by_file() cuando esté implementado.
-# @mcp.tool()
-# @redirect_stdout_to_stderr
-# def get_impact_radius(path: str = ".", changed_file: str = "", depth: int = 3) -> str:
-#     """Given a changed file, return which API routes are affected (for QA test prioritization)."""
-#     pass
 
-# TODO: [APIContractMap] - Exponer API Contract Map como tool MCP
-# Llamará a route_parser.get_routes_with_models() cuando esté implementado.
-# @mcp.tool()
-# @redirect_stdout_to_stderr
-# def get_api_contract_map(path: str = ".", depth: int = 3) -> str:
-#     """Generate an API Contract Map crossing routes with ER models and exposed fields."""
-#     pass
+@mcp.tool()
+@redirect_stdout_to_stderr
+def export_data_dictionary(root_path: str = ".", format: str = "json") -> str:
+    """Export detected ORM entities as a Data Dictionary in JSON or CSV format.
+    
+    Use this tool when:
+    - The user asks for a data dictionary, database schema export, or raw JSON/CSV of entities.
+    
+    Args:
+        root_path: Path to the project root. Default ".".
+        format: Format to export, either 'json' or 'csv'. Default "json".
+    """
+    try:
+        from bck_nd_hlpr.er_parser import export_entities_as_dict
+        return export_entities_as_dict(root_path, format)
+    except Exception as e:
+        return f"Error exporting data dictionary: {str(e)}\n{traceback.format_exc()}"
+
+
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_impact_radius(root_path: str = ".", changed_file: str = "", depth: int = 3) -> str:
+    """Given a changed file, return which API routes and files are transitively affected.
+    
+    Use this tool when:
+    - The user wants to know the blast radius or QA test prioritization for modifying a specific file.
+    
+    Args:
+        root_path: Path to the project root. Default ".".
+        changed_file: Absolute or relative path to the file being modified.
+        depth: Scan depth.
+    """
+    try:
+        from bck_nd_hlpr.route_parser import get_routes_affected_by_file
+        
+        abs_path = os.path.abspath(changed_file)
+        if not os.path.exists(abs_path):
+            return f"Error: The file '{changed_file}' does not exist."
+            
+        report_data = get_routes_affected_by_file(root_path, abs_path, max_depth=depth)
+        
+        report = [f"Impact Radius for: {report_data['changed_file']}\n"]
+        
+        report.append(f"Transitively Affected Files ({len(report_data['affected_files'])}):")
+        for f in report_data["affected_files"]:
+            report.append(f"- {f}")
+            
+        report.append(f"\nAffected API Routes ({len(report_data['affected_routes'])}):")
+        if not report_data["affected_routes"]:
+            report.append("None. No API endpoints seem to be transitively affected by this change.")
+        else:
+            for r in report_data["affected_routes"]:
+                report.append(f"- [{r['method']}] {r['path']} (in {r['file']})")
+                
+        return "\n".join(report)
+    except Exception as e:
+        return f"Error calculating impact radius: {str(e)}\n{traceback.format_exc()}"
+
+
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_api_contract_map(root_path: str = ".", depth: int = 3) -> str:
+    """Generate an API Contract Map crossing routes with ER models and exposed fields.
+    
+    Use this tool when:
+    - The user wants to map HTTP endpoints to database models.
+    
+    Args:
+        root_path: Path to the project root. Default ".".
+        depth: Scan depth.
+    """
+    try:
+        from bck_nd_hlpr.route_parser import generate_api_contract_map
+        contracts = generate_api_contract_map(root_path, max_depth=depth)
+        
+        if not contracts:
+            return "No routes or models found to generate a contract map."
+            
+        report = ["| Route | File | Matched Model | Columns |", "|---|---|---|---|"]
+        for c in contracts:
+            cols = ", ".join(c['columns'].keys()) if c['columns'] else "None"
+            model = c['matched_model'] or "None (Pure HTTP)"
+            report.append(f"| {c['route']} | {c['file']} | {model} | {cols} |")
+            
+        return "\n".join(report)
+    except Exception as e:
+        return f"Error generating API contract map: {str(e)}\n{traceback.format_exc()}"
 
 
 def main():

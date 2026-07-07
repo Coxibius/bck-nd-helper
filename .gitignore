@@ -48,3 +48,5 @@ architecture.txt
 feat/vscode-extension
 
 test_out.txt
+
+venv_subida/

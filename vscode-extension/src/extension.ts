@@ -76,6 +76,18 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
                 case 'runAudit':
                     await this._handleRunAudit(workspacePath, data.type);
                     break;
+                case 'runHealth':
+                    await this._handleRunHealth(workspacePath);
+                    break;
+                case 'runTeach':
+                    await this._handleRunTeach(workspacePath);
+                    break;
+                case 'runContract':
+                    await this._handleRunContract(workspacePath);
+                    break;
+                case 'runDataScience':
+                    await this._handleGenerateDiagram(workspacePath, 'datascience');
+                    break;
             }
         });
     }
@@ -143,7 +155,8 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
             'uml': { title: 'UML Class Diagram', cmd: 'bck-nd scan . --uml --format mermaid' },
             'er': { title: 'Entity-Relationship Diagram (ER)', cmd: 'bck-nd scan . --er --format mermaid' },
             'trace': { title: 'Route-to-DB Map', cmd: 'bck-nd scan . --trace --format mermaid' },
-            'prompt': { title: 'Complete AI Context (Prompt)', cmd: 'bck-nd prompt . -o -' }
+            'prompt': { title: 'Complete AI Context (Prompt)', cmd: 'bck-nd prompt . -o -' },
+            'datascience': { title: 'Data Lineage Map', cmd: 'bck-nd scan . --datascience' }
         };
 
         const config = cmdMap[type];
@@ -295,6 +308,111 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
                     } else {
                         this._outputChannel.appendLine(`\n>>> Execution finished successfully.`);
                         vscode.window.showInformationMessage(`¡${config.title} completed! Results in the Backend Helper panel.`);
+                    }
+                    resolve();
+                });
+            });
+        });
+    }
+
+    private async _handleRunHealth(workspacePath: string) {
+        this._outputChannel.clear();
+        this._outputChannel.show();
+        this._outputChannel.appendLine(`>>> Starting Project Health Score...`);
+        this._outputChannel.appendLine(`>>> Working directory: ${workspacePath}`);
+        this._outputChannel.appendLine(`>>> Running: bck-nd scan . --health\n`);
+
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Calculating Project Health Score...`,
+            cancellable: false
+        }, async () => {
+            return new Promise<void>((resolve) => {
+                cp.exec('bck-nd scan . --health', { cwd: workspacePath }, (error, stdout, stderr) => {
+                    if (stdout) {
+                        this._outputChannel.append(stripAnsi(stdout));
+                    }
+                    if (stderr) {
+                        this._outputChannel.append('\n--- ERRORS / WARNINGS ---\n');
+                        this._outputChannel.append(stripAnsi(stderr));
+                    }
+
+                    if (error) {
+                        this._outputChannel.appendLine(`\n>>> ERROR: Command failed with code ${error.code}`);
+                        this._handleExecError(error, stderr);
+                    } else {
+                        this._outputChannel.appendLine(`\n>>> Execution finished successfully.`);
+                        vscode.window.showInformationMessage(`Project Health Score completed! Results in the Backend Helper panel.`);
+                    }
+                    resolve();
+                });
+            });
+        });
+    }
+
+    private async _handleRunTeach(workspacePath: string) {
+        this._outputChannel.clear();
+        this._outputChannel.show();
+        this._outputChannel.appendLine(`>>> Starting Guided Onboarding...`);
+        this._outputChannel.appendLine(`>>> Working directory: ${workspacePath}`);
+        this._outputChannel.appendLine(`>>> Running: bck-nd scan . --teach\n`);
+
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Generating Onboarding Path...`,
+            cancellable: false
+        }, async () => {
+            return new Promise<void>((resolve) => {
+                cp.exec('bck-nd scan . --teach', { cwd: workspacePath }, (error, stdout, stderr) => {
+                    if (stdout) {
+                        this._outputChannel.append(stripAnsi(stdout));
+                    }
+                    if (stderr) {
+                        this._outputChannel.append('\n--- ERRORS / WARNINGS ---\n');
+                        this._outputChannel.append(stripAnsi(stderr));
+                    }
+
+                    if (error) {
+                        this._outputChannel.appendLine(`\n>>> ERROR: Command failed with code ${error.code}`);
+                        this._handleExecError(error, stderr);
+                    } else {
+                        this._outputChannel.appendLine(`\n>>> Execution finished successfully.`);
+                        vscode.window.showInformationMessage(`Guided Onboarding completed! Results in the Backend Helper panel.`);
+                    }
+                    resolve();
+                });
+            });
+        });
+    }
+
+    private async _handleRunContract(workspacePath: string) {
+        this._outputChannel.clear();
+        this._outputChannel.show();
+        this._outputChannel.appendLine(`>>> Starting API Contract Map...`);
+        this._outputChannel.appendLine(`>>> Working directory: ${workspacePath}`);
+        this._outputChannel.appendLine(`>>> Running: bck-nd scan . --contract\n`);
+
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Generating API Contract Map...`,
+            cancellable: false
+        }, async () => {
+            return new Promise<void>((resolve) => {
+                cp.exec('bck-nd scan . --contract', { cwd: workspacePath }, (error, stdout, stderr) => {
+                    if (stdout) {
+                        this._outputChannel.append(stripAnsi(stdout));
+                    }
+                    if (stderr) {
+                        this._outputChannel.append('\n--- ERRORS / WARNINGS ---\n');
+                        this._outputChannel.append(stripAnsi(stderr));
+                    }
+
+                    if (error) {
+                        this._outputChannel.appendLine(`\n>>> ERROR: Command failed with code ${error.code}`);
+                        this._handleExecError(error, stderr);
+                    } else {
+                        this._outputChannel.appendLine(`\n>>> Execution finished successfully.`);
+                        vscode.window.showInformationMessage(`API Contract Map completed! Results in the Backend Helper panel.`);
                     }
                     resolve();
                 });
@@ -473,6 +591,37 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
         <p>Architecture Control Panel</p>
     </div>
 
+    <!-- NEW SECTION: INTERACTIVE ANALYSIS AND REPORTS -->
+    <details open>
+        <summary>
+            <span>🎯 Interactive Features</span>
+            <svg class="chevron" viewBox="0 0 24 24">
+                <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+        </summary>
+        <div class="section-content">
+            <button class="btn" onclick="runHealth()">
+                <span>❤️</span> Project Health Score
+            </button>
+            <p class="btn-desc">Calculates a consolidated Project Health Score report card.</p>
+
+            <button class="btn" onclick="runTeach()">
+                <span>🎓</span> Guided Onboarding
+            </button>
+            <p class="btn-desc">Guided onboarding tour using the dependency heatmap.</p>
+
+            <button class="btn" onclick="runContract()">
+                <span>🔌</span> API Contract Map
+            </button>
+            <p class="btn-desc">Maps HTTP routes to database models and columns.</p>
+
+            <button class="btn" onclick="runDataScience()">
+                <span>📊</span> Data Lineage Map
+            </button>
+            <p class="btn-desc">Renders data lineage maps from Jupyter Notebooks.</p>
+        </div>
+    </details>
+
     <!-- SECTION 1: ARTIFICIAL INTELLIGENCE -->
     <details open>
         <summary>
@@ -569,6 +718,22 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
         
         function runAudit(type) {
             vscode.postMessage({ command: 'runAudit', type: type });
+        }
+
+        function runHealth() {
+            vscode.postMessage({ command: 'runHealth' });
+        }
+
+        function runTeach() {
+            vscode.postMessage({ command: 'runTeach' });
+        }
+
+        function runContract() {
+            vscode.postMessage({ command: 'runContract' });
+        }
+
+        function runDataScience() {
+            vscode.postMessage({ command: 'runDataScience' });
         }
     </script>
 </body>
