@@ -3,7 +3,7 @@ name: Generate Documentation
 on:
   push:
     branches:
-      - main # Solo se publica oficialmente cuando se hace merge a main
+      - main
 
 permissions:
   contents: write
@@ -18,21 +18,25 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Install bck-nd-hlpr
+          if [ -f pyproject.toml ] && grep -q "name = \"bck-nd-hlpr\"" pyproject.toml; then
+            pip install .
+          else
+            pip install bck-nd-hlpr
+          fi
 
       - name: Run Backend Helper Scan
         run: |
-          # Generar el portal HTML en la carpeta 'docs'
-          bck-nd docs . --output docs
+          bck-nd docs .
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: docs
-          force_orphan: true # <--- ESTA ES LA MAGIA: Sobreescribe historiales conflictivos
