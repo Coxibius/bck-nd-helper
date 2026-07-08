@@ -25,8 +25,13 @@ from bck_nd_hlpr.todo_hunter import scan_for_todos, display_todos_table, get_tod
 from bck_nd_hlpr.doc_generator import DocGenerator
 from bck_nd_hlpr.ci_generator import generate_ci_workflow
 from bck_nd_hlpr.context_dumper import ContextDumper
-from bck_nd_hlpr.traceability import parse_project_traceability, generate_mermaid_traceability
 from bck_nd_hlpr.tree_generator import generate_project_tree
+from bck_nd_hlpr.analysis import (
+    ScanContext,
+    get_analyzer,
+    build_uml_diagram,
+    build_er_diagram,
+)
 
 
 app = typer.Typer(
@@ -229,199 +234,45 @@ def scan(
     typer.secho(f"\n🔍 Analyzing architecture of '{path}'...", fg=typer.colors.CYAN, bold=True)
     arch_info = scanner.detect_architecture(path)
 
-    # Funciones de apoyo para UML y ER
-    def get_uml_code():
-        framework = arch_info.get('framework', '')
-        is_csharp = framework == '.NET Core / C#'
-        is_express = framework == 'Express.js'
-        is_nextjs = framework == 'Next.js'
-        is_django = framework == 'Django'
-        is_spring = framework in ['Spring Boot', 'Java (Maven)', 'Java (Gradle)']
-        is_laravel = framework in ['Laravel', 'PHP']
-        
-        uml_diagram = None
-        if is_csharp:
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_uml
-            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
-            classes = parse_project_for_csharp_uml(path, max_depth=depth)
-            if classes:
-                uml_diagram = generate_mermaid_class_diagram(classes)
-        elif is_express or is_nextjs:
-            from bck_nd_hlpr.js_parser import parse_project_for_js_uml
-            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
-            classes = parse_project_for_js_uml(path, max_depth=depth)
-            if classes:
-                uml_diagram = generate_mermaid_class_diagram(classes)
-        elif is_django:
-            from bck_nd_hlpr.django_parser import parse_project_for_django_uml
-            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
-            classes = parse_project_for_django_uml(path, max_depth=depth)
-            if classes:
-                uml_diagram = generate_mermaid_class_diagram(classes)
-        elif is_spring:
-            from bck_nd_hlpr.java_parser import parse_project_for_java_uml
-            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
-            classes = parse_project_for_java_uml(path, max_depth=depth)
-            if classes:
-                uml_diagram = generate_mermaid_class_diagram(classes)
-        elif is_laravel:
-            from bck_nd_hlpr.php_parser import parse_project_for_php_uml
-            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
-            classes = parse_project_for_php_uml(path, max_depth=depth)
-            if classes:
-                uml_diagram = generate_mermaid_class_diagram(classes)
-        else:
-            uml_code = scanner.scan_uml(path, max_depth=depth)
-            if uml_code and "class Empty" not in uml_code:
-                uml_diagram = uml_code
-        return uml_diagram
+    # ═══════════════════════════════════════════════════════════════════
+    # ANALYZER DISPATCH (Strategy Pattern) — see bck_nd_hlpr.analysis
+    # Each exclusive mode is a plug-and-play Analyzer. Adding a new mode
+    # does NOT require touching this orchestrator: register a new Analyzer
+    # class in analysis.py and declare its typer Option above.
+    # ═══════════════════════════════════════════════════════════════════
+    ctx = ScanContext(path=path, depth=depth, arch_info=arch_info, plain=bool(output))
 
-    def get_er_code():
-        framework = arch_info.get('framework', '')
-        is_csharp = framework == '.NET Core / C#'
-        is_express = framework == 'Express.js'
-        is_nextjs = framework == 'Next.js'
-        is_django = framework == 'Django'
-        is_spring = framework in ['Spring Boot', 'Java (Maven)', 'Java (Gradle)']
-        is_laravel = framework in ['Laravel', 'PHP']
-        
-        from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
-        
-        entities = None
-        if is_csharp:
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
-            entities = parse_project_for_csharp_er(path, max_depth=depth)
-        elif is_express or is_nextjs:
-            from bck_nd_hlpr.js_parser import parse_project_for_js_er
-            entities = parse_project_for_js_er(path, max_depth=depth)
-        elif is_django:
-            from bck_nd_hlpr.django_parser import parse_project_for_django_er
-            entities = parse_project_for_django_er(path, max_depth=depth)
-        elif is_spring:
-            from bck_nd_hlpr.java_parser import parse_project_for_java_er
-            entities = parse_project_for_java_er(path, max_depth=depth)
-        elif is_laravel:
-            from bck_nd_hlpr.php_parser import parse_project_for_php_er
-            entities = parse_project_for_php_er(path, max_depth=depth)
-        else:
-            entities = parse_project_for_er(path, max_depth=depth)
-            
-        er_diagram = None
-        if entities:
-            gen_er = generate_mermaid_er(entities)
-            if gen_er:
-                er_diagram = gen_er
-        return er_diagram
-
-    # MODO TREE EXCLUSIVO
-    if tree:
-        typer.secho(f"\n[TREE] 🌳 PROJECT STRUCTURE:", fg=typer.colors.CYAN, bold=True)
-        tree_output = generate_project_tree(path, depth=depth)
-        if tree_output:
-            output_handler(tree_output, "Project Structure")
-        else:
-            typer.secho("⚠️ Could not generate project tree.", fg=typer.colors.YELLOW)
-        return
-
-    # MODO UML EXCLUSIVO
-    if uml:
-        typer.secho(f"\n[UML] GENERATING CLASS DIAGRAM (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
-        uml_code = get_uml_code()
-        if uml_code:
-            output_handler(uml_code, "Mermaid Code")
-        else:
-            typer.secho("⚠️ No classes detected for UML.", fg=typer.colors.YELLOW)
-        return
-
-    # MODO ER (ENTITY-RELATIONSHIP)
-    if er:
-        typer.secho(f"\n[ER] GENERATING ER DIAGRAM (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
-        er_code = get_er_code()
-        if er_code:
-            output_handler(er_code, "Mermaid Code")
-        else:
-            typer.secho("⚠️ No database models detected.", fg=typer.colors.YELLOW)
-        return
-    
-    # MODO ROUTES (API MAP)
-    if routes:
-        typer.secho(f"\n[API] GENERATING ROUTES MAP (Mermaid Sequence):", fg=typer.colors.MAGENTA, bold=True)
-        detected_routes = parse_project_routes(path, max_depth=depth)
-        seq_code = generate_mermaid_sequence(detected_routes)
-        
-        if not seq_code:
-            typer.secho("⚠️ No API routes detected (Flask/FastAPI).", fg=typer.colors.YELLOW)
-        else:
-            output_handler(seq_code, "Mermaid Code")
-        return
-    
-    # MODO INFRA (DOCKER COMPOSE)
-    if infra:
-        typer.secho(f"\n[INFRA] GENERATING INFRASTRUCTURE DIAGRAM (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
-        compose_file = parse_infra(path)
-        
-        if not compose_file:
-            typer.secho("⚠️ docker-compose.yml not detected in the directory.", fg=typer.colors.YELLOW)
+    def emit_result(result) -> None:
+        """Uniform output handling for analyzer results (console vs file)."""
+        if not result.ok:
+            warn_color = getattr(typer.colors, result.warning_color.upper(), typer.colors.YELLOW)
+            typer.secho(result.warning, fg=warn_color, bold=(result.warning_color == "green"))
             return
-        
-        typer.secho(f"📦 Found: {compose_file}", fg=typer.colors.GREEN)
-        services = parse_docker_compose(compose_file)
-        
-        if not services:
-            typer.secho("⚠️ No services found in docker-compose.", fg=typer.colors.YELLOW)
+        if output:
+            output_handler(result.content, result.title)
             return
-        
-        infra_code = generate_mermaid_infra(services)
-        output_handler(infra_code, "Mermaid Code")
-        return
-    
-    # MODO TODO HUNTER (TECHNICAL DEBT)
-    if todo:
-        typer.secho(f"\n[TODO] 🧹 SCANNING TECHNICAL DEBT:", fg=typer.colors.CYAN, bold=True)
-        typer.secho(f"Searching for: TODO, FIXME, HACK, XXX, BUG...\n", fg=typer.colors.BRIGHT_BLACK)
-        
-        todos = scan_for_todos(path, max_depth=depth)
-        
-        if not todos:
-            typer.secho("✨ Awesome! No technical debt found.", fg=typer.colors.GREEN, bold=True)
-            return
-
-        if output:
-            # User request: NO ANSI CODES in file output
-            table_str = get_todos_table_string(todos, plain=True)
-            output_handler(table_str, "")
+        body = result.content.strip()
+        if body.startswith(("classDiagram", "erDiagram", "sequenceDiagram", "graph")):
+            print("```mermaid")
+            print(result.content)
+            print("```")
+            typer.secho("Copy the above block into Mermaid.live", fg=typer.colors.BRIGHT_BLACK)
         else:
-            display_todos_table(todos)
-        return
+            print(result.content)
 
-    # MODO AUDITOR SEGURIDAD (NEW)
-    if audit:
-        typer.secho(f"\n[AUDIT] 🚨 SCANNING SECURITY RISKS:", fg=typer.colors.RED, bold=True)
-        typer.secho(f"Searching for: Credentials, Keys, IPs, Secrets...\n", fg=typer.colors.BRIGHT_BLACK)
-        
-        from bck_nd_hlpr.security_auditor import scan_security_risks, get_security_report_string
-        risks = scan_security_risks(path, max_depth=depth)
-        
-        report_str = get_security_report_string(risks, plain=(output is not None))
-        
-        if output:
-            output_handler(report_str, "")
-        else:
-            print(report_str)
-        return
+    mode_flags = {
+        "tree": tree, "uml": uml, "er": er, "routes": routes, "infra": infra,
+        "todo": todo, "audit": audit, "impact": impact, "trace": trace,
+    }
+    selected_mode = next((name for name, active in mode_flags.items() if active), None)
 
-    # MODO IMPACTO (NEW)
-    if impact:
-        typer.secho(f"\n[IMPACT] 🕸️ ANALYZING DEPENDENCY AND CHANGE RISK:", fg=typer.colors.MAGENTA, bold=True)
-        
-        from bck_nd_hlpr.dependency_tracker import analyze_impact, get_impact_report_string
-        usage_map = analyze_impact(path)
-        report_str = get_impact_report_string(usage_map, plain=(output is not None))
-        
-        if output:
-            output_handler(report_str, "")
-        else:
-            print(report_str)
+    if selected_mode:
+        analyzer = get_analyzer(selected_mode)
+        banner_color = getattr(typer.colors, analyzer.banner_color.upper(), typer.colors.MAGENTA)
+        typer.secho(f"\n{analyzer.banner}", fg=banner_color, bold=True)
+        if analyzer.intro:
+            typer.secho(f"{analyzer.intro}\n", fg=typer.colors.BRIGHT_BLACK)
+        emit_result(analyzer.run(ctx))
         return
 
     # MODO IMPACT RADIUS (NEW)
@@ -459,22 +310,6 @@ def scan(
             typer.secho(f"⚠️ Could not calculate impact radius: {e}", fg=typer.colors.YELLOW)
             
         sys.exit(0)
-
-    # MODO TRACE (NEW)
-    if trace:
-        typer.secho(f"\n[TRACE] 🔗 GENERATING ROUTE-TO-DB TRACEABILITY MAP (Mermaid):", fg=typer.colors.MAGENTA, bold=True)
-        traces = parse_project_traceability(path, max_depth=depth)
-        
-        if not traces:
-            typer.secho("⚠️ No Python routes detected to trace.", fg=typer.colors.YELLOW)
-            return
-            
-        trace_code = generate_mermaid_traceability(traces)
-        if trace_code:
-            output_handler(trace_code, "Mermaid Code")
-        else:
-            typer.secho("⚠️ Could not generate the traceability graph.", fg=typer.colors.YELLOW)
-        return
 
     # MODO CONTRACT MAP (NEW)
     if contract:
@@ -722,7 +557,7 @@ def scan(
 
         # 3. UML
         typer.secho("\n[UML] CLASS DIAGRAM:", fg=typer.colors.CYAN, bold=True)
-        uml_code = get_uml_code()
+        uml_code = build_uml_diagram(path, depth, arch_info)
         if uml_code:
             output_handler(uml_code, "[UML] Class Diagram")
         else:
@@ -730,7 +565,7 @@ def scan(
             
         # 4. ER
         typer.secho("\n[ER] ENTITY-RELATIONSHIP:", fg=typer.colors.CYAN, bold=True)
-        er_code = get_er_code()
+        er_code = build_er_diagram(path, depth, arch_info)
         if er_code:
             output_handler(er_code, "[ER] Entity-Relationship")
         else:

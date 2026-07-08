@@ -21,6 +21,8 @@ dist/
 build/
 *.egg-info/
 
+pytest_out/
+
 models/
 
 

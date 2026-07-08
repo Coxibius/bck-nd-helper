@@ -1,249 +1,226 @@
 """
 Módulo para el análisis estático de código JavaScript/TypeScript utilizando tree-sitter.
 Genera estructuras compatibles con UMLClassInfo y EREntity para Node/Express (Mongoose/Sequelize).
-"""
-import os
-from pathlib import Path
-from typing import List, Optional
-import tree_sitter
-try:
-    import tree_sitter_javascript
-    JS_LANGUAGE = tree_sitter.Language(tree_sitter_javascript.language())
-    PARSER = tree_sitter.Parser(JS_LANGUAGE)
-except ImportError:
-    JS_LANGUAGE = None
-    PARSER = None
 
+Los visitors heredan de :class:`~bck_nd_hlpr.ts_base.BaseTreeSitterVisitor`,
+que centraliza el recorrido del árbol y los helpers de extracción.
+"""
+from __future__ import annotations
+
+from typing import List, Optional
+
+from tree_sitter import Node
+
+from bck_nd_hlpr.ts_base import (
+    BaseTreeSitterVisitor,
+    find_child_by_type,     # re-exported for backward compatibility
+    get_node_text,          # re-exported for backward compatibility
+    load_grammar,
+    module_name_for,
+    read_source_bytes,
+    walk_source_files,
+)
 from bck_nd_hlpr.uml_parser import UMLClassInfo
 from bck_nd_hlpr.er_parser import EREntity
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 
-def get_node_text(node: tree_sitter.Node, source_bytes: bytes) -> str:
-    return source_bytes[node.start_byte:node.end_byte].decode('utf-8')
+PARSER = load_grammar("tree_sitter_javascript")
 
-def find_child_by_type(node: tree_sitter.Node, node_type: str) -> Optional[tree_sitter.Node]:
-    for child in node.children:
-        if child.type == node_type: return child
-    return None
+_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
 
-def find_all_descendants(node: tree_sitter.Node, node_type: str) -> List[tree_sitter.Node]:
-    found = []
-    if node.type == node_type: found.append(node)
-    for child in node.children:
-        found.extend(find_all_descendants(child, node_type))
-    return found
 
-class JSUMLVisitor:
-    def __init__(self, source_bytes: bytes, module_name: str):
-        self.source_bytes = source_bytes
+class JSUMLVisitor(BaseTreeSitterVisitor):
+    """Extrae clases, componentes React y route handlers como UMLClassInfo."""
+
+    def __init__(self, source_bytes: bytes, module_name: str) -> None:
+        super().__init__(source_bytes)
         self.module_name = module_name
         self.classes: List[UMLClassInfo] = []
         self.current_class: Optional[UMLClassInfo] = None
 
-    def visit(self, node: tree_sitter.Node):
-        if node.type == 'class_declaration':
-            self._visit_class(node)
-        elif node.type == 'function_declaration':
-            self._visit_function_declaration(node)
-        elif node.type == 'lexical_declaration':
-            self._visit_lexical_declaration(node)
-        else:
-            for child in node.children: self.visit(child)
+    # -- dispatch handlers (convención visit_<node_type>) ---------------
 
-    def _visit_function_declaration(self, node: tree_sitter.Node):
-        name_node = node.child_by_field_name('name')
-        if not name_node: return
-        name = get_node_text(name_node, self.source_bytes)
-        
-        is_component = name and name[0].isupper()
-        is_http_method = name in ('GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS')
-        
+    def visit_class_declaration(self, node: Node) -> None:
+        self._visit_class(node)
+
+    def visit_function_declaration(self, node: Node) -> None:
+        name_node = node.child_by_field_name("name")
+        if not name_node:
+            return
+        name = self.text(name_node)
+
+        is_component = bool(name) and name[0].isupper()
+        is_http_method = name in _HTTP_METHODS
+
         if is_component or is_http_method:
             cls_info = UMLClassInfo(name, [], self.module_name)
-            params = node.child_by_field_name('parameters')
-            p_text = "()"
-            if params:
-                p_text = get_node_text(params, self.source_bytes)
-            
+            params = node.child_by_field_name("parameters")
+            p_text = self.text(params) if params else "()"
+
             if is_component:
                 cls_info.methods.append(f"render{p_text}")
             else:
                 cls_info.methods.append(f"handler{p_text}")
-                
+
             self.classes.append(cls_info)
 
-    def _visit_lexical_declaration(self, node: tree_sitter.Node):
+    def visit_lexical_declaration(self, node: Node) -> None:
         for child in node.children:
-            if child.type == 'variable_declarator':
-                name_node = child.child_by_field_name('name')
-                value_node = child.child_by_field_name('value')
-                if name_node and value_node:
-                    name = get_node_text(name_node, self.source_bytes)
-                    if name and name[0].isupper() and value_node.type in ('arrow_function', 'function_expression'):
-                        cls_info = UMLClassInfo(name, [], self.module_name)
-                        params = value_node.child_by_field_name('parameters')
-                        p_text = "()"
-                        if params:
-                            p_text = get_node_text(params, self.source_bytes)
-                        cls_info.methods.append(f"render{p_text}")
-                        self.classes.append(cls_info)
+            if child.type != "variable_declarator":
+                continue
+            name_node = child.child_by_field_name("name")
+            value_node = child.child_by_field_name("value")
+            if not (name_node and value_node):
+                continue
 
-    def _visit_class(self, node: tree_sitter.Node):
-        name_node = node.child_by_field_name('name')
-        if not name_node: return
-        
-        name = get_node_text(name_node, self.source_bytes)
-        bases = []
-        
-        heritage = find_child_by_type(node, 'class_heritage')
+            name = self.text(name_node)
+            if name and name[0].isupper() and value_node.type in ("arrow_function", "function_expression"):
+                cls_info = UMLClassInfo(name, [], self.module_name)
+                params = value_node.child_by_field_name("parameters")
+                p_text = self.text(params) if params else "()"
+                cls_info.methods.append(f"render{p_text}")
+                self.classes.append(cls_info)
+
+    # -- extraction ------------------------------------------------------
+
+    def _visit_class(self, node: Node) -> None:
+        name_node = node.child_by_field_name("name")
+        if not name_node:
+            return
+
+        name = self.text(name_node)
+        bases: List[str] = []
+
+        heritage = self.child(node, "class_heritage")
         if heritage:
             for child in heritage.children:
-                if child.type == 'identifier':
-                    bases.append(get_node_text(child, self.source_bytes))
+                if child.type == "identifier":
+                    bases.append(self.text(child))
 
         cls_info = UMLClassInfo(name, bases, self.module_name)
         self.classes.append(cls_info)
-        
-        body_node = node.child_by_field_name('body')
+
+        body_node = node.child_by_field_name("body")
         if body_node:
             self.current_class = cls_info
             for child in body_node.children:
-                if child.type == 'public_field_definition':
-                    n = child.child_by_field_name('name')
-                    if n: self.current_class.attributes.append(get_node_text(n, self.source_bytes))
-                elif child.type == 'method_definition':
-                    n = child.child_by_field_name('name')
-                    params = child.child_by_field_name('parameters')
+                if child.type == "public_field_definition":
+                    n = child.child_by_field_name("name")
                     if n:
-                        m_name = get_node_text(n, self.source_bytes)
-                        p_text = "()"
-                        if params: p_text = get_node_text(params, self.source_bytes)
-                        self.current_class.methods.append(f"{m_name}{p_text}")
+                        self.current_class.attributes.append(self.text(n))
+                elif child.type == "method_definition":
+                    n = child.child_by_field_name("name")
+                    params = child.child_by_field_name("parameters")
+                    if n:
+                        p_text = self.text(params) if params else "()"
+                        self.current_class.methods.append(f"{self.text(n)}{p_text}")
             self.current_class = None
 
-class JSERVisitor:
-    def __init__(self, source_bytes: bytes):
-        self.source_bytes = source_bytes
+
+class JSERVisitor(BaseTreeSitterVisitor):
+    """Detecta modelos Mongoose (`.model`) y Sequelize (`.define`) como EREntity."""
+
+    def __init__(self, source_bytes: bytes) -> None:
+        super().__init__(source_bytes)
         self.entities: List[EREntity] = []
 
-    def visit(self, node: tree_sitter.Node):
-        # Look for mongoose.model('Name', schema) or sequelize.define('Name', schema)
-        if node.type == 'call_expression':
-            self._check_model_definition(node)
-        
-        for child in node.children:
-            self.visit(child)
+    # -- dispatch handlers ------------------------------------------------
 
-    def _check_model_definition(self, node: tree_sitter.Node):
-        func = node.child_by_field_name('function')
-        args = node.child_by_field_name('arguments')
-        if not func or not args: return
-        
-        func_text = get_node_text(func, self.source_bytes)
-        
-        if func_text.endswith('.model') or func_text == 'model':
+    def visit_call_expression(self, node: Node) -> bool:
+        # Look for mongoose.model('Name', schema) or sequelize.define('Name', schema)
+        self._check_model_definition(node)
+        return True  # seguir recorriendo: pueden existir llamadas anidadas
+
+    # -- extraction ---------------------------------------------------------
+
+    def _check_model_definition(self, node: Node) -> None:
+        func = node.child_by_field_name("function")
+        args = node.child_by_field_name("arguments")
+        if not func or not args:
+            return
+
+        func_text = self.text(func)
+
+        if func_text.endswith(".model") or func_text == "model":
             # Mongoose
             if args.named_child_count >= 1:
                 name_arg = args.named_child(0)
-                if name_arg.type == 'string':
-                    name = get_node_text(name_arg, self.source_bytes).strip("'\"")
+                if name_arg.type == "string":
+                    name = self.text(name_arg).strip("'\"")
                     entity = EREntity(name)
                     # For mongoose, field extraction is complex because it's usually defined in a previous Schema
-                    # For simplicity, we just extract the model name. 
+                    # For simplicity, we just extract the model name.
                     # If the schema is passed inline, we could parse it:
                     if args.named_child_count >= 2:
                         schema_arg = args.named_child(1)
                         self._parse_mongoose_schema(schema_arg, entity)
                     self.entities.append(entity)
-                    
-        elif func_text.endswith('.define'):
+
+        elif func_text.endswith(".define"):
             # Sequelize
             if args.named_child_count >= 2:
                 name_arg = args.named_child(0)
                 schema_arg = args.named_child(1)
-                if name_arg.type == 'string':
-                    name = get_node_text(name_arg, self.source_bytes).strip("'\"")
+                if name_arg.type == "string":
+                    name = self.text(name_arg).strip("'\"")
                     entity = EREntity(name)
-                    if schema_arg.type == 'object':
+                    if schema_arg.type == "object":
                         self._parse_sequelize_schema(schema_arg, entity)
                     self.entities.append(entity)
 
-    def _parse_mongoose_schema(self, node: tree_sitter.Node, entity: EREntity):
+    def _parse_mongoose_schema(self, node: Node, entity: EREntity) -> None:
         # Very basic extraction if new Schema({ ... }) is passed inline
-        if node.type == 'new_expression':
-            args = node.child_by_field_name('arguments')
+        if node.type == "new_expression":
+            args = node.child_by_field_name("arguments")
             if args and args.named_child_count > 0:
                 obj = args.named_child(0)
-                if obj.type == 'object':
-                    for pair in find_all_descendants(obj, 'pair'):
-                        key = pair.child_by_field_name('key')
+                if obj.type == "object":
+                    for pair in self.descendants(obj, "pair"):
+                        key = pair.child_by_field_name("key")
                         if key:
-                            entity.columns.append((get_node_text(key, self.source_bytes), 'Field'))
+                            entity.columns.append((self.text(key), "Field"))
 
-    def _parse_sequelize_schema(self, node: tree_sitter.Node, entity: EREntity):
-        for pair in find_all_descendants(node, 'pair'):
-             key = pair.child_by_field_name('key')
-             if key:
-                 # Usually depth is important to avoid nested objects, but this is a heuristic
-                 entity.columns.append((get_node_text(key, self.source_bytes), 'Field'))
+    def _parse_sequelize_schema(self, node: Node, entity: EREntity) -> None:
+        for pair in self.descendants(node, "pair"):
+            key = pair.child_by_field_name("key")
+            if key:
+                # Usually depth is important to avoid nested objects, but this is a heuristic
+                entity.columns.append((self.text(key), "Field"))
 
 
 def parse_project_for_js_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
     if not PARSER:
-         print("⚠️ No se pudo cargar tree-sitter-javascript.")
-         return []
-         
-    all_classes = []
-    root = Path(root_path)
+        print("⚠️ No se pudo cargar tree-sitter-javascript.")
+        return []
 
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
-        try: current_depth = len(Path(root_dir).relative_to(root).parts)
-        except ValueError: current_depth = 0
-        if current_depth > max_depth: continue
-            
-        for file in files:
-            if file.endswith((".js", ".ts", ".jsx", ".tsx")):
-                file_path = Path(root_dir) / file
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        source_bytes = f.read().encode('utf-8')
-                    
-                    tree = PARSER.parse(source_bytes)
-                    module_name = str(file_path.parent.relative_to(root)).replace(os.sep, ".")
-                    if module_name == ".": module_name = "Root"
-                         
-                    visitor = JSUMLVisitor(source_bytes, module_name)
-                    visitor.visit(tree.root_node)
-                    all_classes.extend(visitor.classes)
-                except Exception:
-                    continue
+    all_classes: List[UMLClassInfo] = []
+    for file_path, rel_path in walk_source_files(
+        root_path, (".js", ".ts", ".jsx", ".tsx"), max_depth=max_depth
+    ):
+        try:
+            source_bytes = read_source_bytes(file_path)
+            tree = PARSER.parse(source_bytes)
+
+            visitor = JSUMLVisitor(source_bytes, module_name_for(rel_path))
+            visitor.visit(tree.root_node)
+            all_classes.extend(visitor.classes)
+        except Exception:
+            continue
     return all_classes
+
 
 def parse_project_for_js_er(root_path: str, max_depth: int = 4) -> List[EREntity]:
     if not PARSER:
-         return []
-         
-    all_entities = []
-    root = Path(root_path)
+        return []
 
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
-        try: current_depth = len(Path(root_dir).relative_to(root).parts)
-        except ValueError: current_depth = 0
-        if current_depth > max_depth: continue
-            
-        for file in files:
-            if file.endswith((".js", ".ts")):
-                file_path = Path(root_dir) / file
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        source_bytes = f.read().encode('utf-8')
-                    
-                    tree = PARSER.parse(source_bytes)
-                    visitor = JSERVisitor(source_bytes)
-                    visitor.visit(tree.root_node)
-                    all_entities.extend(visitor.entities)
-                except Exception:
-                    continue
+    all_entities: List[EREntity] = []
+    for file_path, _rel_path in walk_source_files(root_path, (".js", ".ts"), max_depth=max_depth):
+        try:
+            source_bytes = read_source_bytes(file_path)
+            tree = PARSER.parse(source_bytes)
+
+            visitor = JSERVisitor(source_bytes)
+            visitor.visit(tree.root_node)
+            all_entities.extend(visitor.entities)
+        except Exception:
+            continue
     return all_entities
