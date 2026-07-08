@@ -52,3 +52,7 @@ feat/vscode-extension
 test_out.txt
 
 venv_subida/
+
+
+docs_main/
+docs_developer/   

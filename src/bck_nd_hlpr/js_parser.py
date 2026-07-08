@@ -13,8 +13,6 @@ from tree_sitter import Node
 
 from bck_nd_hlpr.ts_base import (
     BaseTreeSitterVisitor,
-    find_child_by_type,     # re-exported for backward compatibility
-    get_node_text,          # re-exported for backward compatibility
     load_grammar,
     module_name_for,
     read_source_bytes,
