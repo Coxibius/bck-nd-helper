@@ -56,3 +56,10 @@ venv_subida/
 
 docs_main/
 docs_developer/   
+
+verify_pre_merge.py
+
+PRE_MERGE_REPORT.md
+
+temp_verification_reports/
+

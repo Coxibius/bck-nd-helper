@@ -40,44 +40,17 @@ app = typer.Typer(
     add_completion=False,
     context_settings={"help_option_names": ["-h", "--help"]},
     epilog="""
-\b
-QUICK REFERENCE:
+Key commands:
+- bck-nd scan .            Full architecture overview
+- bck-nd scan . --uml      UML only
+- bck-nd scan . --er       ER only
+- bck-nd scan . --routes   Routes only
+- bck-nd prompt .          AI-ready context dump
+- bck-nd flow "A -> B"     Quick ASCII flow
+- bck-nd docs .            Static HTML docs
+- bck-nd chat .            Interactive AI chat
 
-  Scanning & Diagrams:
-    bck-nd scan .              Full architecture overview (Tree+UML+ER+Routes+Infra+TODOs)
-    bck-nd scan . --uml        UML Class Diagram only
-    bck-nd scan . --er         Entity-Relationship Diagram only
-    bck-nd scan . --routes     API Routes Sequence Diagram only
-    bck-nd scan . --infra      Docker Compose Infrastructure Map only
-    bck-nd scan . --tree       Project directory tree only
-
-  Analysis & Reports:
-    bck-nd scan . --todo       Technical Debt Scanner (TODO/FIXME/HACK/BUG)
-    bck-nd scan . --audit      Security Audit (secrets, keys, IPs)
-    bck-nd scan . --impact     Dependency Heatmap (change risk)
-    bck-nd scan . --trace      Route-to-DB traceability graph
-    bck-nd scan . --explain    Offline text report (Controllers/Models/Services)
-    bck-nd scan . --ai         AI-powered analysis (BYO-Key: OpenAI/Anthropic/Gemini/Ollama)
-
-  Coming Soon:
-    bck-nd scan . --teach      Guided onboarding walkthrough (dependency heatmap tour)
-    bck-nd scan . --health     Project Health Score (TODOs + Security + Dependencies)
-    bck-nd scan . --export-dict  Export Data Dictionary (JSON/CSV from ORM models)
-
-  Other Commands:
-    bck-nd prompt .            Export LLM-optimized context file for ChatGPT/Claude
-    bck-nd flow "A -> B -> C"  Generate quick ASCII flow diagram from string
-    bck-nd docs .              Generate static HTML documentation portal
-    bck-nd chat .              Interactive AI chat about your codebase
-    bck-nd explore             Launch interactive TUI explorer
-    bck-nd init-ci             Setup GitHub Actions for auto-docs on Pages
-
-  Saving Output:
-    bck-nd scan . --er -o schema.mmd    Save any diagram/report to file
-    bck-nd prompt . -o context.txt      Custom output file name
-
-  Tip: Run any command with --help for detailed usage and examples.
-       Example: bck-nd scan --help
+Tip: Run any command with --help for detailed usage.
 """
 
 )
@@ -103,22 +76,18 @@ def flow(
     layout: str = typer.Argument(..., help="Manual flow string.")
 ):
     """
-    📐 Generate an ASCII diagram from a manual string.
+    Generate an ASCII flow diagram from a compact string.
 
-    \b
-    Syntax:
-      A -> B            Connection from A to B
-      [X, Y, Z]         Multiple nodes in same position
-      ;                 New row / line break
-      A [DB]            Rendered as database cylinder
-      A [Service]       Rendered as soft box
-      A [?] or A [IF]   Rendered as decision diamond
+    Syntax hints:
+    - "A -> B" connects A to B horizontally.
+    - "[X, Y, Z]" keeps multiple nodes in the same column.
+    - ";" starts a new row.
+    - "[DB]" renders as a cylinder, "[Service]" as a soft box, "[?]/[IF]" as a decision diamond.
 
-    \b
     Examples:
-      bck-nd flow "Client -> API -> Database"
-      bck-nd flow "Client -> LoadBalancer -> [API_v1, API_v2] ; API_v1 -> Redis"
-      bck-nd flow "User -> Auth [Service] -> JWT [Token] -> API"
+    - bck-nd flow "Client -> API -> Database"
+    - bck-nd flow "Client -> LB -> [API_v1, API_v2] ; API_v1 -> Redis"
+    - bck-nd flow "User -> Auth [Service] -> JWT [Token] -> API"
     """
     try:
         typer.secho("\n📐 GENERATING MANUAL DIAGRAM:", fg=typer.colors.CYAN, bold=True)
@@ -157,39 +126,30 @@ def scan(
     provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook. Example: bck-nd scan . --ai --provider ollama")
 ):
     """
-    🕵️ Scans a project and automatically detects its architecture.
+    Scan a project and generate architecture outputs.
 
-    \b
-    DEFAULT MODE (no flags):
-      Runs a full architecture overview generating:
-      Tree + Infra Map + API Routes + UML + ER + Technical Debt
+    What it can produce (depending on flags):
+    - Tree, Infra map, Routes (sequence), UML, ER, Technical Debt table.
+    - Optional text reports (offline explain) or AI-assisted analysis.
 
-    \b
-    EXCLUSIVE MODES (use one at a time):
-      --uml        UML Class Diagram only
-      --er         Entity-Relationship Diagram only
-      --routes     API Routes Sequence Diagram only
-      --infra      Docker Compose Infrastructure Map only
-      --tree       Project directory tree only
-      --todo       Technical Debt report only
-      --audit      Security Audit report only
-      --impact     Dependency Heatmap only
-      --trace      Route-to-DB Traceability only
+    Exclusive modes (choose one):
+    - --uml, --er, --routes, --infra, --tree, --todo, --audit, --impact, --trace
 
-    \b
-    COMBINABLE FLAGS:
-      --explain    Add offline text report (Controllers/Models/Services)
-      --ai         Add AI-powered analysis (auto-detects API keys)
-      --no-graph   Skip diagrams (useful with --ai for text-only)
-      -o FILE      Save output to file
+    Notable flags:
+    - --depth: recursion depth for scanning
+    - --format: ascii or mermaid
+    - --explain: offline text report
+    - --ai/--style/--provider: AI analysis configuration
+    - --impact-radius: show routes/files impacted by a given file
+    - --teach, --health, --datascience, --contract, --export-dict (see help)
+    - --output: write results to file
 
-    \b
-    EXAMPLES:
-      bck-nd scan .                          Full overview
-      bck-nd scan src --depth 5              Deep scan of src/
-      bck-nd scan . --er -o schema.mmd       Export ER to file
-      bck-nd scan . --ai --style hacker      AI security review
-      bck-nd scan . --ai --provider ollama   Force local Ollama
+    Examples:
+    - bck-nd scan .
+    - bck-nd scan src --depth 5
+    - bck-nd scan . --er -o schema.mmd
+    - bck-nd scan . --ai --style hacker
+    - bck-nd scan . --impact-radius app/api/users.py
     """
     scanner = ProjectScanner()
 
@@ -244,21 +204,37 @@ def scan(
 
     def emit_result(result) -> None:
         """Uniform output handling for analyzer results (console vs file)."""
+        # Always surface warnings, even when the result is OK (e.g., no routes found)
+        warning_text = getattr(result, "warning", None)
+        if warning_text:
+            warn_color_name = (getattr(result, "warning_color", "yellow") or "yellow").upper()
+            warn_color = getattr(typer.colors, warn_color_name, typer.colors.YELLOW)
+            typer.secho(warning_text, fg=warn_color, bold=warn_color_name.lower() == "green")
+
+        # If analyzer failed, stop after showing the warning
         if not result.ok:
-            warn_color = getattr(typer.colors, result.warning_color.upper(), typer.colors.YELLOW)
-            typer.secho(result.warning, fg=warn_color, bold=(result.warning_color == "green"))
             return
+
+        content = getattr(result, "content", None)
+        # Guard against None/empty content to avoid AttributeError on .strip()
+        if not content:
+            return
+
         if output:
-            output_handler(result.content, result.title)
+            output_handler(content, result.title)
             return
-        body = result.content.strip()
+
+        body = content.strip()
+        if not body:
+            return
+
         if body.startswith(("classDiagram", "erDiagram", "sequenceDiagram", "graph")):
             print("```mermaid")
-            print(result.content)
+            print(content)
             print("```")
             typer.secho("Copy the above block into Mermaid.live", fg=typer.colors.BRIGHT_BLACK)
         else:
-            print(result.content)
+            print(content)
 
     mode_flags = {
         "tree": tree, "uml": uml, "er": er, "routes": routes, "infra": infra,
@@ -669,25 +645,20 @@ def docs(
     output: str = typer.Option("docs", "--output", "-o", help="Output directory for the HTML portal (created if missing). Example: bck-nd docs . -o site")
 ):
     """
-    🌐 Generate a self-contained static HTML documentation portal.
+    Generate a static HTML documentation portal (Mermaid-powered).
 
-    \b
-    Creates docs/index.html with:
-      - Infrastructure Map (docker-compose.yml visualization)
-      - API Routes (HTTP endpoint sequence diagrams)
-      - UML Class Diagram (auto-generated class hierarchy)
-      - Entity-Relationship Diagram (ORM models)
-      - Technical Debt table (TODOs/FIXMEs)
-      - Rendered via MermaidJS CDN — no build tools needed.
+    Includes:
+    - Infra map (docker-compose)
+    - API routes (sequence diagrams)
+    - UML class diagram
+    - ER diagram (ORM models)
+    - Technical debt table
 
-    \b
     Examples:
-      bck-nd docs .                  Generate in ./docs/
-      bck-nd docs . --output site    Generate in ./site/
-    
-    \b
-    CI/CD Tip:
-      Combine with 'bck-nd init-ci' to auto-publish on GitHub Pages.
+    - bck-nd docs .
+    - bck-nd docs . --output site
+
+    Tip: Pair with `bck-nd init-ci` to publish on GitHub Pages.
     """
     typer.secho(f"\n[WEB] GENERATING WEB DOCUMENTATION IN '{output}':", fg=typer.colors.CYAN, bold=True)
     generator = DocGenerator()
@@ -701,20 +672,17 @@ def docs(
 @app.command()
 def explore():
     """
-    🖥️ Launch the interactive Terminal User Interface (TUI) explorer.
+    Launch the TUI explorer.
 
-    \b
-    What you get:
-      - Sidebar: Directory tree to navigate your codebase
-      - Main View: Click a .py file for instant ASCII diagram + Mermaid routes
-      - Folder View: Click a folder to see its high-level architecture
+    Features:
+    - Sidebar directory tree
+    - File view: instant ASCII + Mermaid routes for code files
+    - Folder view: high-level architecture summary
 
-    \b
-    Keyboard Shortcuts:
-      D    Toggle dark/light mode
-      Q    Quit the TUI
+    Shortcuts:
+    - D: toggle dark/light
+    - Q: quit
 
-    \b
     Requires: textual (pip install textual)
     """
     try:
@@ -733,21 +701,16 @@ def chat(
     provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider: openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook. Example: bck-nd chat . --provider ollama")
 ):
     """
-    💬 Start an interactive chat with your codebase using AI (BYO-Key).
+    Interactive AI chat about your codebase (requires API key or Ollama).
 
-    \b
-    Requires an active AI provider (API key or Ollama running).
-    Automatically loads full project context (architecture, diagrams, docs)
-    so you can ask questions about your codebase immediately.
+    The command scans architecture and docs, then opens a chat loop with context loaded.
 
-    \b
-    Type 'exit', 'quit', or 'q' to end the session.
+    Exit commands: exit, quit, q
 
-    \b
     Examples:
-      bck-nd chat .                          Default (pro style)
-      bck-nd chat . --style hacker           Security-focused chat
-      bck-nd chat . --provider ollama        Use local Ollama
+    - bck-nd chat .
+    - bck-nd chat . --style hacker
+    - bck-nd chat . --provider ollama
     """
     scanner = ProjectScanner()
     
@@ -839,25 +802,16 @@ def init_ci(
     path: str = typer.Argument(".", help="Project root where .github/workflows/ will be created. Example: bck-nd init-ci .")
 ):
     """
-    🤖 Setup "Living Documentation" via GitHub Actions + GitHub Pages.
+    Generate a GitHub Actions workflow for auto-docs + Pages publish.
 
-    \b
-    Creates .github/workflows/bck-nd-docs.yml that:
-      - Triggers on push to main branch
-      - Installs bck-nd-hlpr in the CI runner
-      - Generates the full HTML documentation portal
-      - Deploys to GitHub Pages
+    It creates .github/workflows/bck-nd-docs.yml to build the docs portal on push.
 
-    \b
     After running:
-      1. git add . && git commit -m 'ci: add auto-docs' && git push
-      2. Go to GitHub > Settings > Pages
-      3. Set source to 'GitHub Actions'
-      4. Done! Docs update on push to main.
+    1) git add . && git commit -m "ci: add auto-docs" && git push
+    2) In GitHub > Settings > Pages, set source to GitHub Actions
+    3) Done — docs update on every push to main
 
-    \b
-    Example:
-      bck-nd init-ci
+    Example: bck-nd init-ci
     """
     typer.secho("\n[CI/CD] INITIALIZING FOR AUTO-DOCUMENTATION:", fg=typer.colors.CYAN, bold=True)
     
@@ -881,30 +835,23 @@ def prompt_cmd(
     max_core_files: Optional[int] = typer.Option(None, "--max-core-files", help="Maximum number of core files to include in the context dump (default: 8 for mobile, 5 for backend)."),
 ):
     """
-    🧠 AI Context Dump: Export full project context for ChatGPT / Claude.
+    Export an AI-ready context file (project tree, UML, ER, core files).
 
-    \b
-    Generates a single LLM-optimized .txt file with XML-like tags:
-      <project_tree>       Clean ASCII directory tree (no venv/node_modules/etc.)
-      <architecture_uml>   UML Class Diagram in Mermaid format
-      <architecture_er>    Entity-Relationship Diagram in Mermaid format
-      <core_files>         Content of the 3-5 most important files (with priority logic)
+    What you get (single .txt):
+    - <project_tree>: filtered directory tree
+    - <architecture_uml>: Mermaid classDiagram
+    - <architecture_er>: Mermaid erDiagram
+    - <core_files>: prioritized key files
 
-    Just copy-paste the output file into any LLM for instant project understanding!
+    Usage:
+    1) bck-nd prompt .
+    2) Open ai_context.txt (or custom path)
+    3) Copy/paste into your LLM as the first message
 
-    \b
-    How to use:
-      1. Run: bck-nd prompt .
-      2. Open ai_context.txt
-      3. Select All -> Copy
-      4. Paste into ChatGPT / Claude as the first message
-      5. Start asking questions about your codebase!
-
-    \b
     Examples:
-      bck-nd prompt .                      Generates ai_context.txt
-      bck-nd prompt /my/project -o ctx.txt Custom output file
-      bck-nd prompt . --depth 6            Deeper scan for nested projects
+    - bck-nd prompt .
+    - bck-nd prompt /my/project -o ctx.txt
+    - bck-nd prompt . --depth 6
     """
     if output == "-":
         dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
