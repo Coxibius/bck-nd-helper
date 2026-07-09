@@ -4,11 +4,18 @@
 [![PyPI version](https://badge.fury.io/py/bck-nd-hlpr.svg)](https://badge.fury.io/py/bck-nd-hlpr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Backend Helper — Lightweight CLI that detects backend architectures and exports Mermaid diagrams, ASCII previews and CI-ready HTML docs.
+### The Backend Helper: CLI Context & MCP Tooling for AI and Humans
 
-- Auto-detect frameworks (Flask, FastAPI, Django, Express, Spring, .NET, Go, Rust).
-- Export Mermaid, ASCII and static HTML docs for CI.
-- CI friendly: `bck-nd init-ci` generates GitHub Action to publish docs to GitHub Pages.
+`bck-nd-hlpr` is a lightweight Python CLI utility designed to bridge the gap between back-end codebases, human developers, and AI agents. It acts as a context provider, helping extract structural architecture, generate visual diagrams (such as Mermaid.js charts), and facilitate Model Context Protocol (MCP) interactions.
+
+## Key Features 🌟
+
+- **CLI Context Helper:** Instantly query your backend structure to prepare well-formatted context for LLMs like Claude.
+- **Visual Architecture:** Generate clean Mermaid.js architecture diagrams directly from your source code to aid in reverse engineering and documentation.
+- **Model Context Protocol (MCP) Support:** Expose backend utilities to AI assistants using Anthropic's open-standard protocol.
+- **Developer-Friendly:** Easily installable via PyPI to streamline local development workflows.
+
+## Installation 📦
 
 ```bash
 pip install bck-nd-hlpr

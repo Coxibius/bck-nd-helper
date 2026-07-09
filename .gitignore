@@ -21,6 +21,8 @@ dist/
 build/
 *.egg-info/
 
+pytest_out/
+
 models/
 
 
@@ -50,3 +52,14 @@ feat/vscode-extension
 test_out.txt
 
 venv_subida/
+
+
+docs_main/
+docs_developer/   
+
+verify_pre_merge.py
+
+PRE_MERGE_REPORT.md
+
+temp_verification_reports/
+

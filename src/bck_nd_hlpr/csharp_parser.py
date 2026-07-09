@@ -2,308 +2,231 @@
 Módulo para el análisis estático de código C# utilizando tree-sitter.
 Genera estructuras compatibles con UMLClassInfo y EREntity.
 """
-import os
-from pathlib import Path
-from typing import List, Optional, Tuple, Dict
-import tree_sitter
-try:
-    import tree_sitter_c_sharp
-    CSHARP_LANGUAGE = tree_sitter.Language(tree_sitter_c_sharp.language())
-    PARSER = tree_sitter.Parser(CSHARP_LANGUAGE)
-except ImportError:
-    CSHARP_LANGUAGE = None
-    PARSER = None
+from __future__ import annotations
 
+import re
+from typing import List, Optional
+
+from tree_sitter import Node
+
+from bck_nd_hlpr.base_tree_sitter import BaseTreeSitterVisitor
+from bck_nd_hlpr.ts_base import (
+    load_grammar,
+    module_name_for,
+    read_source_bytes,
+    walk_source_files,
+)
 from bck_nd_hlpr.uml_parser import UMLClassInfo
 from bck_nd_hlpr.er_parser import EREntity
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 
-def get_node_text(node: tree_sitter.Node, source_bytes: bytes) -> str:
-    """Helper para extraer el texto de un nodo."""
-    return source_bytes[node.start_byte:node.end_byte].decode('utf-8')
+PARSER = load_grammar("tree_sitter_c_sharp")
 
-def find_child_by_type(node: tree_sitter.Node, node_type: str) -> Optional[tree_sitter.Node]:
-    """Helper para encontrar el primer hijo de un tipo específico."""
-    for child in node.children:
-        if child.type == node_type:
-            return child
-    return None
+_CSHARP_PRIMITIVES = frozenset({
+    "int", "string", "bool", "double", "float", "decimal", "DateTime",
+    "Guid", "long", "short", "byte", "char", "TimeSpan", "DateTimeOffset",
+})
 
-def find_children_by_type(node: tree_sitter.Node, node_type: str) -> List[tree_sitter.Node]:
-    """Helper para encontrar todos los hijos de un tipo específico."""
-    return [child for child in node.children if child.type == node_type]
+_FOREIGN_KEY_RE = re.compile(
+    r'ForeignKey\s*\(\s*["\']?(?:nameof\s*\(\s*)?([^"\')\s]+)(?:\s*\))?["\']?\s*\)'
+)
 
-class CSharpUMLVisitor:
-    def __init__(self, source_bytes: bytes, module_name: str):
-        self.source_bytes = source_bytes
+
+class CSharpUMLVisitor(BaseTreeSitterVisitor):
+    def __init__(self, source_bytes: bytes, module_name: str) -> None:
+        super().__init__(source_bytes)
         self.module_name = module_name
         self.classes: List[UMLClassInfo] = []
         self.current_class: Optional[UMLClassInfo] = None
 
-    def visit(self, node: tree_sitter.Node):
-        if node.type == 'class_declaration' or node.type == 'interface_declaration':
-            self._visit_class(node)
-        elif node.type == 'namespace_declaration' or node.type == 'file_scoped_namespace_declaration':
-            for child in node.children:
-                self.visit(child)
-        else:
-            for child in node.children:
-                self.visit(child)
+    def visit_class_declaration(self, node: Node) -> None:
+        self._visit_class(node)
 
-    def _visit_class(self, node: tree_sitter.Node):
-        name_node = find_child_by_type(node, 'identifier')
+    def visit_interface_declaration(self, node: Node) -> None:
+        self._visit_class(node)
+
+    def _visit_class(self, node: Node) -> None:
+        name_node = self.child(node, "identifier")
         if not name_node:
             return
-        
-        name = get_node_text(name_node, self.source_bytes)
-        
-        # Obtener herencia (bases)
-        bases = []
-        base_list_node = find_child_by_type(node, 'base_list')
+
+        name = self.text(name_node)
+
+        bases: List[str] = []
+        base_list_node = self.child(node, "base_list")
         if base_list_node:
             for child in base_list_node.children:
-                if child.type == 'identifier':
-                    bases.append(get_node_text(child, self.source_bytes))
-                elif child.type == 'generic_name':
-                    bases.append(get_node_text(child, self.source_bytes))
+                if child.type in ("identifier", "generic_name"):
+                    bases.append(self.text(child))
 
-        # El modulo será el nombre del namespace actual o del archivo
         cls_info = UMLClassInfo(name, bases, self.module_name)
         self.classes.append(cls_info)
-        
-        # Procesar el cuerpo de la clase
-        body_node = find_child_by_type(node, 'declaration_list')
+
+        body_node = self.child(node, "declaration_list")
         if body_node:
             self.current_class = cls_info
             for child in body_node.children:
-                if child.type == 'property_declaration':
+                if child.type == "property_declaration":
                     self._visit_property(child)
-                elif child.type == 'method_declaration':
+                elif child.type == "method_declaration":
                     self._visit_method(child)
             self.current_class = None
 
-    def _visit_property(self, node: tree_sitter.Node):
-        if not self.current_class: return
-        
+    def _visit_property(self, node: Node) -> None:
+        if not self.current_class:
+            return
+
         type_node = node.child_by_field_name("type")
         id_node = node.child_by_field_name("name")
-        
+
         if type_node and id_node:
-            t = get_node_text(type_node, self.source_bytes)
-            n = get_node_text(id_node, self.source_bytes)
-            self.current_class.attributes.append(f"{t} {n}")
+            self.current_class.attributes.append(
+                f"{self.text(type_node)} {self.text(id_node)}"
+            )
 
-    def _visit_method(self, node: tree_sitter.Node):
-        if not self.current_class: return
-        
-        name_node = find_child_by_type(node, 'identifier')
-        params_node = find_child_by_type(node, 'parameter_list')
-        
+    def _visit_method(self, node: Node) -> None:
+        if not self.current_class:
+            return
+
+        name_node = self.child(node, "identifier")
+        params_node = self.child(node, "parameter_list")
+
         if name_node and params_node:
-            name = get_node_text(name_node, self.source_bytes)
-            # Solo sacar los nombres de los parámetros como texto
-            params_text = get_node_text(params_node, self.source_bytes)
-            self.current_class.methods.append(f"{name}{params_text}")
+            self.current_class.methods.append(
+                f"{self.text(name_node)}{self.text(params_node)}"
+            )
 
 
-class CSharpERVisitor:
-    def __init__(self, source_bytes: bytes, is_controller: bool = False):
-        self.source_bytes = source_bytes
+class CSharpERVisitor(BaseTreeSitterVisitor):
+    def __init__(self, source_bytes: bytes, is_controller: bool = False) -> None:
+        super().__init__(source_bytes)
         self.entities: List[EREntity] = []
         self.current_entity: Optional[EREntity] = None
         self.is_controller = is_controller
 
-    def visit(self, node: tree_sitter.Node):
-        if node.type == 'class_declaration':
-            self._visit_class(node)
-        elif node.type == 'namespace_declaration' or node.type == 'file_scoped_namespace_declaration':
-            for child in node.children:
-                self.visit(child)
-        else:
-            for child in node.children:
-                self.visit(child)
+    def visit_class_declaration(self, node: Node) -> None:
+        self._visit_class(node)
 
-    def _visit_class(self, node: tree_sitter.Node):
-        name_node = find_child_by_type(node, 'identifier')
+    def _visit_class(self, node: Node) -> None:
+        name_node = self.child(node, "identifier")
         if not name_node:
             return
-        
-        name = get_node_text(name_node, self.source_bytes)
-        
-        # Por simplificación y convención de C#, casi cualquier clase en Models/Entities es una tabla
-        # O podemos filtrar las que no parecen modelos, pero como este método se llama sobre proyectos
-        # para extraer ER, asumimos que todas las clases encontradas en las rutas de escaneo son entidades.
+
+        name = self.text(name_node)
         self.current_entity = EREntity(name)
-        
-        # Procesar atributos (propiedades)
-        body_node = find_child_by_type(node, 'declaration_list')
+
+        body_node = self.child(node, "declaration_list")
         if body_node:
             for child in body_node.children:
-                if child.type == 'property_declaration':
+                if child.type == "property_declaration":
                     self._visit_property(child)
-                    
-        # Añadir si tiene columnas (es decir, propiedades)
+
         if self.current_entity.columns or self.current_entity.relationships:
-             self.entities.append(self.current_entity)
+            self.entities.append(self.current_entity)
         self.current_entity = None
 
-    def _visit_property(self, node: tree_sitter.Node):
-        if not self.current_entity: return
-        
-        # Verificamos si tiene data annotations como [Key], [Required]
-        # attribute_list -> attribute -> name
+    def _visit_property(self, node: Node) -> None:
+        if not self.current_entity:
+            return
+
         is_key = False
-        is_required = False
         fk_target = None
-        
-        attr_lists = find_children_by_type(node, 'attribute_list')
-        for attr_list in attr_lists:
-            attrs = find_children_by_type(attr_list, 'attribute')
-            for attr in attrs:
-                attr_name = get_node_text(attr, self.source_bytes).replace("[", "").replace("]", "").strip()
+
+        for attr_list in self.children(node, "attribute_list"):
+            for attr in self.children(attr_list, "attribute"):
+                attr_name = self.text(attr).replace("[", "").replace("]", "").strip()
                 if attr_name.startswith("Key"):
                     is_key = True
-                elif attr_name.startswith("Required"):
-                    is_required = True
                 elif attr_name.startswith("ForeignKey"):
-                    # Basic extraction
                     fk_target = attr_name
 
         type_node = node.child_by_field_name("type")
         id_node = node.child_by_field_name("name")
-                
+
         if type_node and id_node:
-            t_str = get_node_text(type_node, self.source_bytes).strip()
-            n_str = get_node_text(id_node, self.source_bytes).strip()
-            
-            # Detectar si es relación
-            # 1. Collection (Ej: ICollection<User>, List<Post>)
-            # 2. Virtual con un tipo de clase (Ej: virtual User user)
+            t_str = self.text(type_node).strip()
+            n_str = self.text(id_node).strip()
+
             is_relation = False
             target_class = ""
             rel_type = ""
-            
+
             if "ICollection<" in t_str or "List<" in t_str or "IEnumerable<" in t_str:
                 is_relation = True
-                # Extraer target class
                 start_idx = t_str.find("<")
                 end_idx = t_str.rfind(">")
                 if start_idx != -1 and end_idx != -1:
-                    target_class = t_str[start_idx+1:end_idx].strip()
-                rel_type = "||--o{" # 1 to Many
+                    target_class = t_str[start_idx + 1:end_idx].strip()
+                rel_type = "||--o{"
             else:
-                # Si no es primitivo, asumimos que es una propiedad de navegación
-                primitivos = ["int", "string", "bool", "double", "float", "decimal", "DateTime", "Guid", "long", "short", "byte", "char", "TimeSpan", "DateTimeOffset"]
                 clean_type = t_str.replace("?", "").strip()
-                if clean_type not in primitivos:
+                if clean_type not in _CSHARP_PRIMITIVES:
                     is_relation = True
                     target_class = clean_type
-                    rel_type = "}o--||" # Many to 1 (Foreign key)
+                    rel_type = "}o--||"
 
-            # Check if property is primitive but has [ForeignKey("Target")] annotation
             if not is_relation and fk_target:
-                import re
-                match = re.search(r'ForeignKey\s*\(\s*["\']?(?:nameof\s*\(\s*)?([^"\')\s]+)(?:\s*\))?["\']?\s*\)', fk_target)
+                match = _FOREIGN_KEY_RE.search(fk_target)
                 if match:
                     fk_class = match.group(1).strip()
                     is_relation = True
                     target_class = fk_class
                     rel_type = "}o--||"
-            
+
             if is_relation and target_class:
                 label = "FK" if fk_target else n_str
                 if self.is_controller:
-                    self.current_entity.relationships.append((target_class, rel_type, label, "inferred from controller/collection"))
+                    self.current_entity.relationships.append(
+                        (target_class, rel_type, label, "inferred from controller/collection")
+                    )
                 else:
                     self.current_entity.relationships.append((target_class, rel_type, label))
             else:
-                # Si es columna normal
                 col_type = t_str
                 if is_key:
                     col_type += " PK"
                 self.current_entity.columns.append((n_str, col_type))
 
+
 def parse_project_for_csharp_uml(root_path: str, max_depth: int = 3) -> List[UMLClassInfo]:
     if not PARSER:
-         print("⚠️ No se pudo cargar tree-sitter. Asegúrate de tener tree-sitter y tree-sitter-c-sharp instalados.")
-         return []
-         
-    all_classes = []
-    root = Path(root_path)
+        print("⚠️ No se pudo cargar tree-sitter.")
+        return []
 
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
-        
+    all_classes: List[UMLClassInfo] = []
+    for file_path, rel_path in walk_source_files(root_path, (".cs",), max_depth=max_depth):
         try:
-            current_depth = len(Path(root_dir).relative_to(root).parts)
-        except ValueError:
-            current_depth = 0
-            
-        if current_depth > max_depth:
+            source_bytes = read_source_bytes(file_path)
+            tree = PARSER.parse(source_bytes)
+
+            visitor = CSharpUMLVisitor(source_bytes, module_name_for(rel_path))
+            visitor.visit(tree.root_node)
+            all_classes.extend(visitor.classes)
+        except Exception:
             continue
-            
-        for file in files:
-            if file.endswith(".cs"):
-                file_path = Path(root_dir) / file
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        source_bytes = f.read().encode('utf-8')
-                    
-                    tree = PARSER.parse(source_bytes)
-                    
-                    rel_path = file_path.relative_to(root)
-                    # Convertir path a namespace module
-                    module_name = str(rel_path.parent).replace(os.sep, ".")
-                    if module_name == ".":
-                         module_name = "Root"
-                         
-                    visitor = CSharpUMLVisitor(source_bytes, module_name)
-                    visitor.visit(tree.root_node)
-                    all_classes.extend(visitor.classes)
-                except Exception as e:
-                    print(f"Error parsing {file}: {e}")
-                    continue
     return all_classes
+
 
 def parse_project_for_csharp_er(root_path: str, max_depth: int = 3) -> List[EREntity]:
     if not PARSER:
-         print("⚠️ No se pudo cargar tree-sitter. Asegúrate de tener tree-sitter y tree-sitter-c-sharp instalados.")
-         return []
-         
-    all_entities = []
-    root = Path(root_path)
+        print("⚠️ No se pudo cargar tree-sitter.")
+        return []
 
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
-        
-        try:
-            current_depth = len(Path(root_dir).relative_to(root).parts)
-        except ValueError:
-            current_depth = 0
-            
-        if current_depth > max_depth:
+    all_entities: List[EREntity] = []
+    for file_path, _rel_path in walk_source_files(root_path, (".cs",), max_depth=max_depth):
+        file_lower = file_path.name.lower()
+        if not any(k in file_lower for k in ("model", "entity", "controller")):
             continue
-            
-        for file in files:
-            if file.endswith(".cs"):
-                file_lower = file.lower()
-                # Include only *Model*.cs, *Entity*.cs, *Controller*.cs
-                if not (any(k in file_lower for k in ["model", "entity", "controller"])):
-                    continue
-                if file_lower in ["program.cs", "startup.cs"]:
-                    continue
-                     
-                file_path = Path(root_dir) / file
-                is_controller = "controller" in file_lower
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        source_bytes = f.read().encode('utf-8')
-                    
-                    tree = PARSER.parse(source_bytes)
-                    visitor = CSharpERVisitor(source_bytes, is_controller=is_controller)
-                    visitor.visit(tree.root_node)
-                    
-                    all_entities.extend(visitor.entities)
-                except Exception:
-                    continue
+        if file_lower in ("program.cs", "startup.cs"):
+            continue
+
+        is_controller = "controller" in file_lower
+        try:
+            source_bytes = read_source_bytes(file_path)
+            tree = PARSER.parse(source_bytes)
+
+            visitor = CSharpERVisitor(source_bytes, is_controller=is_controller)
+            visitor.visit(tree.root_node)
+            all_entities.extend(visitor.entities)
+        except Exception:
+            continue
     return all_entities

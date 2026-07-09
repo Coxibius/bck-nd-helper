@@ -3,12 +3,26 @@ import re
 import sys
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
 from bck_nd_hlpr.detector import ArchitectureDetector
 from bck_nd_hlpr.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram, UMLClassInfo
+from bck_nd_hlpr.base_analyzer import (
+    AnalyzerResult,
+    ScanContext,
+    available_flags,
+    get_analyzer,
+    register,
+)
+
+# Import the analyzer modules so their @register decorators populate the
+# registry at import time. Adding a new analysis = drop a class in analysis.py
+# (or any module listed here); the dispatcher below needs no changes.
+from bck_nd_hlpr import analysis as _analysis  # noqa: F401
+
 
 class ProjectScanner:
+
     # Archivos que aportan CONTEXTO a la IA (si existen, los leemos)
     CONTEXT_FILES = [
         "README.md", 
@@ -44,7 +58,41 @@ class ProjectScanner:
         """Detecta y retorna información arquitectónica del proyecto."""
         detector = ArchitectureDetector()
         return detector.detect(root_path)
-    
+
+    # ═══════════════════════════════════════════════════════════════════
+    # STRATEGY DISPATCHER — replaces the old flag if/elif God-Object block.
+    # Any mode (--uml/--er/--todo/--audit/--trace/...) is resolved from the
+    # registry. New analyses register themselves; this method never changes.
+    # ═══════════════════════════════════════════════════════════════════
+
+    #: Re-export so callers can register without importing base_analyzer.
+    register = staticmethod(register)
+
+    @staticmethod
+    def available_analyzers() -> List[str]:
+        """List every registered analyzer flag."""
+        return available_flags()
+
+    def analyze(
+        self,
+        flag: str,
+        root_path: str,
+        depth: int = 5,
+        arch_info: Optional[Dict[str, Any]] = None,
+        plain: bool = True,
+    ) -> AnalyzerResult:
+        """Dispatch a scan mode through the registry (no hardcoded branches)."""
+        analyzer = get_analyzer(flag)
+        if analyzer is None:
+            raise KeyError(
+                f"Unknown analyzer '{flag}'. Available: {', '.join(available_flags())}"
+            )
+        if arch_info is None:
+            arch_info = self.detect_architecture(root_path)
+        ctx = ScanContext(path=root_path, depth=depth, arch_info=arch_info, plain=plain)
+        return analyzer.run(ctx)
+
+
     def scan(self, root_path: str, max_depth: int = 5) -> str:
         """Genera la topología (Grafo)."""
         root = Path(root_path).resolve()
