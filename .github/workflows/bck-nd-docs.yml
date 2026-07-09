@@ -1,4 +1,4 @@
-name: Generate Documentation
+name: Deploy Documentation to GitHub Pages
 
 on:
   push:
@@ -32,25 +32,56 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Install bck-nd-hlpr
-          if [ -f pyproject.toml ] && grep -q "name = \"bck-nd-hlpr\"" pyproject.toml; then
-            pip install .
-          else
-            pip install bck-nd-hlpr
-          fi
+          pip install .
 
-      - name: Generate static docs
+      - name: Verify installation
+        run: |
+          echo "=== Checking pip show ==="
+          pip show bck-nd-hlpr
+          echo ""
+          echo "=== Checking module import ==="
+          python -c "import bck_nd_hlpr; print('Module imported successfully')"
+          echo ""
+          echo "=== Checking CLI module ==="
+          python -c "from bck_nd_hlpr.cli import app; print('CLI module OK')"
+
+      - name: Generate static documentation
         run: |
           mkdir -p docs
-          bck-nd docs . --output docs
-          touch docs/.nojekyll
+          python -m bck_nd_hlpr.cli docs . --output docs
+        shell: bash
 
-      - name: Upload artifact
+      - name: Create .nojekyll
+        run: |
+          touch docs/.nojekyll
+          echo "Created .nojekyll"
+
+      - name: Diagnostic — verify docs output
+        run: |
+          echo "=== Checking docs directory ==="
+          ls -la docs/
+          echo ""
+          echo "=== Verifying index.html exists ==="
+          if [ -f docs/index.html ]; then
+            echo "✅ docs/index.html found ($(wc -c < docs/index.html) bytes)"
+          else
+            echo "❌ docs/index.html NOT FOUND — build failed!"
+            exit 1
+          fi
+          echo ""
+          echo "=== Verifying .nojekyll exists ==="
+          if [ -f docs/.nojekyll ]; then
+            echo "✅ docs/.nojekyll found"
+          else
+            echo "❌ docs/.nojekyll NOT FOUND"
+            exit 1
+          fi
+
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./docs
 
       - name: Deploy to GitHub Pages
         id: deploy
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v4
