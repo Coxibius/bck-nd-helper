@@ -166,6 +166,9 @@
 │       │   └── gitignore_parser.py
 │       ├── __init__.py
 │       ├── ai_providers.py
+│       ├── analysis.py
+│       ├── base_analyzer.py
+│       ├── base_tree_sitter.py
 │       ├── canvas.py
 │       ├── ci_generator.py
 │       ├── cli.py
@@ -192,6 +195,7 @@
 │       ├── todo_hunter.py
 │       ├── traceability.py
 │       ├── tree_generator.py
+│       ├── ts_base.py
 │       ├── tui_app.py
 │       └── uml_parser.py
 ├── tests/
@@ -200,6 +204,7 @@
 │   ├── er.md
 │   ├── er_rel.md
 │   ├── manual_test_config.py
+│   ├── pytest_out.txt
 │   ├── test_ci_doc_generators.py
 │   ├── test_config.py
 │   ├── test_context_exclusion.py
@@ -292,6 +297,15 @@
         +on_directory_tree_file_selected(event)
         +on_directory_tree_directory_selected(event)
       }
+      class BaseTreeSitterVisitor {
+        +__init__(source_bytes)
+        +visit(node)
+        +generic_visit(node)
+        +text(node)
+        +child(node, node_type)
+        +children(node, node_type)
+        +descendants(node, node_type)
+      }
       class NoAPIKeyError {
       }
       class AIProvider {
@@ -368,14 +382,14 @@
       }
       class JSUMLVisitor {
         +__init__(source_bytes, module_name)
-        +visit(node)
-        +_visit_function_declaration(node)
-        +_visit_lexical_declaration(node)
+        +visit_class_declaration(node)
+        +visit_function_declaration(node)
+        +visit_lexical_declaration(node)
         +_visit_class(node)
       }
       class JSERVisitor {
         +__init__(source_bytes)
-        +visit(node)
+        +visit_call_expression(node)
         +_check_model_definition(node)
         +_parse_mongoose_schema(node, entity)
         +_parse_sequelize_schema(node, entity)
@@ -406,6 +420,8 @@
         +__init__()
         +_find_imports(file_path)
         +detect_architecture(root_path)
+        +available_analyzers()
+        +analyze(flag, root_path, depth, arch_info, plain)
         +scan(root_path, max_depth)
         +scan_file(file_path)
         +scan_uml(root_path, max_depth)
@@ -415,16 +431,26 @@
         +scan_notebooks(root_path, max_depth)
         +get_onboarding_path(root_path)
       }
+      class ScanContext {
+        +framework()
+      }
+      class AnalyzerResult {
+        +ok()
+      }
+      class BaseAnalyzer {
+        +run(ctx)
+      }
       class CSharpUMLVisitor {
         +__init__(source_bytes, module_name)
-        +visit(node)
+        +visit_class_declaration(node)
+        +visit_interface_declaration(node)
         +_visit_class(node)
         +_visit_property(node)
         +_visit_method(node)
       }
       class CSharpERVisitor {
         +__init__(source_bytes, is_controller)
-        +visit(node)
+        +visit_class_declaration(node)
         +_visit_class(node)
         +_visit_property(node)
       }
@@ -470,6 +496,33 @@
         +__init__(force_provider)
         +explain(topology_text, use_ai, style)
         +chat_turn(system_context, history_text, style)
+      }
+      class TreeAnalyzer {
+        +run(ctx)
+      }
+      class UmlAnalyzer {
+        +run(ctx)
+      }
+      class ErAnalyzer {
+        +run(ctx)
+      }
+      class RoutesAnalyzer {
+        +run(ctx)
+      }
+      class InfraAnalyzer {
+        +run(ctx)
+      }
+      class TodoAnalyzer {
+        +run(ctx)
+      }
+      class AuditAnalyzer {
+        +run(ctx)
+      }
+      class ImpactAnalyzer {
+        +run(ctx)
+      }
+      class TraceAnalyzer {
+        +run(ctx)
       }
       class EREntity {
         +__init__(name)
@@ -654,6 +707,10 @@
     BaseRenderer <|-- SoftBoxRenderer
     BaseRenderer <|-- CylinderRenderer
     BaseRenderer <|-- DiamondRenderer
+    BaseTreeSitterVisitor <|-- JSUMLVisitor
+    BaseTreeSitterVisitor <|-- JSERVisitor
+    BaseTreeSitterVisitor <|-- CSharpUMLVisitor
+    BaseTreeSitterVisitor <|-- CSharpERVisitor
     ORMParserStub <|-- SQLAlchemyParser
     ORMParserStub <|-- DjangoORMParser
     ORMParserStub <|-- PrismaParser
@@ -697,15 +754,15 @@
 <tr><td>traceability.py</td><td>183</td><td>TODO</td><td>[ImpactRadius] - Implementar trazabilidad enriquecida con riesgo</td></tr>
 <tr><td>traceability.py</td><td>186</td><td>TODO</td><td>[APIContractMap] - Enriquecer trazas con información de modelos ER</td></tr>
 <tr><td>traceability.py</td><td>197</td><td>TODO</td><td>[APIContractMap] - Implementar enriquecimiento de trazas con ER</td></tr>
-<tr><td>scanner.py</td><td>283</td><td>TODO</td><td>[Health] - Calcular Project Health Score consolidado</td></tr>
-<tr><td>scanner.py</td><td>405</td><td>TODO</td><td>[DataScience] - Soporte para parsear notebooks Jupyter (.ipynb)</td></tr>
-<tr><td>scanner.py</td><td>462</td><td>TODO</td><td>[Teach] - Punto de integración con el onboarding guiado</td></tr>
+<tr><td>scanner.py</td><td>331</td><td>TODO</td><td>[Health] - Calcular Project Health Score consolidado</td></tr>
+<tr><td>scanner.py</td><td>453</td><td>TODO</td><td>[DataScience] - Soporte para parsear notebooks Jupyter (.ipynb)</td></tr>
+<tr><td>scanner.py</td><td>510</td><td>TODO</td><td>[Teach] - Punto de integración con el onboarding guiado</td></tr>
 <tr><td>route_parser.py</td><td>261</td><td>TODO</td><td>[APIContractMap] - Cruzar rutas API con modelos ER</td></tr>
 <tr><td>route_parser.py</td><td>314</td><td>TODO</td><td>[ImpactRadius] - Identificar rutas API afectadas por un archivo modificado</td></tr>
-<tr><td>cli.py</td><td>145</td><td>TODO</td><td>[Teach] - Flag para onboarding guiado que recorre el heatmap de dependencias paso a paso</td></tr>
-<tr><td>cli.py</td><td>148</td><td>TODO</td><td>[ExportDict] - Flag para exportar Data Dictionary JSON/CSV basado en los ORMs detectados</td></tr>
-<tr><td>cli.py</td><td>531</td><td>TODO</td><td>[Teach] - Implementar lógica de sendero pedagógico</td></tr>
-<tr><td>cli.py</td><td>640</td><td>TODO</td><td>[ExportDict] - Implementar exportación de Data Dictionary</td></tr>
+<tr><td>cli.py</td><td>119</td><td>TODO</td><td>[Teach] - Flag para onboarding guiado que recorre el heatmap de dependencias paso a paso</td></tr>
+<tr><td>cli.py</td><td>122</td><td>TODO</td><td>[ExportDict] - Flag para exportar Data Dictionary JSON/CSV basado en los ORMs detectados</td></tr>
+<tr><td>cli.py</td><td>342</td><td>TODO</td><td>[Teach] - Implementar lógica de sendero pedagógico</td></tr>
+<tr><td>cli.py</td><td>451</td><td>TODO</td><td>[ExportDict] - Implementar exportación de Data Dictionary</td></tr>
 <tr><td>todo_hunter.py</td><td>123</td><td>TODO</td><td>message", "// FIXME message", "-- HACK: message"</td></tr>
 <tr><td>todo_hunter.py</td><td>307</td><td>TODO</td><td>[Health] - Proveer breakdown de deuda técnica para el Project Health Score</td></tr>
 <tr><td>todo_hunter.py</td><td>317</td><td>TODO</td><td>[Health] - Implementar cálculo de penalty score de deuda técnica</td></tr>
