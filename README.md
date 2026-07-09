@@ -8,25 +8,6 @@
 
 `bck-nd-hlpr` is a lightweight Python CLI utility designed to bridge the gap between back-end codebases, human developers, and AI agents. It acts as a context provider, helping extract structural architecture, generate visual diagrams (such as Mermaid.js charts), and facilitate Model Context Protocol (MCP) interactions.
 
-## Key Features 🌟
-
-- **CLI Context Helper:** Instantly query your backend structure to prepare well-formatted context for LLMs like Claude.
-- **Visual Architecture:** Generate clean Mermaid.js architecture diagrams directly from your source code to aid in reverse engineering and documentation.
-- **Model Context Protocol (MCP) Support:** Expose backend utilities to AI assistants using Anthropic's open-standard protocol.
-- **Developer-Friendly:** Easily installable via PyPI to streamline local development workflows.
-
-## Installation 📦
-
-```bash
-pip install bck-nd-hlpr
-cd my-backend-project
-bck-nd scan . --format mermaid -o architecture.mmd
-```
-
-> **Beta:** Esta versión es beta. Soporta los frameworks listados arriba; si tu proyecto tiene estructura no estándar, usa `bck-nd flow` o abre un issue.
-
----
-
 ## ⚡ Key Features
 
 - 🔍 **Auto-Detection**: Identifies Flask, FastAPI, Django, Next.js, Express.js, NestJS, Gin, Actix-web, and more
@@ -50,16 +31,16 @@ bck-nd scan . --format mermaid -o architecture.mmd
 - 📱 **Expo/React Native Detection**: Auto-detects Expo and React Native projects for appropriate diagramming.
 - ⚙️ **`--max-core-files N` Flag**: Limits the number of core files exported by `bck-nd prompt`.
 
-### 🗄️ ORM Support
+### 🗄️ ORM Parser Support Status
 
-| ORM                   | Parser      | Status   |
-| --------------------- | ----------- | -------- |
-| SQLAlchemy            | tree-sitter | Completo |
-| Django ORM            | tree-sitter | Completo |
-| Entity Framework Core | tree-sitter | Completo |
-| Prisma                | regex       | Completo |
-| TypeORM               | regex       | Completo |
-| Sequelize             | regex       | Completo |
+| ORM | Parser Type | Coverage / Status |
+| :--- | :--- | :--- |
+| **SQLAlchemy** (Python) | Tree-Sitter | Full AST Extractor |
+| **Django ORM** (Python) | Tree-Sitter | Full AST Extractor |
+| **Entity Framework Core** (C#) | Tree-Sitter | Full AST Extractor |
+| **Prisma** (Schema) | Regex / Lexer | Schema Matcher |
+| **TypeORM** (JS/TS) | Regex / Lexer | Structural Matcher |
+| **Sequelize** (JS/TS) | Regex / Lexer | Structural Matcher |
 
 ---
 
@@ -289,15 +270,6 @@ bck-nd scan . --er
   - **Traditional ORMs**: Entity Framework (C#), Spring Boot / JPA (Java), Laravel / Eloquent (PHP), SQLAlchemy / Django models (Python), and Sequelize / Mongoose (JS/TS)
 - Bulletproof Mermaid Syntax: Safely handles Generics (e.g. `List<T>`), table brackets, and special characters.
 - Detects database columns, primary keys (`PK`), data annotations, and auto-generates bidirectional relationships (`||--o{`, `}o--||`) with intelligent schema deduplication and merging.
-
-| ORM        | Nivel                  |
-| ---------- | ---------------------- |
-| SQLAlchemy | tree-sitter (completo) |
-| Django     | tree-sitter (completo) |
-| EF Core    | tree-sitter (completo) |
-| Prisma     | regex (maqueta)        |
-| TypeORM    | regex (maqueta)        |
-| Sequelize  | regex (maqueta)        |
 
 ##### 6. **API Route Map 🆕**
 
@@ -903,7 +875,6 @@ bck-nd scan . --ai --style pro > review.md
 
 ```bash
 # Generate architecture docs
-
 bck-nd scan . --explain > docs/ARCHITECTURE.md
 bck-nd scan . --ai --style pro > docs/AI_ANALYSIS.md
 ```
