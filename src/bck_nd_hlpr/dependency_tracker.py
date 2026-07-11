@@ -161,7 +161,6 @@ class DependencyTracker:
     # FUTURE METHODS — Cimientos para features planificadas
     # ═══════════════════════════════════════════════════════════════════
 
-    # TODO: [ImpactRadius] - Calcular radio de impacto conectando dependencias con rutas API
     def calculate_impact_radius(self, changed_file: str) -> dict:
         """Calculates what files are transitively affected by a change in `changed_file`."""
         if not self.all_files:
@@ -193,7 +192,6 @@ class DependencyTracker:
             "affected_files": [item["file"] for item in affected]
         }
 
-    # TODO: [Teach] - Generar datos para el sendero pedagógico de onboarding
     def get_onboarding_path(self) -> list:
         """Generates a structured pedagogical reading path based on in/out degrees."""
         if not self.all_files:
@@ -282,8 +280,6 @@ class DependencyTracker:
             
         return filtered_list
 
-    # TODO: [APIContractMap] - Retornar el grafo de dependencias filtrado por archivos de rutas
-    # Para cruzar con modelos ER y generar el API Contract Map.
     def get_dependency_graph_for_routes(self, route_files: list) -> dict:
         """[STUB] Filtra el grafo de dependencias para incluir solo la cadena de archivos de rutas.
         
@@ -292,7 +288,7 @@ class DependencyTracker:
            retornar subgrafo: route_file → servicios → modelos.
         2. Será consumido por el API Contract Map para cruzar con ER.
         """
-        pass  # TODO: [APIContractMap] - Implementar filtrado de subgrafo
+        pass
 
 def analyze_impact(root_path: str):
     tracker = DependencyTracker(root_path)

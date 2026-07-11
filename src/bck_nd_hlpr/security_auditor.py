@@ -371,8 +371,6 @@ def get_security_report_string(risks: List[Dict], plain: bool = False) -> str:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# TODO: [Health] - Proveer breakdown de seguridad para el Project Health Score
-# Será consumido por scanner.calculate_health_score() para la dimensión de seguridad.
 def get_security_score_breakdown(root_path: str, max_depth: int = 10) -> dict:
     """[STUB] Retorna métricas de seguridad normalizadas para el Health Score.
     
@@ -381,4 +379,4 @@ def get_security_score_breakdown(root_path: str, max_depth: int = 10) -> dict:
     2. Calcular penalización: CRITICAL × 20, HIGH × 10, WARNING × 3.
     3. Retornar: {total_risks, critical, high, warning, penalty_score, has_env_exposed: bool}.
     """
-    pass  # TODO: [Health] - Implementar cálculo de penalty score de seguridad
+    pass

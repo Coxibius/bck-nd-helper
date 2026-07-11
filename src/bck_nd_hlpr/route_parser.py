@@ -258,7 +258,6 @@ def generate_mermaid_sequence(all_routes: List[RouteInfo]) -> str:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# TODO: [APIContractMap] - Cruzar rutas API con modelos ER
 def generate_api_contract_map(root_path: str, max_depth: int = 3) -> list:
     from bck_nd_hlpr.er_parser import get_entities_for_contract_map
     
@@ -311,7 +310,6 @@ def generate_api_contract_map(root_path: str, max_depth: int = 3) -> list:
     return contract_map
 
 
-# TODO: [ImpactRadius] - Identificar rutas API afectadas por un archivo modificado
 def get_routes_affected_by_file(root_path: str, changed_file: str, max_depth: int = 3) -> dict:
     from bck_nd_hlpr.dependency_tracker import DependencyTracker
     tracker = DependencyTracker(root_path)

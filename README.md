@@ -13,8 +13,7 @@
 - 🔍 **Auto-Detection**: Identifies Flask, FastAPI, Django, Next.js, Express.js, NestJS, Gin, Actix-web, and more
 - 🏭 **Architecture Recognition**: Detects MVC, Microservices, Layered Architecture patterns
 - **Smart Diagrams**: Different visualizations for Controllers, Models, Services, Routes
-- 🤖 **BYO-Key AI Analysis**: Directly integrate with OpenAI, Anthropic, Gemini, or local Ollama using API keys. No middleware needed!
-- 🌐 **Cloud AI Fallback**: Support for 9 AI personalities via n8n webhooks if no keys are provided.
+- 🤖 **BYO-Key AI Analysis**: Directly integrate with OpenAI, Anthropic, Gemini, OpenRouter, or local Ollama using API keys. No middleware needed!
 - 🛡️ **Dependency-Free Core**: No PyTorch, No Transformers. Installs in <3 seconds
 - 🪟 **OS-Safe Scanning**: Robust directory traversal ignoring `venv`, `node_modules`, and system restricted files
 - 🎨 **Visual & Mermaid**: Output Unicode diagrams or copy-paste Mermaid code
@@ -33,14 +32,14 @@
 
 ### 🗄️ ORM Parser Support Status
 
-| ORM | Parser Type | Coverage / Status |
-| :--- | :--- | :--- |
-| **SQLAlchemy** (Python) | Tree-Sitter | Full AST Extractor |
-| **Django ORM** (Python) | Tree-Sitter | Full AST Extractor |
-| **Entity Framework Core** (C#) | Tree-Sitter | Full AST Extractor |
-| **Prisma** (Schema) | Regex / Lexer | Schema Matcher |
-| **TypeORM** (JS/TS) | Regex / Lexer | Structural Matcher |
-| **Sequelize** (JS/TS) | Regex / Lexer | Structural Matcher |
+| ORM                                  | Parser Type   | Coverage / Status  |
+| :----------------------------------- | :------------ | :----------------- |
+| **SQLAlchemy** (Python)        | Tree-Sitter   | Full AST Extractor |
+| **Django ORM** (Python)        | Tree-Sitter   | Full AST Extractor |
+| **Entity Framework Core** (C#) | Tree-Sitter   | Full AST Extractor |
+| **Prisma** (Schema)            | Regex / Lexer | Schema Matcher     |
+| **TypeORM** (JS/TS)            | Regex / Lexer | Structural Matcher |
+| **Sequelize** (JS/TS)          | Regex / Lexer | Structural Matcher |
 
 ---
 
@@ -415,7 +414,7 @@ bck-nd scan . --ai
 - AI-powered architectural analysis
 - Design pattern recommendations
 - Code quality insights
-- Detects API keys in your environment (OpenAI, Anthropic, Gemini, Ollama) or falls back to Webhook (n8n).
+- Detects API keys in your environment (OpenAI, Anthropic, Gemini, OpenRouter) or uses a local Ollama server.
 
 ##### 11. **Force Specific AI Provider 🆕**
 
@@ -425,8 +424,8 @@ bck-nd scan . --ai --provider openai
 
 **Output:**
 
-- Supported providers: `openai`, `anthropic`, `gemini`, `ollama`, `webhook`.
-- Safely reports an error if the corresponding API key is missing.
+- Supported providers: `openai`, `anthropic`, `gemini`, `groq`, `deepseek`, `openrouter`, `ollama`.
+- Safely reports a styled error if the corresponding API key is missing.
 
 ##### 12. **AI Only (No Diagram)**
 
@@ -465,7 +464,7 @@ bck-nd scan . --ai --style ramsay
 # Simple explanations
 bck-nd scan . --ai --style eli5
 
-# Available styles (Mostly optimized for the Webhook / n8n Mode):
+# Available styles:
 # pro, hacker, soviet, eli5, ramsay, jarvis, corporate, medieval, doom
 ```
 
@@ -660,8 +659,8 @@ Preferred order (checked automatically):
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_API_KEY=AIzaSy...
-OLLAMA_HOST=http://localhost:11434
-BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
+OPENROUTER_API_KEY=sk-or-...        # 200+ models, free tier — https://openrouter.ai/keys
+OLLAMA_HOST=http://localhost:11434  # Local Ollama, no key required
 ```
 
 Then run:
@@ -678,46 +677,6 @@ No API key required. Make sure Ollama is running on `http://localhost:11434`.
 # Optionally customize the host
 export OLLAMA_HOST="http://localhost:11434"
 bck-nd scan . --ai --provider ollama
-```
-
-### Option 5: n8n Webhook Fallback
-
-If no keys are found, it falls back to the legacy webhook approach.
-
-#### 1. Install n8n
-
-```bash
-npm install -g n8n
-```
-
-##### 2. Start n8n
-
-```bash
-n8n start
-```
-
-Access: `http://localhost:5678`
-
-##### 3. Create Workflow
-
-1. Add **Webhook** trigger
-   - Method: `POST`
-   - Path: `explain`
-2. Add **AI** node (OpenAI/Gemini)
-   - System: `{{ $json.prompt }}`
-   - Input: `{{ $json.text }}`
-3. Add **Respond to Webhook**
-   - JSON: `{ "text": "{{ $json.output }}" }`
-4. Activate workflow
-
-##### 4. Custom Webhook (Optional)
-
-```bash
-# Windows
-set BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
-
-# Linux/Mac
-export BCK_ND_WEBHOOK_URL=https://your-server.com/webhook/explain
 ```
 
 ---
@@ -770,7 +729,7 @@ For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED
 
 ## 🎭 AI Personalities Guide
 
-> **Note:** Only used in webhook mode; provider-specific styles may vary.
+> **Note:** AI personalities work with all supported direct providers (OpenAI, Anthropic, Gemini, OpenRouter, Ollama).
 
 | Style         | Description                                   | Use Case                 |
 | ------------- | --------------------------------------------- | ------------------------ |
@@ -800,17 +759,18 @@ bck-nd scan . --depth 5
 bck-nd scan src --depth 3
 ```
 
-### "Error conexión: ..."
+### "Connection error: ..."
 
-**Cause:** n8n not running
-**Solution:**
+**Cause:** The selected AI provider is unreachable or the API key is invalid.
+**Solution:** Verify your API key is set correctly, or switch to a different provider:
 
 ```bash
-# Terminal 1
-n8n start
-
-# Terminal 2
+# Try OpenRouter (free tier available)
+export OPENROUTER_API_KEY=sk-or-...
 bck-nd scan . --ai
+
+# Or use local Ollama (no key required)
+bck-nd scan . --ai --provider ollama
 ```
 
 ### "Framework detectado: Unknown"
@@ -838,7 +798,7 @@ bck-nd scan . --ai
 
 ## 🧬 How it Started
 
-bck-nd-hlpr evolved from an earlier experiment (ASCII Architect) that used GPT-2 to generate ASCII diagrams. It worked, but required ~2GB of dependencies just to draw a diamond. This project rebuilds the same idea from scratch: deterministic renderers, no model downloads, installs in under 3 seconds.
+bck-nd-hlpr evolved from an earlier experiment (ASCII Architect, a hooby proyect where I teach how to write ASCII basic forms to a GPT-2 model). It worked, but required ~2GB of dependencies just to draw a diamond. This project rebuilds the same idea from scratch: deterministic renderers, no model downloads, installs in under 3 seconds.
 
 ---
 

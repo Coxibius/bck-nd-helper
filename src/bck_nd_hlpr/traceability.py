@@ -169,8 +169,6 @@ def generate_mermaid_traceability(traces: List[TraceNode]) -> str:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# TODO: [ImpactRadius] - Enriquecer trazabilidad con niveles de riesgo del dependency tracker
-# Agregar al TraceNode un campo risk_level basado en cuántos archivos dependen de cada nodo.
 def generate_impact_aware_traceability(root_path: str, max_depth: int = 3) -> list:
     """[STUB] Genera trazabilidad ruta→servicio→modelo con riesgo de impacto por nodo.
     
@@ -180,11 +178,9 @@ def generate_impact_aware_traceability(root_path: str, max_depth: int = 3) -> li
     3. Para cada TraceNode.calls, agregar: {call_name, risk: CORE|SHARED|PERIPHERAL}.
     4. Retornar traces enriquecidos con metadatos de riesgo.
     """
-    pass  # TODO: [ImpactRadius] - Implementar trazabilidad enriquecida con riesgo
+    pass
 
 
-# TODO: [APIContractMap] - Enriquecer trazas con información de modelos ER
-# Conectar los nodos de servicio/modelo en el TraceNode con las entidades ER reales.
 def enrich_traces_with_er(traces: list, entities: list) -> list:
     """[STUB] Cruza TraceNode.calls con entidades ER para mostrar columnas expuestas.
     
@@ -194,4 +190,4 @@ def enrich_traces_with_er(traces: list, entities: list) -> list:
     2. Permite generar diagramas de trazabilidad que muestran:
        Route → Handler → Service → Model.columns (con campos sensibles marcados).
     """
-    pass  # TODO: [APIContractMap] - Implementar enriquecimiento de trazas con ER
+    pass

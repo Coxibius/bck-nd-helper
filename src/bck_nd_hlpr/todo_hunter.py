@@ -304,8 +304,6 @@ def display_statistics(todos: List[Dict], console: Console) -> None:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# TODO: [Health] - Proveer breakdown de deuda técnica para el Project Health Score
-# Será consumido por scanner.calculate_health_score() para la dimensión de TODOs.
 def get_todo_score_breakdown(root_path: str, max_depth: int = 10) -> dict:
     """[STUB] Retorna métricas de deuda técnica normalizadas para el Health Score.
     
@@ -314,5 +312,5 @@ def get_todo_score_breakdown(root_path: str, max_depth: int = 10) -> dict:
     2. Ponderar por severidad: BUG × 5, FIXME × 3, HACK × 3, TODO × 1, XXX × 2.
     3. Retornar: {total_items, by_type: {TODO: n, FIXME: n, ...}, weighted_score, debt_level: str}.
     """
-    pass  # TODO: [Health] - Implementar cálculo de penalty score de deuda técnica
+    pass
 

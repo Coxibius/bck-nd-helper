@@ -2,12 +2,14 @@ import os
 from bck_nd_hlpr.sanitizer import sanitize_text
 from bck_nd_hlpr.ai_providers import get_provider, NoAPIKeyError
 
+
 class Narrator:
     def __init__(self, force_provider: str = None):
         try:
             self.provider = get_provider(force_provider)
-        except NoAPIKeyError:
+        except NoAPIKeyError as e:
             self.provider = None
+            self._no_key_message = str(e)
 
     # DICCIONARIO DE PERSONALIDADES
     PROMPTS = {
@@ -21,6 +23,13 @@ class Narrator:
         "medieval": "You are an ancient Wizard in a tower. The code is scrolls, the folders are kingdoms, and the scripts are arcane magic. Speak with solemnity.",
         "doom": "You are the Doom Slayer. The code is infested with demons (bugs). Describe the architecture as a battlefield. Rip and Tear."
     }
+
+    def _no_key_error_msg(self) -> str:
+        """Returns the stored NoAPIKeyError message, or a generic fallback."""
+        return getattr(self, "_no_key_message", (
+            "No AI provider configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, "
+            "GOOGLE_API_KEY, OPENROUTER_API_KEY, or OLLAMA_HOST to enable AI analysis."
+        ))
 
     def explain(self, topology_text: str, use_ai: bool = False, style: str = "pro") -> str:
         if not topology_text: return "Nothing to explain."
@@ -37,12 +46,12 @@ class Narrator:
                     else: report.append(f"🔗 '{a.strip()}' connects with '{b.strip()}'")
             return "\n".join(report)
 
-        # MODO IA (N8N) - Aquí inyectamos la personalidad
+        # MODO IA — Requires an active provider
         if not self.provider:
-            return "AI Analysis disabled. Configure OPENAI_API_KEY to enable it."
+            raise NoAPIKeyError(self._no_key_error_msg())
 
         persona_prompt = self.PROMPTS.get(style, self.PROMPTS["pro"])
-        
+
         # Construimos el prompt final combinando la personalidad + los datos
         full_prompt = f"{persona_prompt}\n\nAnalyze the following file topology and explain what this project does:\n"
 
@@ -52,7 +61,6 @@ class Narrator:
 
         try:
             print(f"📡 Calling the Narrator (Mode: {style.upper()})...")
-            # En la nueva arquitectura, usamos el provider
             return self.provider.generate(system_prompt=full_prompt, user_prompt=safe_topology)
         except Exception as e:
             return f"Connection error: {e}"
@@ -62,15 +70,14 @@ class Narrator:
         Ejecuta un turno interactivo de chat manteniendo el contexto.
         """
         if not self.provider:
-            return "AI Analysis disabled. Configure OPENAI_API_KEY to enable it."
+            raise NoAPIKeyError(self._no_key_error_msg())
 
         persona_prompt = self.PROMPTS.get(style, self.PROMPTS["pro"])
-        
+
         # El system_prompt contiene la personalidad y el mega-contexto (diagramas, topología)
         full_system_prompt = f"{persona_prompt}\n\nProject Architecture Context:\n{system_context}\n\nRespond to the user's last question based on the project context and previous conversation."
-        
+
         try:
             return self.provider.generate(system_prompt=full_system_prompt, user_prompt=history_text)
         except Exception as e:
             return f"Connection error: {e}"
-

@@ -328,10 +328,6 @@ class ProjectScanner:
     # FUTURE METHODS — Cimientos para features planificadas
     # ═══════════════════════════════════════════════════════════════════
 
-    # TODO: [Health] - Calcular Project Health Score consolidado
-    # Orquestar: todo_hunter.scan_for_todos() + security_auditor.scan_security_risks()
-    #           + dependency_tracker.analyze_impact()
-    # Retornar un dict con score global (0-100) y breakdown por categoría.
     def calculate_health_score(self, root_path: str, max_depth: int = 5) -> dict:
         """Calcula un Project Health Score consolidado."""
         try:
@@ -450,7 +446,6 @@ class ProjectScanner:
         
         return result
 
-    # TODO: [DataScience] - Soporte para parsear notebooks Jupyter (.ipynb)
     def scan_notebooks(self, root_path: str, max_depth: int = 3) -> str:
         """Generates a Mermaid graph LR representing the data lineage from Jupyter Notebooks."""
         root = Path(root_path).resolve()
@@ -507,7 +502,6 @@ class ProjectScanner:
                 
         return "\n".join(dedup_lines)
 
-    # TODO: [Teach] - Punto de integración con el onboarding guiado
     def get_onboarding_path(self, root_path: str) -> list:
         """Genera un recorrido pedagógico ordenado del codebase."""
         from bck_nd_hlpr.dependency_tracker import DependencyTracker

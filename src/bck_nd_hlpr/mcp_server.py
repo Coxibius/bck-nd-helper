@@ -623,7 +623,7 @@ def explain_architecture_with_ai(
 
     IMPORTANT: Requires an AI provider API key in the environment:
     OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY,
-    or Ollama running locally. Falls back to webhook (n8n) if no key found.
+    or Ollama running locally. Raises an error with guidance if no provider is configured.
 
     Output: A free-text architectural analysis report from the AI in the requested style.
 
@@ -642,7 +642,7 @@ def explain_architecture_with_ai(
         depth: Scan depth for context gathering. Default 3, increase for large projects.
         style: AI personality style (see above). Default "pro".
         provider: Force a specific provider: "openai", "anthropic", "gemini",
-                  "groq", "deepseek", "openrouter", "ollama", "webhook". Auto-detects if None.
+                  "groq", "deepseek", "openrouter", "ollama". Auto-detects if None.
     """
     try:
         scanner = ProjectScanner()

@@ -102,7 +102,7 @@ def scan(
     depth: int = typer.Option(3, "--depth", "-d", help="Max directory recursion depth (default: 3). Increase if files are nested deep. Example: bck-nd scan . --depth 5"),
     graph: bool = typer.Option(True, "--graph/--no-graph", help="Toggle diagram generation. Use --no-graph for text-only output (faster, good for CI logs). Example: bck-nd scan . --no-graph --ai"),
     explain: bool = typer.Option(False, "--explain", "-e", help="Generate an offline text report listing Controllers, Models, and Services. No AI required. Example: bck-nd scan . --explain"),
-    ai: bool = typer.Option(False, "--ai", help="Run AI-powered analysis. Auto-detects API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, OLLAMA_HOST) or falls back to webhook. Example: bck-nd scan . --ai --style hacker"),
+    ai: bool = typer.Option(False, "--ai", help="Run AI-powered analysis. Auto-detects API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENROUTER_API_KEY) or a local Ollama server. Example: bck-nd scan . --ai --style hacker"),
     style: str = typer.Option("pro", "--style", "-s", help="AI personality (requires --ai). Options: pro (architect), hacker (security), soviet (efficiency), eli5 (simple), ramsay (critical), jarvis (elegant), corporate (buzzwords), medieval (wizard), doom (bug hunter). Example: bck-nd scan . --ai --style ramsay"),
     format: str = typer.Option("ascii", "--format", "-f", help="Output format: 'ascii' (terminal boxes) or 'mermaid' (graph TD code for Notion/GitHub/Obsidian + terminal preview). Example: bck-nd scan . --format mermaid"),
     uml: bool = typer.Option(False, "--uml", "-u", help="Generate UML Class Diagram (Mermaid classDiagram). Supports Python (AST), C#, Java, JS/TS, PHP (Tree-sitter). Shows classes, methods, inheritance, associations. Example: bck-nd scan . --uml -o classes.mmd"),
@@ -116,14 +116,12 @@ def scan(
     contract: bool = typer.Option(False, "--contract", help="Generate an API Contract Map matching HTTP routes to database models and columns."),
     trace: bool = typer.Option(False, "--trace", help="Route-to-DB traceability graph (Mermaid graph LR). Traces routes -> services -> models via AST. Supports Python (FastAPI/Flask). Example: bck-nd scan . --trace"),
     tree: bool = typer.Option(False, "--tree", help="ASCII directory tree with Unicode box-drawing. Auto-filters noise (node_modules, venv, .git, __pycache__). Example: bck-nd scan . --tree --depth 5"),
-    # TODO: [Teach] - Flag para onboarding guiado que recorre el heatmap de dependencias paso a paso
     teach: bool = typer.Option(False, "--teach", help="Guided onboarding walkthrough using the dependency heatmap. Example: bck-nd scan . --teach"),
     health: bool = typer.Option(False, "--health", help="Calculate and print a consolidated Project Health Score report card."),
-    # TODO: [ExportDict] - Flag para exportar Data Dictionary JSON/CSV basado en los ORMs detectados
     export_dict: Optional[str] = typer.Option(None, "--export-dict", help="Export Data Dictionary (JSON/CSV from ORM models). Example: bck-nd scan . --export-dict json"),
     datascience: bool = typer.Option(False, "--datascience", help="Generate Data Lineage Map (Mermaid graph LR) from Jupyter Notebooks. Example: bck-nd scan . --datascience"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
-    provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook. Example: bck-nd scan . --ai --provider ollama")
+    provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd scan . --ai --provider openrouter")
 ):
     """
     Scan a project and generate architecture outputs.
@@ -339,7 +337,6 @@ def scan(
     # FUTURE FLAGS — Stubs inactivos (no rompen ejecución actual)
     # ═══════════════════════════════════════════════════════════════════
 
-    # TODO: [Teach] - Implementar lógica de sendero pedagógico
     if teach:
         from rich.console import Console
         from rich.panel import Panel
@@ -448,9 +445,6 @@ def scan(
                 
         sys.exit(0)
 
-    # TODO: [ExportDict] - Implementar exportación de Data Dictionary
-    # Reutilizar parse_project_for_er() para obtener entidades,
-    # serializar a JSON/CSV con columnas, tipos, relaciones.
     if export_dict:
         from bck_nd_hlpr.er_parser import export_entities_as_dict
         
@@ -566,28 +560,39 @@ def scan(
         typer.secho("\n📄 LOCAL REPORT:", fg=typer.colors.CYAN, bold=True)
         report = narrator.explain(flow_string, use_ai=False)
         if output:
-             # Si ya guardamos el graph, tal vez queramos append?
-             # El flag -o sobrescribe. Si el usuario usa --explain Y --output, debería guardar el reporte.
-             # Si usa --graph Y --explain Y --output, ¿qué guardamos?
-             # Asumamos que si hay output, guardamos el reporte EXPLICATIVO si se pide explain.
              output_handler(report, "")
         else:
              print(report)
 
     # 3. IA CON PERSONALIDAD Y CONTEXTO
     if ai:
+        from bck_nd_hlpr.ai_providers import NoAPIKeyError
+
+        # Early exit with a styled error if no provider is available
+        if narrator.provider is None:
+            typer.secho("\n❌ No AI provider configured.", fg=typer.colors.RED, bold=True)
+            typer.secho("Set one of the following environment variables and retry:\n", fg=typer.colors.YELLOW)
+            typer.secho("  OPENAI_API_KEY       — OpenAI GPT models          https://platform.openai.com/api-keys")
+            typer.secho("  ANTHROPIC_API_KEY    — Anthropic Claude            https://console.anthropic.com/")
+            typer.secho("  GOOGLE_API_KEY       — Google Gemini               https://aistudio.google.com/app/apikey")
+            typer.secho("  OPENROUTER_API_KEY   — 200+ models, free tier      https://openrouter.ai/keys", fg=typer.colors.GREEN)
+            typer.secho("  OLLAMA_HOST          — Local Ollama (no key)       https://ollama.com/", fg=typer.colors.GREEN)
+            typer.secho("\nExample (Windows):  set OPENROUTER_API_KEY=sk-or-...", fg=typer.colors.BRIGHT_BLACK)
+            typer.secho("Example (Mac/Linux): export OPENROUTER_API_KEY=sk-or-...", fg=typer.colors.BRIGHT_BLACK)
+            return
+
         # Recuperamos contexto (Docs) para enviar a la IA
-        docs = scanner.get_docs_content(path) 
-        
+        docs = scanner.get_docs_content(path)
+
         # Añadir información arquitectónica al contexto
         arch_context = f"\n\n--- DETECTED ARCHITECTURE ---\n"
         arch_context += f"Framework: {arch_info.get('framework', 'Unknown')}\n"
         arch_context += f"Type: {arch_info.get('architecture', 'Unknown')}\n"
         arch_context += f"Features: {', '.join(arch_info.get('features', []))}\n"
-        
+
         # Generar Diagramas Avanzados para dar más contexto a la IA
         extra_diagrams = "\n\n--- ADVANCED DIAGRAMS (MERMAID) ---\n"
-        
+
         # 1. Infra
         compose_file = parse_infra(path)
         if compose_file:
@@ -605,11 +610,11 @@ def scan(
             from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er, parse_project_for_csharp_uml
             from bck_nd_hlpr.er_parser import generate_mermaid_er
             from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
-            
+
             entities = parse_project_for_csharp_er(path, max_depth=depth)
             if entities:
                 extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
-            
+
             classes = parse_project_for_csharp_uml(path, max_depth=depth)
             if classes:
                 extra_diagrams += "UML Class Diagram:\n```mermaid\n" + generate_mermaid_class_diagram(classes) + "\n```\n"
@@ -618,7 +623,7 @@ def scan(
             entities = parse_project_for_er(path, max_depth=depth)
             if entities:
                 extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
-                
+
             uml_code = scanner.scan_uml(path, max_depth=depth)
             if uml_code and "note " not in uml_code.lower():
                 extra_diagrams += "UML Class Diagram:\n```mermaid\n" + uml_code + "\n```\n"
@@ -627,13 +632,14 @@ def scan(
             full_context = flow_string + arch_context + extra_diagrams + "\n\n--- PROJECT DOCUMENTATION ---\n" + docs
         else:
             full_context = flow_string + arch_context + extra_diagrams
-        
-        if narrator.provider is None:
-            typer.secho("[INFO] No API Key detected. Generating static documentation without AI analysis...", fg=typer.colors.YELLOW)
-        
+
         typer.secho(f"\n🤖 AI ANALYSIS (Style: {style.upper()}):", fg=typer.colors.MAGENTA, bold=True)
-        ai_response = narrator.explain(full_context, use_ai=True, style=style)
-        
+        try:
+            ai_response = narrator.explain(full_context, use_ai=True, style=style)
+        except NoAPIKeyError as e:
+            typer.secho(f"\n❌ {e}", fg=typer.colors.RED, bold=True)
+            return
+
         if output:
             output_handler(ai_response, "")
         else:
@@ -698,7 +704,7 @@ def chat(
     path: str = typer.Argument(".", help="Path to the project. Scans architecture to build AI context. Example: bck-nd chat ./my-api"),
     depth: int = typer.Option(3, "--depth", "-d", help="Scan depth for context building (default: 3). Increase for deeply nested projects. Example: bck-nd chat . -d 5"),
     style: str = typer.Option("pro", "--style", "-s", help="AI personality: pro, hacker, soviet, eli5, ramsay, jarvis, corporate, medieval, doom. Example: bck-nd chat . --style jarvis"),
-    provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider: openai, anthropic, gemini, groq, deepseek, openrouter, ollama, webhook. Example: bck-nd chat . --provider ollama")
+    provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd chat . --provider openrouter")
 ):
     """
     Interactive AI chat about your codebase (requires API key or Ollama).
@@ -775,8 +781,13 @@ def chat(
         
     narrator = Narrator(force_provider=provider)
     if narrator.provider is None:
-        typer.secho("\n❌ Error: No API Key detected. Interactive chat requires an active AI provider.", fg=typer.colors.RED, bold=True)
-        typer.secho("Please configure OPENAI_API_KEY or similar to use this feature.", fg=typer.colors.YELLOW)
+        typer.secho("\n❌ No AI provider configured. Interactive chat requires an active provider.", fg=typer.colors.RED, bold=True)
+        typer.secho("Set one of the following environment variables:\n", fg=typer.colors.YELLOW)
+        typer.secho("  OPENAI_API_KEY       — OpenAI GPT models          https://platform.openai.com/api-keys")
+        typer.secho("  ANTHROPIC_API_KEY    — Anthropic Claude            https://console.anthropic.com/")
+        typer.secho("  GOOGLE_API_KEY       — Google Gemini               https://aistudio.google.com/app/apikey")
+        typer.secho("  OPENROUTER_API_KEY   — 200+ models, free tier      https://openrouter.ai/keys", fg=typer.colors.GREEN)
+        typer.secho("  OLLAMA_HOST          — Local Ollama (no key)       https://ollama.com/", fg=typer.colors.GREEN)
         return
     
     typer.secho("\n✅ Contexto cargado con éxito.", fg=typer.colors.GREEN)

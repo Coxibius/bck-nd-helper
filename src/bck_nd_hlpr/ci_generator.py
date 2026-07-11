@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import typer
 
-GITHUB_ACTION_YAML = """name: Generate Documentation
+GITHUB_ACTION_YAML = """name: Deploy Documentation to GitHub Pages
 
 # Living Documentation: builds the HTML portal with `bck-nd docs`
 # and deploys it to GitHub Pages ONLY on pushes to `main`.
@@ -13,23 +13,25 @@ on:
     branches:
       - main
 
-# Least-privilege permissions for the official Pages deployment flow.
-# `contents: read` is enough because we deploy via OIDC artifact upload
+# Least-privilege OIDC permissions for the official Pages deployment flow.
+# `contents: read` is enough because we deploy via artifact upload
 # (actions/deploy-pages), NOT by pushing to a gh-pages branch.
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Never cancel an in-flight production deployment, but queue new ones.
+# Only one Pages deployment at a time; cancel stale in-flight runs.
 concurrency:
   group: "pages"
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build Documentation
+  docs:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,23 +39,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
-      # Cache pip downloads. Keyed on dependency manifests with a
-      # restore-keys fallback so the cache still hits on partial changes
-      # and never fails on projects without requirements/pyproject files.
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           # Install bck-nd-hlpr (from source if this repo IS the tool, else from PyPI)
           if [ -f pyproject.toml ] && grep -q 'name = "bck-nd-hlpr"' pyproject.toml; then
             pip install .
@@ -61,28 +51,56 @@ jobs:
             pip install bck-nd-hlpr
           fi
 
-      - name: Generate documentation portal
+      - name: Verify installation
         run: |
-          bck-nd docs . --output _site
+          echo "=== Checking pip show ==="
+          pip show bck-nd-hlpr
+          echo ""
+          echo "=== Checking module import ==="
+          python -c "import bck_nd_hlpr; print('Module imported successfully')"
+          echo ""
+          echo "=== Checking CLI module ==="
+          python -c "from bck_nd_hlpr.cli import app; print('CLI module OK')"
 
-      - name: Setup GitHub Pages
-        uses: actions/configure-pages@v5
+      - name: Generate static documentation
+        run: |
+          mkdir -p docs
+          python -m bck_nd_hlpr.cli docs . --output docs
+        shell: bash
+
+      - name: Create .nojekyll
+        run: |
+          touch docs/.nojekyll
+          echo "Created .nojekyll"
+
+      - name: Diagnostic - verify docs output
+        run: |
+          echo "=== Checking docs directory ==="
+          ls -la docs/
+          echo ""
+          echo "=== Verifying index.html exists ==="
+          if [ -f docs/index.html ]; then
+            echo "docs/index.html found ($(wc -c < docs/index.html) bytes)"
+          else
+            echo "docs/index.html NOT FOUND - build failed!"
+            exit 1
+          fi
+          echo ""
+          echo "=== Verifying .nojekyll exists ==="
+          if [ -f docs/.nojekyll ]; then
+            echo "docs/.nojekyll found"
+          else
+            echo "docs/.nojekyll NOT FOUND"
+            exit 1
+          fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: ./docs
 
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Deploy to GitHub Pages
-        id: deployment
+        id: deploy
         uses: actions/deploy-pages@v4
 """
 
