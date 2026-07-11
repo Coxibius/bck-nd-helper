@@ -1,13 +1,13 @@
 import os
 from pathlib import Path
 
-from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
-from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
-from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
-from bck_nd_hlpr.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram
-from bck_nd_hlpr.todo_hunter import scan_for_todos
-from bck_nd_hlpr.scanner import ProjectScanner
-from bck_nd_hlpr.tree_generator import generate_project_tree
+from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
+from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence
+from bck_nd_hlpr.core.er_parser import parse_project_for_er, generate_mermaid_er
+from bck_nd_hlpr.core.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram
+from bck_nd_hlpr.core.todo_hunter import scan_for_todos
+from bck_nd_hlpr.core.scanner import ProjectScanner
+from bck_nd_hlpr.core.tree_generator import generate_project_tree
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en" data-theme="light">
@@ -326,27 +326,27 @@ class DocGenerator:
         # 3. UML
         uml_diagram = "classDiagram\n    class Empty {\n      +No data detected\n    }"
         if is_csharp:
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_uml
+            from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_uml
             classes = parse_project_for_csharp_uml(root_path)
             if classes:
                 uml_diagram = generate_mermaid_class_diagram(classes)
         elif is_express or is_nextjs:
-            from bck_nd_hlpr.js_parser import parse_project_for_js_uml
+            from bck_nd_hlpr.core.js_parser import parse_project_for_js_uml
             classes = parse_project_for_js_uml(root_path)
             if classes:
                 uml_diagram = generate_mermaid_class_diagram(classes)
         elif is_django:
-            from bck_nd_hlpr.django_parser import parse_project_for_django_uml
+            from bck_nd_hlpr.core.django_parser import parse_project_for_django_uml
             classes = parse_project_for_django_uml(root_path)
             if classes:
                 uml_diagram = generate_mermaid_class_diagram(classes)
         elif is_spring:
-            from bck_nd_hlpr.java_parser import parse_project_for_java_uml
+            from bck_nd_hlpr.core.java_parser import parse_project_for_java_uml
             classes = parse_project_for_java_uml(root_path)
             if classes:
                 uml_diagram = generate_mermaid_class_diagram(classes)
         elif is_laravel:
-            from bck_nd_hlpr.php_parser import parse_project_for_php_uml
+            from bck_nd_hlpr.core.php_parser import parse_project_for_php_uml
             classes = parse_project_for_php_uml(root_path)
             if classes:
                 uml_diagram = generate_mermaid_class_diagram(classes)
@@ -358,19 +358,19 @@ class DocGenerator:
         # 4. ER
         er_diagram = "erDiagram\n    EMPTY ||--|| EMPTY : \"No data detected\""
         if is_csharp:
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
+            from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_er
             entities = parse_project_for_csharp_er(root_path)
         elif is_express or is_nextjs:
-            from bck_nd_hlpr.js_parser import parse_project_for_js_er
+            from bck_nd_hlpr.core.js_parser import parse_project_for_js_er
             entities = parse_project_for_js_er(root_path)
         elif is_django:
-            from bck_nd_hlpr.django_parser import parse_project_for_django_er
+            from bck_nd_hlpr.core.django_parser import parse_project_for_django_er
             entities = parse_project_for_django_er(root_path)
         elif is_spring:
-            from bck_nd_hlpr.java_parser import parse_project_for_java_er
+            from bck_nd_hlpr.core.java_parser import parse_project_for_java_er
             entities = parse_project_for_java_er(root_path)
         elif is_laravel:
-            from bck_nd_hlpr.php_parser import parse_project_for_php_er
+            from bck_nd_hlpr.core.php_parser import parse_project_for_php_er
             entities = parse_project_for_php_er(root_path)
         else:
             entities = parse_project_for_er(root_path)

@@ -7,9 +7,10 @@ import os
 from pathlib import Path
 from typing import List
 
-from bck_nd_hlpr.uml_parser import UMLClassInfo
-from bck_nd_hlpr.er_parser import EREntity
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS, ERExtractor
+from bck_nd_hlpr.core.uml_parser import UMLClassInfo
+from bck_nd_hlpr.core.er_parser import EREntity
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.er_parser import ERExtractor
 
 # We can re-use the generic AST extractors because they already do a great job,
 # but we wrap them here to maintain the same API signature as the tree-sitter ones.

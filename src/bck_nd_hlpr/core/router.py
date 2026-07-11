@@ -1,5 +1,5 @@
-from bck_nd_hlpr.canvas import Canvas
-from bck_nd_hlpr.renderers import BoxRenderer, CylinderRenderer, SoftBoxRenderer, DiamondRenderer
+from bck_nd_hlpr.core.canvas import Canvas
+from bck_nd_hlpr.core.renderers import BoxRenderer, CylinderRenderer, SoftBoxRenderer, DiamondRenderer
 
 class Router:
     def __init__(self):
@@ -39,17 +39,12 @@ class Router:
             'w': (x, cy)
         }
 
-    def process(self, layout_str: str) -> None:
+    def process(self, layout_str: str) -> str:
         """
         [MAIN LOOP] Calcula el grid, estampa formas y dibuja flechas.
-        (Mantiene compatibilidad imprimiendo)
+        Retorna el string del diagrama ASCII dibujado.
         """
-        print(f"🔄 Processing Flow: {layout_str[:60]}... [STANDARD MODE]")
-        ascii_art = self.render_ascii(layout_str)
-        if ascii_art:
-            print("\n" + "="*60)
-            print(ascii_art)
-            print("="*60 + "\n")
+        return self.render_ascii(layout_str)
 
     def render_ascii(self, layout_str: str) -> str:
         """

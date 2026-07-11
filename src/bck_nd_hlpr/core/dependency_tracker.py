@@ -3,10 +3,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Set
 from collections import defaultdict
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
-from rich.console import Console
-from rich.table import Table
-from rich.text import Text
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 class DependencyTracker:
     def __init__(self, root_path: str):
@@ -295,60 +292,4 @@ def analyze_impact(root_path: str):
     tracker.scan_dependencies()
     return tracker.usage_map
 
-def get_impact_report_string(usage_map: Dict[str, Set[str]], plain: bool = False) -> str:
-    import io
-    output = io.StringIO()
-    
-    if plain:
-        console = Console(file=output, force_terminal=False, no_color=True, width=120)
-    else:
-        console = Console(file=output, force_terminal=True, width=120)
-        
-    table = Table(
-        title="🔥 DEPENDENCY IMPACT HEATMAP (What breaks if I touch this?)",
-        show_header=True,
-        header_style="bold red" if not plain else None,
-        border_style="red" if not plain else None,
-        title_style="bold red" if not plain else None
-    )
-    
-    table.add_column("File (The Dependency)", style="cyan" if not plain else None)
-    table.add_column("Impact Score", justify="right", style="bold white" if not plain else None)
-    table.add_column("Risk Category", justify="center", style="bold" if not plain else None)
-    table.add_column("Imported By (Dependents)", style="white" if not plain else None)
 
-    # Sort by number of dependents (High impact first)
-    sorted_files = sorted(usage_map.items(), key=lambda item: len(item[1]), reverse=True)
-    
-    # Take top 50 to avoid noise?
-    
-    for file, dependents in sorted_files:
-        score = len(dependents)
-        deps_list = ", ".join(sorted(list(dependents))[:3]) # Show first 3
-        if len(dependents) > 3:
-            deps_list += f" (+{len(dependents)-3} more)"
-            
-        color = "white"
-        risk_category = "🟢 PERIPHERAL"
-        risk_color = "green"
-
-        if score > 5:
-            color = "bold red"
-            risk_category = "🔥 CORE"
-            risk_color = "bold red"
-        elif score >= 2:
-            color = "bold yellow"
-            risk_category = "🟡 SHARED"
-            risk_color = "bold yellow"
-        
-        count_styled = Text(str(score), style=color if not plain else None)
-        risk_styled = Text(risk_category, style=risk_color if not plain else None)
-        
-        table.add_row(file, count_styled, risk_styled, deps_list)
-        
-    console.print(table)
-    
-    if not usage_map:
-        console.print("\n[yellow]No internal dependencies detected (or project is flat).[/yellow]" if not plain else "\nNo internal dependencies detected.")
-        
-    return output.getvalue()

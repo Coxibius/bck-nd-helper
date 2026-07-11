@@ -15,18 +15,19 @@ if sys.platform.startswith("win"):
             sys.stderr.reconfigure(encoding="utf-8")
         except Exception:
             pass
-from bck_nd_hlpr.router import Router
-from bck_nd_hlpr.scanner import ProjectScanner
-from bck_nd_hlpr.narrator import Narrator
-from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
-from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
-from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
-from bck_nd_hlpr.todo_hunter import scan_for_todos, display_todos_table, get_todos_table_string
-from bck_nd_hlpr.doc_generator import DocGenerator
-from bck_nd_hlpr.ci_generator import generate_ci_workflow
-from bck_nd_hlpr.context_dumper import ContextDumper
-from bck_nd_hlpr.tree_generator import generate_project_tree
-from bck_nd_hlpr.analysis import (
+from bck_nd_hlpr.core.router import Router
+from bck_nd_hlpr.core.scanner import ProjectScanner
+from bck_nd_hlpr.core.narrator import Narrator
+from bck_nd_hlpr.core.er_parser import parse_project_for_er, generate_mermaid_er
+from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence
+from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
+from bck_nd_hlpr.core.todo_hunter import scan_for_todos
+from bck_nd_hlpr.cli.formatters import display_todos_table, get_todos_table_string
+from bck_nd_hlpr.core.doc_generator import DocGenerator
+from bck_nd_hlpr.core.ci_generator import generate_ci_workflow
+from bck_nd_hlpr.core.context_dumper import ContextDumper
+from bck_nd_hlpr.core.tree_generator import generate_project_tree
+from bck_nd_hlpr.core.analysis import (
     ScanContext,
     get_analyzer,
     build_uml_diagram,
@@ -123,6 +124,7 @@ def scan(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
     provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd scan . --ai --provider openrouter")
 ):
+
     """
     Scan a project and generate architecture outputs.
 
@@ -149,9 +151,9 @@ def scan(
     - bck-nd scan . --ai --style hacker
     - bck-nd scan . --impact-radius app/api/users.py
     """
-    scanner = ProjectScanner()
+    from bck_nd_hlpr.core.orchestrator import ScannerOrchestrator, OrchestratorConfig
+    from bck_nd_hlpr.cli.formatters import get_security_report_string, get_impact_report_string
 
-    # Helper para manejar salida condicional
     def output_handler(content: str, context_msg: str):
         if output:
             try:
@@ -166,9 +168,7 @@ def scan(
             except Exception as e:
                 typer.secho(f"❌ Error writing file: {e}", fg=typer.colors.RED)
         else:
-            # Imprimir en consola con decoraciones si es necesario
             if context_msg:
-                # Si es bloque de codigo mermaid
                 if content.strip().startswith("classDiagram") or \
                    content.strip().startswith("erDiagram") or \
                    content.strip().startswith("sequenceDiagram") or \
@@ -180,213 +180,202 @@ def scan(
                 else:
                     print(content)
 
-    # Truncar archivo de salida al inicio para empezar limpio
     if output:
         try:
             with open(output, "w", encoding="utf-8") as f:
-                f.write("")  # Truncate
+                f.write("")
         except Exception as e:
             typer.secho(f"❌ Error creating output file: {e}", fg=typer.colors.RED)
 
-    # DETECTAR ARQUITECTURA PRIMERO para rutear parsers
     typer.secho(f"\n🔍 Analyzing architecture of '{path}'...", fg=typer.colors.CYAN, bold=True)
-    arch_info = scanner.detect_architecture(path)
 
-    # ═══════════════════════════════════════════════════════════════════
-    # ANALYZER DISPATCH (Strategy Pattern) — see bck_nd_hlpr.analysis
-    # Each exclusive mode is a plug-and-play Analyzer. Adding a new mode
-    # does NOT require touching this orchestrator: register a new Analyzer
-    # class in analysis.py and declare its typer Option above.
-    # ═══════════════════════════════════════════════════════════════════
-    ctx = ScanContext(path=path, depth=depth, arch_info=arch_info, plain=bool(output))
+    config = OrchestratorConfig(
+        path=path,
+        depth=depth,
+        uml=uml,
+        er=er,
+        routes=routes,
+        infra=infra,
+        todo=todo,
+        audit=audit,
+        impact=impact,
+        trace=trace,
+        tree=tree,
+        datascience=datascience,
+        contract=contract,
+        health=health,
+        teach=teach,
+        export_dict=export_dict,
+        impact_radius=impact_radius,
+        ai=ai,
+        style=style,
+        provider=provider,
+        plain=bool(output)
+    )
 
-    def emit_result(result) -> None:
-        """Uniform output handling for analyzer results (console vs file)."""
-        # Always surface warnings, even when the result is OK (e.g., no routes found)
-        warning_text = getattr(result, "warning", None)
-        if warning_text:
-            warn_color_name = (getattr(result, "warning_color", "yellow") or "yellow").upper()
-            warn_color = getattr(typer.colors, warn_color_name, typer.colors.YELLOW)
-            typer.secho(warning_text, fg=warn_color, bold=warn_color_name.lower() == "green")
-
-        # If analyzer failed, stop after showing the warning
-        if not result.ok:
-            return
-
-        content = getattr(result, "content", None)
-        # Guard against None/empty content to avoid AttributeError on .strip()
-        if not content:
-            return
-
-        if output:
-            output_handler(content, result.title)
-            return
-
-        body = content.strip()
-        if not body:
-            return
-
-        if body.startswith(("classDiagram", "erDiagram", "sequenceDiagram", "graph")):
-            print("```mermaid")
-            print(content)
-            print("```")
-            typer.secho("Copy the above block into Mermaid.live", fg=typer.colors.BRIGHT_BLACK)
-        else:
-            print(content)
-
-    mode_flags = {
-        "tree": tree, "uml": uml, "er": er, "routes": routes, "infra": infra,
-        "todo": todo, "audit": audit, "impact": impact, "trace": trace,
-    }
-    selected_mode = next((name for name, active in mode_flags.items() if active), None)
-
-    if selected_mode:
-        analyzer = get_analyzer(selected_mode)
-        banner_color = getattr(typer.colors, analyzer.banner_color.upper(), typer.colors.MAGENTA)
-        typer.secho(f"\n{analyzer.banner}", fg=banner_color, bold=True)
-        if analyzer.intro:
-            typer.secho(f"{analyzer.intro}\n", fg=typer.colors.BRIGHT_BLACK)
-        emit_result(analyzer.run(ctx))
+    try:
+        result = ScannerOrchestrator.run(config)
+    except Exception as e:
+        typer.secho(f"❌ Error during orchestrator execution: {e}", fg=typer.colors.RED)
         return
 
-    # MODO IMPACT RADIUS (NEW)
-    if impact_radius:
+    if result.framework != 'Unknown':
+        typer.secho(f"💻 Framework detected: {result.framework}", fg=typer.colors.GREEN)
+    if result.architecture:
+        typer.secho(f"🏭 Architecture: {result.architecture}", fg=typer.colors.BLUE)
+    if result.features:
+        typer.secho(f"✨ Features: {', '.join(result.features)}", fg=typer.colors.YELLOW)
+    if result.summary:
+        typer.secho(f"\n📝 {result.summary}", fg=typer.colors.WHITE)
+
+    if config.tree and result.tree:
+        typer.secho("\n[TREE] 🌳 PROJECT STRUCTURE:", fg=typer.colors.CYAN, bold=True)
+        if output:
+            output_handler(result.tree, "[TREE] Project Structure")
+        else:
+            print(result.tree)
+
+    if config.infra and result.infra:
+        typer.secho("\n[INFRA] INFRASTRUCTURE MAP:", fg=typer.colors.CYAN, bold=True)
+        output_handler(result.infra, "[INFRA] Infrastructure Map")
+
+    if config.routes and result.routes:
+        typer.secho("\n[API] ROUTES MAP:", fg=typer.colors.CYAN, bold=True)
+        output_handler(result.routes, "[API] Routes Map")
+
+    if config.uml and result.uml:
+        typer.secho("\n[UML] CLASS DIAGRAM:", fg=typer.colors.CYAN, bold=True)
+        output_handler(result.uml, "[UML] Class Diagram")
+
+    if config.er and result.er:
+        typer.secho("\n[ER] ENTITY-RELATIONSHIP:", fg=typer.colors.CYAN, bold=True)
+        output_handler(result.er, "[ER] Entity-Relationship")
+
+    if config.trace and result.trace:
+        typer.secho("\n[TRACE] ROUTE-TO-DB TRACEABILITY:", fg=typer.colors.CYAN, bold=True)
+        output_handler(result.trace, "[TRACE] Traceability Map")
+
+    if config.datascience and result.datascience:
+        typer.secho("\n📊 [DATA SCIENCE] Data Lineage Map", fg=typer.colors.CYAN)
+        output_handler(result.datascience, "[DATA SCIENCE] Data Lineage Map")
+
+    if config.todo and result.todos is not None:
+        typer.secho("\n[TODO] TECHNICAL DEBT:", fg=typer.colors.CYAN, bold=True)
+        if not result.todos:
+            typer.secho("✨ Awesome! No technical debt found.", fg=typer.colors.GREEN, bold=True)
+        else:
+            if output:
+                table_str = get_todos_table_string(result.todos, plain=True)
+                output_handler(table_str, "[TODO] Technical Debt")
+            else:
+                display_todos_table(result.todos)
+
+    if config.audit and result.security_risks is not None:
+        typer.secho("\n🚨 SECURITY AUDIT:", fg=typer.colors.CYAN, bold=True)
+        report_str = get_security_report_string(result.security_risks, plain=bool(output))
+        if output:
+            output_handler(report_str, "[AUDIT] Security Audit")
+        else:
+            print(report_str)
+
+    if config.impact and result.dependency_heatmap is not None:
+        typer.secho("\n[IMPACT] DEPENDENCY HEATMAP:", fg=typer.colors.CYAN, bold=True)
+        report_str = get_impact_report_string(result.dependency_heatmap, plain=bool(output))
+        if output:
+            output_handler(report_str, "[IMPACT] Dependency Heatmap")
+        else:
+            print(report_str)
+
+    if config.impact_radius and result.impact_radius_report is not None:
+        report = result.impact_radius_report
         typer.secho(f"\n[IMPACT RADIUS] 💥 CALCULATING TRANSITIVE IMPACT FOR: {impact_radius}", fg=typer.colors.MAGENTA, bold=True)
+        typer.secho(f"\n🎯 Target File: {report.get('changed_file')}", fg=typer.colors.CYAN)
         
-        from bck_nd_hlpr.route_parser import get_routes_affected_by_file
-        
-        try:
-            abs_path = str(Path(impact_radius).resolve())
-            if not Path(abs_path).exists():
-                typer.secho(f"⚠️ Friendly warning: The file '{impact_radius}' does not exist.", fg=typer.colors.YELLOW)
-                sys.exit(0)
-                
-            report = get_routes_affected_by_file(path, abs_path, max_depth=depth)
-            
-            typer.secho(f"\n🎯 Target File: {report['changed_file']}", fg=typer.colors.CYAN)
-            
-            if not report["affected_files"]:
-                typer.secho("✨ Good news! This file has no dependencies or does not affect any other files in the project.", fg=typer.colors.GREEN)
-                sys.exit(0)
-                
+        if not report.get("affected_files"):
+            typer.secho("✨ Good news! This file has no dependencies or does not affect any other files in the project.", fg=typer.colors.GREEN)
+        else:
             typer.secho(f"\n🔗 Transitively Affected Files ({len(report['affected_files'])}):", fg=typer.colors.YELLOW)
             for f in report["affected_files"]:
                 typer.secho(f"  - {f}")
-                
-            typer.secho(f"\n🚨 Affected API Routes ({len(report['affected_routes'])}):", fg=typer.colors.RED, bold=True)
-            if not report["affected_routes"]:
+            
+            typer.secho(f"\n🚨 Affected API Routes ({len(report.get('affected_routes', []))}):", fg=typer.colors.RED, bold=True)
+            if not report.get("affected_routes"):
                 typer.secho("  None. No API endpoints seem to be transitively broken by this change.", fg=typer.colors.GREEN)
             else:
                 for r in report["affected_routes"]:
-                    typer.secho(f"  - [{r['method']}] {r['path']} (in {r['file']})")
-                    
-        except Exception as e:
-            typer.secho(f"⚠️ Could not calculate impact radius: {e}", fg=typer.colors.YELLOW)
-            
-        sys.exit(0)
+                    typer.secho(f"  - [{r.get('method')}] {r.get('path')} (in {r.get('file')})")
 
-    # MODO CONTRACT MAP (NEW)
-    if contract:
+    if config.contract and result.api_contracts is not None:
         typer.secho(f"\n[CONTRACT] 📜 GENERATING API CONTRACT MAP:", fg=typer.colors.MAGENTA, bold=True)
-        
-        from bck_nd_hlpr.route_parser import generate_api_contract_map
-        
-        try:
-            contracts = generate_api_contract_map(path, max_depth=depth)
-            
-            if not contracts:
-                typer.secho("⚠️ No routes or models found to generate a contract map.", fg=typer.colors.YELLOW)
-                sys.exit(0)
-                
+        contracts = result.api_contracts
+        if not contracts:
+            typer.secho("⚠️ No routes or models found to generate a contract map.", fg=typer.colors.YELLOW)
+        else:
             if output:
                 import json
                 if output.endswith(".json"):
                     output_handler(json.dumps(contracts, indent=2), "")
                 else:
-                    # Markdown table
                     md_lines = ["| Route | File | Matched Model | Columns |", "|---|---|---|---|"]
                     for c in contracts:
-                        cols = ", ".join(c['columns'].keys()) if c['columns'] else "None"
-                        model = c['matched_model'] or "None (Pure HTTP)"
-                        md_lines.append(f"| {c['route']} | {c['file']} | {model} | {cols} |")
+                        cols = ", ".join(c.get('columns', {}).keys()) if c.get('columns') else "None"
+                        model = c.get('matched_model') or "None (Pure HTTP)"
+                        md_lines.append(f"| {c.get('route')} | {c.get('file')} | {model} | {cols} |")
                     output_handler("\n".join(md_lines), "")
             else:
                 from rich.console import Console
                 from rich.table import Table
-                
                 console = Console()
                 table = Table(show_header=True, header_style="bold magenta", title="API Contract Map")
                 table.add_column("Route", style="cyan")
                 table.add_column("File", style="yellow")
                 table.add_column("Matched Model", style="bold green")
                 table.add_column("Exposed Columns", style="white")
-                
                 for c in contracts:
-                    model = c['matched_model'] or "[italic bright_black]None (Pure HTTP)[/italic bright_black]"
-                    cols = ", ".join(c['columns'].keys()) if c['columns'] else "-"
-                    table.add_row(c['route'], c['file'], model, cols)
-                    
+                    model = c.get('matched_model') or "[italic bright_black]None (Pure HTTP)[/italic bright_black]"
+                    cols = ", ".join(c.get('columns', {}).keys()) if c.get('columns') else "-"
+                    table.add_row(c.get('route'), c.get('file'), model, cols)
                 console.print(table)
-                
-        except Exception as e:
-            typer.secho(f"⚠️ Could not generate contract map: {e}", fg=typer.colors.RED)
-            
-        sys.exit(0)
 
-    # ═══════════════════════════════════════════════════════════════════
-    # FUTURE FLAGS — Stubs inactivos (no rompen ejecución actual)
-    # ═══════════════════════════════════════════════════════════════════
-
-    if teach:
+    if config.teach and result.onboarding_path is not None:
         from rich.console import Console
         from rich.panel import Panel
         from rich.table import Table
-        from rich.text import Text
         
+        path_list = result.onboarding_path
         console = Console()
-        scanner = ProjectScanner()
-        path_list = scanner.get_onboarding_path(path)
-        
         if not path_list:
             console.print(Panel("[bold red]No project structure detected to create an onboarding path.[/bold red]"))
-            sys.exit(1)
-            
-        console.print("\n[bold cyan]🎓 Pedagogical Reading Path Generated![/bold cyan]")
-        console.print("[italic]Follow this sequence to quickly understand the project architecture:[/italic]\n")
-        
-        table = Table(show_header=True, header_style="bold magenta", border_style="bright_black")
-        table.add_column("Step", style="bold white", justify="right")
-        table.add_column("File Path", style="cyan")
-        table.add_column("Calculated Role", style="yellow")
-        table.add_column("Hint / Why it matters", style="white")
-        
-        for i, item in enumerate(path_list, 1):
-            tier = item["tier"]
-            role_color = "bold cyan" if tier == 1 else "bold magenta" if tier == 2 else "bold yellow"
-            
-            table.add_row(
-                str(i),
-                item["file"],
-                f"[{role_color}]{item['role']}[/{role_color}]",
-                item["hint"]
-            )
-            
-        console.print(table)
-        console.print("\n[bold green]Happy Onboarding![/bold green] 🚀")
-        sys.exit(0)
+        else:
+            console.print("\n[bold cyan]🎓 Pedagogical Reading Path Generated![/bold cyan]")
+            console.print("[italic]Follow this sequence to quickly understand the project architecture:[/italic]\n")
+            table = Table(show_header=True, header_style="bold magenta", border_style="bright_black")
+            table.add_column("Step", style="bold white", justify="right")
+            table.add_column("File Path", style="cyan")
+            table.add_column("Calculated Role", style="yellow")
+            table.add_column("Hint / Why it matters", style="white")
+            for i, item in enumerate(path_list, 1):
+                tier = item.get("tier", 3)
+                role_color = "bold cyan" if tier == 1 else "bold magenta" if tier == 2 else "bold yellow"
+                table.add_row(
+                    str(i),
+                    item.get("file", ""),
+                    f"[{role_color}]{item.get('role', '')}[/{role_color}]",
+                    item.get("hint", "")
+                )
+            console.print(table)
+            console.print("\n[bold green]Happy Onboarding![/bold green] 🚀")
 
-    if health:
+    if config.health and result.health_score is not None:
         typer.secho(f"\n🏥 [HEALTH] CALCULATING PROJECT HEALTH SCORE:", fg=typer.colors.CYAN, bold=True)
-        
-        result = scanner.calculate_health_score(path, max_depth=depth)
-        score = result["score"]
-        grade = result["grade"]
-        breakdown = result["breakdown"]
+        score_data = result.health_score
+        score = score_data.get("score", 0)
+        grade = score_data.get("grade", "F")
+        breakdown = score_data.get("breakdown", {})
         
         from rich.console import Console
         from rich.panel import Panel
         from rich.text import Text
-        
         console = Console()
         
         if grade in ["A", "B"]:
@@ -400,19 +389,19 @@ def scan(
         report_text.append(f"Score: {score}/100\n", style=f"{color}")
         report_text.append(f"Grade: {grade}\n\n", style=f"{color}")
         
-        c_risks = breakdown["critical_risks"]
+        c_risks = breakdown.get("critical_risks", 0)
         if c_risks > 0:
             report_text.append(f" -{c_risks * 25} points due to {c_risks} Critical Security risk(s)\n", style="red")
             
-        h_risks = breakdown["high_risks"]
+        h_risks = breakdown.get("high_risks", 0)
         if h_risks > 0:
             report_text.append(f" -{h_risks * 10} points due to {h_risks} High/Warning Security risk(s)\n", style="yellow")
             
-        f_bugs = breakdown["fixme_bugs"]
+        f_bugs = breakdown.get("fixme_bugs", 0)
         if f_bugs > 0:
             report_text.append(f" -{f_bugs * 3} points due to {f_bugs} FIXME/BUG/XXX(s)\n", style="magenta")
             
-        t_hacks = breakdown["todos_hacks"]
+        t_hacks = breakdown.get("todos_hacks", 0)
         if t_hacks > 0:
             report_text.append(f" -{t_hacks * 1} points due to {t_hacks} TODO/HACK(s)\n", style="bright_black")
             
@@ -420,231 +409,78 @@ def scan(
             report_text.append(" 🎉 Perfect Score! No technical debt or security risks detected.\n", style="green")
             
         panel = Panel(report_text, title="Project Health Report Card", border_style=color)
-        
         if output:
             output_handler(report_text.plain, "")
         else:
             console.print(panel)
-            
-        sys.exit(0)
 
-    if datascience:
-        typer.secho("\n📊 [DATA SCIENCE] Data Lineage Map", fg=typer.colors.CYAN)
-        scanner = ProjectScanner()
-        mermaid_chart = scanner.scan_notebooks(path)
-        
-        if not mermaid_chart:
-            typer.secho("No Jupyter Notebooks (.ipynb) with data lineages found.", fg=typer.colors.YELLOW)
-        else:
-            if output:
-                with open(output, "w", encoding="utf-8") as f:
-                    f.write(mermaid_chart)
-                typer.secho(f"✅ Data Lineage Map saved to {output}", fg=typer.colors.GREEN)
-            else:
-                print(mermaid_chart)
-                
-        sys.exit(0)
-
-    if export_dict:
-        from bck_nd_hlpr.er_parser import export_entities_as_dict
-        
-        fmt = export_dict.lower()
-        if fmt not in ["json", "csv"]:
-            typer.secho(f"❌ Error: Invalid format '{fmt}' for --export-dict. Use 'json' or 'csv'.", fg=typer.colors.RED)
-            sys.exit(1)
-            
-        result = export_entities_as_dict(path, fmt)
-        
+    if config.export_dict and result.data_dictionary is not None:
         if output:
             with open(output, "w", encoding="utf-8") as f:
-                f.write(result)
+                f.write(result.data_dictionary)
             typer.secho(f"✅ Data Dictionary exported to {output}", fg=typer.colors.GREEN)
         else:
-            print(result)
-            
-        sys.exit(0)
+            print(result.data_dictionary)
 
-    if arch_info['framework'] != 'Unknown':
-        typer.secho(f"💻 Framework detected: {arch_info['framework']}", fg=typer.colors.GREEN)
-    if arch_info.get('architecture'):
-        typer.secho(f"🏭 Architecture: {arch_info['architecture']}", fg=typer.colors.BLUE)
-    if arch_info.get('features'):
-        typer.secho(f"✨ Features: {', '.join(arch_info['features'])}", fg=typer.colors.YELLOW)
-    
-    # Resumen
-    if arch_info.get('summary'):
-        typer.secho(f"\n📝 {arch_info['summary']}", fg=typer.colors.WHITE)
-    
-    # ESCANEO DE ARCHIVOS
-    typer.secho(f"\n📂 Scanning files (depth: {depth})...", fg=typer.colors.YELLOW)
-    flow_string = scanner.scan(path, max_depth=depth)
-    
-    if not flow_string:
-        typer.secho(f"\n❌ No files found in '{path}' with depth {depth}.", fg=typer.colors.RED)
-        typer.secho(f"💡 Try increasing depth: bck-nd scan {path} --depth {depth + 2}", fg=typer.colors.YELLOW)
-        return
-
-    # 1. DIBUJO (Solo si está activado y no se seleccionaron reportes locales)
-    # Por defecto, mostraremos la arquitectura completa (UML, ER, API, Infra, TODOs)
-    if graph and not any([explain, ai]):
-        typer.secho("\n📊 PROJECT ARCHITECTURE (COMPLETE):", fg=typer.colors.MAGENTA, bold=True)
-
-        # 0. TREE (Project Structure)
-        typer.secho("\n[TREE] 🌳 PROJECT STRUCTURE:", fg=typer.colors.CYAN, bold=True)
-        tree_output = generate_project_tree(path, depth=depth)
-        if tree_output:
-            if output:
-                output_handler(tree_output, "[TREE] Project Structure")
-            else:
-                print(tree_output)
+    if config.ai and result.ai_narrative:
+        typer.secho(f"\n🤖 AI ANALYSIS (Style: {style.upper()}):", fg=typer.colors.MAGENTA, bold=True)
+        if output:
+            output_handler(result.ai_narrative, "")
         else:
-            typer.secho("⚠️ Could not generate project tree.", fg=typer.colors.YELLOW)
+            print(result.ai_narrative)
 
-        # 1. INFRA
-        typer.secho("\n[INFRA] INFRASTRUCTURE MAP:", fg=typer.colors.CYAN, bold=True)
-        compose_file = parse_infra(path)
-        if compose_file:
-            services = parse_docker_compose(compose_file)
-            if services:
-                infra_code = generate_mermaid_infra(services)
-                output_handler(infra_code, "[INFRA] Infrastructure Map")
-            else:
-                typer.secho("⚠️ No services found in docker-compose.", fg=typer.colors.YELLOW)
-        else:
-            typer.secho("⚠️ docker-compose.yml not detected in the directory.", fg=typer.colors.YELLOW)
-
-        # 2. ROUTES
-        typer.secho("\n[API] ROUTES MAP:", fg=typer.colors.CYAN, bold=True)
-        detected_routes = parse_project_routes(path, max_depth=depth)
-        if detected_routes:
-            seq_code = generate_mermaid_sequence(detected_routes)
-            if seq_code:
-                output_handler(seq_code, "[API] Routes Map")
-            else:
-                typer.secho("⚠️ Could not render the routes.", fg=typer.colors.YELLOW)
-        else:
-            typer.secho("⚠️ No API routes detected (Flask/FastAPI).", fg=typer.colors.YELLOW)
-
-        # 3. UML
-        typer.secho("\n[UML] CLASS DIAGRAM:", fg=typer.colors.CYAN, bold=True)
-        uml_code = build_uml_diagram(path, depth, arch_info)
-        if uml_code:
-            output_handler(uml_code, "[UML] Class Diagram")
-        else:
-            typer.secho("⚠️ No classes detected for UML.", fg=typer.colors.YELLOW)
-            
-        # 4. ER
-        typer.secho("\n[ER] ENTITY-RELATIONSHIP:", fg=typer.colors.CYAN, bold=True)
-        er_code = build_er_diagram(path, depth, arch_info)
-        if er_code:
-            output_handler(er_code, "[ER] Entity-Relationship")
-        else:
-            typer.secho("⚠️ No database models detected.", fg=typer.colors.YELLOW)
-
-        # 5. TODOs
-        typer.secho("\n[TODO] TECHNICAL DEBT:", fg=typer.colors.CYAN, bold=True)
-        todos = scan_for_todos(path, max_depth=depth)
-        if todos:
-            if output:
-                table_str = get_todos_table_string(todos, plain=True)
-                output_handler(table_str, "[TODO] Technical Debt")
-            else:
-                display_todos_table(todos)
-        else:
-            typer.secho("✨ Awesome! No technical debt found.", fg=typer.colors.GREEN, bold=True)
-
-    narrator = Narrator(force_provider=provider)
-
-    # 2. LOCAL (Reporte de texto)
     if explain:
         typer.secho("\n📄 LOCAL REPORT:", fg=typer.colors.CYAN, bold=True)
+        from bck_nd_hlpr.core.narrator import Narrator
+        from bck_nd_hlpr.core.scanner import ProjectScanner
+        narrator = Narrator()
+        scanner = ProjectScanner()
+        flow_string = scanner.scan(path, max_depth=depth)
         report = narrator.explain(flow_string, use_ai=False)
         if output:
              output_handler(report, "")
         else:
              print(report)
 
-    # 3. IA CON PERSONALIDAD Y CONTEXTO
-    if ai:
-        from bck_nd_hlpr.ai_providers import NoAPIKeyError
-
-        # Early exit with a styled error if no provider is available
-        if narrator.provider is None:
-            typer.secho("\n❌ No AI provider configured.", fg=typer.colors.RED, bold=True)
-            typer.secho("Set one of the following environment variables and retry:\n", fg=typer.colors.YELLOW)
-            typer.secho("  OPENAI_API_KEY       — OpenAI GPT models          https://platform.openai.com/api-keys")
-            typer.secho("  ANTHROPIC_API_KEY    — Anthropic Claude            https://console.anthropic.com/")
-            typer.secho("  GOOGLE_API_KEY       — Google Gemini               https://aistudio.google.com/app/apikey")
-            typer.secho("  OPENROUTER_API_KEY   — 200+ models, free tier      https://openrouter.ai/keys", fg=typer.colors.GREEN)
-            typer.secho("  OLLAMA_HOST          — Local Ollama (no key)       https://ollama.com/", fg=typer.colors.GREEN)
-            typer.secho("\nExample (Windows):  set OPENROUTER_API_KEY=sk-or-...", fg=typer.colors.BRIGHT_BLACK)
-            typer.secho("Example (Mac/Linux): export OPENROUTER_API_KEY=sk-or-...", fg=typer.colors.BRIGHT_BLACK)
-            return
-
-        # Recuperamos contexto (Docs) para enviar a la IA
-        docs = scanner.get_docs_content(path)
-
-        # Añadir información arquitectónica al contexto
-        arch_context = f"\n\n--- DETECTED ARCHITECTURE ---\n"
-        arch_context += f"Framework: {arch_info.get('framework', 'Unknown')}\n"
-        arch_context += f"Type: {arch_info.get('architecture', 'Unknown')}\n"
-        arch_context += f"Features: {', '.join(arch_info.get('features', []))}\n"
-
-        # Generar Diagramas Avanzados para dar más contexto a la IA
-        extra_diagrams = "\n\n--- ADVANCED DIAGRAMS (MERMAID) ---\n"
-
-        # 1. Infra
-        compose_file = parse_infra(path)
-        if compose_file:
-            services = parse_docker_compose(compose_file)
-            if services:
-                extra_diagrams += "Infrastructure (docker-compose):\n```mermaid\n" + generate_mermaid_infra(services) + "\n```\n"
-
-        # 2. Rutas API
-        detected_routes = parse_project_routes(path, max_depth=depth)
-        if detected_routes:
-            extra_diagrams += "API Routes (Sequence):\n```mermaid\n" + generate_mermaid_sequence(detected_routes) + "\n```\n"
-
-        # 3. ER y UML
-        if arch_info.get('framework') == '.NET Core / C#':
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er, parse_project_for_csharp_uml
-            from bck_nd_hlpr.er_parser import generate_mermaid_er
-            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
-
-            entities = parse_project_for_csharp_er(path, max_depth=depth)
-            if entities:
-                extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
-
-            classes = parse_project_for_csharp_uml(path, max_depth=depth)
-            if classes:
-                extra_diagrams += "UML Class Diagram:\n```mermaid\n" + generate_mermaid_class_diagram(classes) + "\n```\n"
-        else:
-            from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
-            entities = parse_project_for_er(path, max_depth=depth)
-            if entities:
-                extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
-
-            uml_code = scanner.scan_uml(path, max_depth=depth)
-            if uml_code and "note " not in uml_code.lower():
-                extra_diagrams += "UML Class Diagram:\n```mermaid\n" + uml_code + "\n```\n"
-
-        if docs:
-            full_context = flow_string + arch_context + extra_diagrams + "\n\n--- PROJECT DOCUMENTATION ---\n" + docs
-        else:
-            full_context = flow_string + arch_context + extra_diagrams
-
-        typer.secho(f"\n🤖 AI ANALYSIS (Style: {style.upper()}):", fg=typer.colors.MAGENTA, bold=True)
-        try:
-            ai_response = narrator.explain(full_context, use_ai=True, style=style)
-        except NoAPIKeyError as e:
-            typer.secho(f"\n❌ {e}", fg=typer.colors.RED, bold=True)
-            return
-
-        if output:
-            output_handler(ai_response, "")
-        else:
-            print(ai_response)
-
+    # General graph mode fallback if none of the above are specified 
+    # and graph=True and no single specific diagram requested
+    if graph and not any([uml, er, routes, infra, todo, audit, impact, trace, tree, datascience, contract, teach, health, export_dict, ai, explain, impact_radius]):
+        typer.secho("\n📊 PROJECT ARCHITECTURE (COMPLETE):", fg=typer.colors.MAGENTA, bold=True)
+        
+        config_full = OrchestratorConfig(
+            path=path, depth=depth,
+            tree=True, infra=True, routes=True, uml=True, er=True, todo=True
+        )
+        result_full = ScannerOrchestrator.run(config_full)
+        
+        if result_full.tree:
+            typer.secho("\n[TREE] 🌳 PROJECT STRUCTURE:", fg=typer.colors.CYAN, bold=True)
+            if output:
+                output_handler(result_full.tree, "[TREE] Project Structure")
+            else:
+                print(result_full.tree)
+        if result_full.infra:
+            typer.secho("\n[INFRA] INFRASTRUCTURE MAP:", fg=typer.colors.CYAN, bold=True)
+            output_handler(result_full.infra, "[INFRA] Infrastructure Map")
+        if result_full.routes:
+            typer.secho("\n[API] ROUTES MAP:", fg=typer.colors.CYAN, bold=True)
+            output_handler(result_full.routes, "[API] Routes Map")
+        if result_full.uml:
+            typer.secho("\n[UML] CLASS DIAGRAM:", fg=typer.colors.CYAN, bold=True)
+            output_handler(result_full.uml, "[UML] Class Diagram")
+        if result_full.er:
+            typer.secho("\n[ER] ENTITY-RELATIONSHIP:", fg=typer.colors.CYAN, bold=True)
+            output_handler(result_full.er, "[ER] Entity-Relationship")
+        if result_full.todos is not None:
+            typer.secho("\n[TODO] TECHNICAL DEBT:", fg=typer.colors.CYAN, bold=True)
+            if not result_full.todos:
+                typer.secho("✨ Awesome! No technical debt found.", fg=typer.colors.GREEN, bold=True)
+            else:
+                if output:
+                    table_str = get_todos_table_string(result_full.todos, plain=True)
+                    output_handler(table_str, "[TODO] Technical Debt")
+                else:
+                    display_todos_table(result_full.todos)
 @app.command()
 def docs(
     path: str = typer.Argument(".", help="Path to the project to document. Use '.' for current dir. Example: bck-nd docs ./my-api"),
@@ -692,7 +528,7 @@ def explore():
     Requires: textual (pip install textual)
     """
     try:
-        from bck_nd_hlpr.tui_app import ArchitectureExplorer
+        from bck_nd_hlpr.core.tui_app import ArchitectureExplorer
         explorer_app = ArchitectureExplorer()
         explorer_app.run()
     except ImportError as e:
@@ -751,9 +587,9 @@ def chat(
     # 3. ER y UML
     entities = None
     if arch_info.get('framework') == '.NET Core / C#':
-        from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er, parse_project_for_csharp_uml
-        from bck_nd_hlpr.er_parser import generate_mermaid_er
-        from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
+        from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_er, parse_project_for_csharp_uml
+        from bck_nd_hlpr.core.er_parser import generate_mermaid_er
+        from bck_nd_hlpr.core.uml_parser import generate_mermaid_class_diagram
         
         entities = parse_project_for_csharp_er(path, max_depth=depth)
         if entities:
@@ -763,7 +599,7 @@ def chat(
         if classes:
             extra_diagrams += "UML Class Diagram:\n```mermaid\n" + generate_mermaid_class_diagram(classes) + "\n```\n"
     else:
-        from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
+        from bck_nd_hlpr.core.er_parser import parse_project_for_er, generate_mermaid_er
         entities = parse_project_for_er(path, max_depth=depth)
         if entities:
             extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"

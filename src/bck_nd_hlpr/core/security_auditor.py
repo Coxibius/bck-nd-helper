@@ -1,11 +1,8 @@
 import re
 import os
 from pathlib import Path
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 from typing import List, Dict
-from rich.console import Console
-from rich.table import Table
-from rich.text import Text
 
 # RISK_PATTERNS with pattern, desc, and category
 RISK_PATTERNS = {
@@ -261,7 +258,7 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
                 
     # Run Sensitive Data Tracker
     try:
-        from bck_nd_hlpr.er_parser import parse_project_for_er
+        from bck_nd_hlpr.core.er_parser import parse_project_for_er
         entities = parse_project_for_er(str(root))
         exposure_risks = scan_sensitive_exposures(str(root), entities)
         risks.extend(exposure_risks)
@@ -270,101 +267,6 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
                 
     return risks
 
-def get_security_report_string(risks: List[Dict], plain: bool = False) -> str:
-    """Generates the security report table string."""
-    import io
-    output = io.StringIO()
-    
-    if plain:
-        console = Console(file=output, force_terminal=False, no_color=True, width=120)
-    else:
-        console = Console(file=output, force_terminal=True, width=120)
-        
-    severity_order = {'CRITICAL': 0, 'HIGH': 1, 'WARNING': 2}
-    sorted_risks = sorted(risks, key=lambda x: (severity_order.get(x['severity'], 99), x['file'], x['line']))
-    
-    crit_count = sum(1 for r in risks if r['severity'] == 'CRITICAL')
-    high_count = sum(1 for r in risks if r['severity'] == 'HIGH')
-    warn_count = sum(1 for r in risks if r['severity'] == 'WARNING')
-    
-    if crit_count > 0:
-        global_score = "CRITICAL"
-    elif high_count > 0:
-        global_score = "HIGH"
-    elif warn_count > 3:
-        global_score = "MEDIUM"
-    elif warn_count > 0:
-        global_score = "LOW"
-    else:
-        global_score = "CLEAN"
-        
-    if plain:
-        # Group by file in plain text output
-        grouped = {}
-        for risk in sorted_risks:
-            f = risk['file']
-            if f not in grouped:
-                grouped[f] = []
-            grouped[f].append(risk)
-            
-        console.print("🚨 SECURITY AUDIT REPORT 🚨\n")
-        for f, file_risks in grouped.items():
-            console.print(f"File: {f}")
-            for risk in file_risks:
-                cat = risk.get('category', 'Secrets')
-                console.print(f"  [{risk['severity']}] Line {risk['line']}: {risk['type']} - {risk['message']} (Category: {cat})")
-            console.print("")
-    else:
-        table = Table(
-            title="🚨 SECURITY AUDIT REPORT 🚨",
-            show_header=True,
-            header_style="bold red",
-            border_style="red",
-            title_style="bold red"
-        )
-        
-        table.add_column("Severity", style="bold red", width=10)
-        table.add_column("Category", style="magenta", width=15)
-        table.add_column("File", style="cyan")
-        table.add_column("Line", justify="right")
-        table.add_column("Risk Type", style="yellow")
-        table.add_column("Message")
-        
-        for risk in sorted_risks:
-            sev = risk['severity']
-            style = "bold red" if sev == 'CRITICAL' else ("bold orange3" if sev == 'HIGH' else "yellow")
-            
-            table.add_row(
-                Text(sev, style=style),
-                risk.get('category', 'Secrets'),
-                risk['file'],
-                str(risk['line']),
-                risk['type'],
-                risk['message']
-            )
-            
-        console.print(table)
-        
-    # Print summary block and risk score
-    score_style = "bold red" if global_score in ["CRITICAL", "HIGH"] else ("yellow" if global_score == "MEDIUM" else "bold green")
-    summary_text = f"{crit_count} Critical · {high_count} High · {warn_count} Warning"
-    
-    if not plain:
-        if not risks:
-            console.print("\n[bold green]✅ No obvious security risks found.[/bold green]")
-        else:
-            console.print(f"\n[bold red]Found {len(risks)} potential security risks.[/bold red]")
-            console.print(f"[bold]Risk Score: [/bold][{score_style}]{global_score}[/{score_style}]")
-            console.print(f"[bold]Summary:[/bold] {summary_text}")
-    else:
-        if not risks:
-            console.print("\n✅ No obvious security risks found.")
-        else:
-            console.print(f"\nFound {len(risks)} potential security risks.")
-            console.print(f"Risk Score: {global_score}")
-            console.print(f"Summary: {summary_text}")
-        
-    return output.getvalue()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

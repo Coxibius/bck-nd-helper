@@ -1,9 +1,9 @@
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Footer, DirectoryTree, Static, Markdown
-from bck_nd_hlpr.scanner import ProjectScanner
-from bck_nd_hlpr.router import Router
-from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
+from bck_nd_hlpr.core.scanner import ProjectScanner
+from bck_nd_hlpr.core.router import Router
+from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence
 import os
 
 class ArchitectureExplorer(App):

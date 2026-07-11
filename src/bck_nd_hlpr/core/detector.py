@@ -5,7 +5,7 @@ import re
 import os
 import json
 from pathlib import Path
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 from typing import Dict, List, Set, Any
 try:
     import tomllib as toml # Python 3.11+

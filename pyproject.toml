@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bck-nd-hlpr"
 
-version = "1.3.1"
+version = "2.0.0" #BREAKING CHANGES
 
 
 
@@ -48,8 +48,8 @@ dependencies = [
 ]
 
 [project.scripts]
-bck-nd = "bck_nd_hlpr.cli:app"
-bck-nd-mcp = "bck_nd_hlpr.mcp_server:main"
+bck-nd = "bck_nd_hlpr.cli.cli:app"
+bck-nd-mcp = "bck_nd_hlpr.cli.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/Coxibius/bck-nd-helper"

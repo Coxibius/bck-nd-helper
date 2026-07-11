@@ -2,7 +2,7 @@ import ast
 import os
 from pathlib import Path
 from typing import List, Dict, Set, Tuple
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 class TraceNode:
     def __init__(self, route_method: str, route_path: str, handler_name: str, handler_file: str):

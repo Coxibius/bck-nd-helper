@@ -3,7 +3,7 @@ import os
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 class RouteInfo:
     def __init__(self, method: str, path: str, filename: str, lineno: int):
@@ -259,7 +259,7 @@ def generate_mermaid_sequence(all_routes: List[RouteInfo]) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def generate_api_contract_map(root_path: str, max_depth: int = 3) -> list:
-    from bck_nd_hlpr.er_parser import get_entities_for_contract_map
+    from bck_nd_hlpr.core.er_parser import get_entities_for_contract_map
     
     routes = parse_project_routes(root_path, max_depth)
     entities = get_entities_for_contract_map(root_path, max_depth)
@@ -311,7 +311,7 @@ def generate_api_contract_map(root_path: str, max_depth: int = 3) -> list:
 
 
 def get_routes_affected_by_file(root_path: str, changed_file: str, max_depth: int = 3) -> dict:
-    from bck_nd_hlpr.dependency_tracker import DependencyTracker
+    from bck_nd_hlpr.core.dependency_tracker import DependencyTracker
     tracker = DependencyTracker(root_path)
     impact_data = tracker.calculate_impact_radius(changed_file)
     

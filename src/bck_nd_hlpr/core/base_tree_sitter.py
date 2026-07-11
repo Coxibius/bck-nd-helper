@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple, Generator
 
 import tree_sitter
 
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 
 # =====================================================================

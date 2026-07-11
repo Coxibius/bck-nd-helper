@@ -30,18 +30,18 @@ def redirect_stdout_to_stderr(func):
 # Ensure the package modules are in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from bck_nd_hlpr.scanner import ProjectScanner
-from bck_nd_hlpr.router import Router
-from bck_nd_hlpr.narrator import Narrator
-from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
-from bck_nd_hlpr.route_parser import parse_project_routes, generate_mermaid_sequence
-from bck_nd_hlpr.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
-from bck_nd_hlpr.todo_hunter import scan_for_todos, get_todos_table_string
-from bck_nd_hlpr.security_auditor import scan_security_risks, get_security_report_string
-from bck_nd_hlpr.doc_generator import DocGenerator
-from bck_nd_hlpr.ci_generator import generate_ci_workflow
-from bck_nd_hlpr.traceability import parse_project_traceability, generate_mermaid_traceability
-from bck_nd_hlpr.tree_generator import generate_project_tree
+from bck_nd_hlpr.core.scanner import ProjectScanner
+from bck_nd_hlpr.core.router import Router
+from bck_nd_hlpr.core.narrator import Narrator
+from bck_nd_hlpr.core.er_parser import parse_project_for_er, generate_mermaid_er
+from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence
+from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
+from bck_nd_hlpr.core.todo_hunter import scan_for_todos, get_todos_table_string
+from bck_nd_hlpr.core.security_auditor import scan_security_risks, get_security_report_string
+from bck_nd_hlpr.core.doc_generator import DocGenerator
+from bck_nd_hlpr.core.ci_generator import generate_ci_workflow
+from bck_nd_hlpr.core.traceability import parse_project_traceability, generate_mermaid_traceability
+from bck_nd_hlpr.core.tree_generator import generate_project_tree
 
 mcp = FastMCP(
     "Backend Helper MCP Server",
@@ -192,7 +192,7 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
 
         # 7. DEPENDENCY IMPACT HEATMAP
         try:
-            from bck_nd_hlpr.dependency_tracker import analyze_impact as _analyze_impact, get_impact_report_string
+            from bck_nd_hlpr.core.dependency_tracker import analyze_impact as _analyze_impact, get_impact_report_string
             usage_map = _analyze_impact(path)
             if usage_map:
                 result.append("\n[IMPACT] DEPENDENCY HEATMAP:")
@@ -475,7 +475,7 @@ def analyze_impact(path: str = ".") -> str:
         path: Path to the project root to analyze. Default ".".
     """
     try:
-        from bck_nd_hlpr.dependency_tracker import analyze_impact as _analyze_impact, get_impact_report_string
+        from bck_nd_hlpr.core.dependency_tracker import analyze_impact as _analyze_impact, get_impact_report_string
         usage_map = _analyze_impact(path)
         return get_impact_report_string(usage_map, plain=True)
     except Exception as e:
@@ -510,7 +510,7 @@ def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_conte
         output: Output file path. Default "ai_context.txt" in the current directory.
     """
     try:
-        from bck_nd_hlpr.context_dumper import ContextDumper
+        from bck_nd_hlpr.core.context_dumper import ContextDumper
         dumper = ContextDumper(path=path, depth=depth)
         context = dumper.build()
 
@@ -801,7 +801,7 @@ def get_guided_onboarding(root_path: str = ".", depth: int = 3) -> str:
         depth: Scan depth.
     """
     try:
-        from bck_nd_hlpr.dependency_tracker import DependencyTracker
+        from bck_nd_hlpr.core.dependency_tracker import DependencyTracker
         tracker = DependencyTracker(root_path)
         tracker.scan_dependencies()
         path_list = tracker.get_onboarding_path()
@@ -831,7 +831,7 @@ def export_data_dictionary(root_path: str = ".", format: str = "json") -> str:
         format: Format to export, either 'json' or 'csv'. Default "json".
     """
     try:
-        from bck_nd_hlpr.er_parser import export_entities_as_dict
+        from bck_nd_hlpr.core.er_parser import export_entities_as_dict
         return export_entities_as_dict(root_path, format)
     except Exception as e:
         return f"Error exporting data dictionary: {str(e)}\n{traceback.format_exc()}"
@@ -851,7 +851,7 @@ def get_impact_radius(root_path: str = ".", changed_file: str = "", depth: int =
         depth: Scan depth.
     """
     try:
-        from bck_nd_hlpr.route_parser import get_routes_affected_by_file
+        from bck_nd_hlpr.core.route_parser import get_routes_affected_by_file
         
         abs_path = os.path.abspath(changed_file)
         if not os.path.exists(abs_path):
@@ -890,7 +890,7 @@ def get_api_contract_map(root_path: str = ".", depth: int = 3) -> str:
         depth: Scan depth.
     """
     try:
-        from bck_nd_hlpr.route_parser import generate_api_contract_map
+        from bck_nd_hlpr.core.route_parser import generate_api_contract_map
         contracts = generate_api_contract_map(root_path, max_depth=depth)
         
         if not contracts:

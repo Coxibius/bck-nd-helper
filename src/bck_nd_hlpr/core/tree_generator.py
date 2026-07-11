@@ -4,7 +4,7 @@ de un proyecto, filtrando automáticamente carpetas de ruido (node_modules, venv
 __pycache__, .git, etc.).
 
 Uso independiente:
-    from bck_nd_hlpr.tree_generator import generate_project_tree
+    from bck_nd_hlpr.core.tree_generator import generate_project_tree
     print(generate_project_tree("/path/to/project", depth=4))
 
 Parte del ecosistema bck-nd-hlpr.
@@ -13,8 +13,8 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS, SKIP_DIRS, SKIP_FILES, SKIP_EXTENSIONS, DEFAULT_OUTPUT_FILE
-from bck_nd_hlpr.utils.gitignore_parser import parse_gitignore, matches_gitignore
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS, SKIP_DIRS, SKIP_FILES, SKIP_EXTENSIONS, DEFAULT_OUTPUT_FILE
+from bck_nd_hlpr.core.utils.gitignore_parser import parse_gitignore, matches_gitignore
 
 
 def generate_project_tree(

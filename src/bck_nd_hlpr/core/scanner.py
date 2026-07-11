@@ -4,10 +4,10 @@ import sys
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
-from bck_nd_hlpr.detector import ArchitectureDetector
-from bck_nd_hlpr.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram, UMLClassInfo
-from bck_nd_hlpr.base_analyzer import (
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.detector import ArchitectureDetector
+from bck_nd_hlpr.core.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram, UMLClassInfo
+from bck_nd_hlpr.core.base_analyzer import (
     AnalyzerResult,
     ScanContext,
     available_flags,
@@ -18,7 +18,7 @@ from bck_nd_hlpr.base_analyzer import (
 # Import the analyzer modules so their @register decorators populate the
 # registry at import time. Adding a new analysis = drop a class in analysis.py
 # (or any module listed here); the dispatcher below needs no changes.
-from bck_nd_hlpr import analysis as _analysis  # noqa: F401
+from bck_nd_hlpr.core import analysis as _analysis  # noqa: F401
 
 
 class ProjectScanner:
@@ -260,28 +260,28 @@ class ProjectScanner:
         
         # 2. C# UML Parser
         try:
-            from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_uml
+            from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_uml
             all_classes.extend(parse_project_for_csharp_uml(root_path, max_depth=max_depth))
         except Exception as e:
             print(f"Error parseando UML C#: {e}", file=sys.stderr)
             
         # 3. Java UML Parser
         try:
-            from bck_nd_hlpr.java_parser import parse_project_for_java_uml
+            from bck_nd_hlpr.core.java_parser import parse_project_for_java_uml
             all_classes.extend(parse_project_for_java_uml(root_path, max_depth=max_depth))
         except Exception as e:
             print(f"Error parseando UML Java: {e}", file=sys.stderr)
             
         # 4. JS/TS UML Parser
         try:
-            from bck_nd_hlpr.js_parser import parse_project_for_js_uml
+            from bck_nd_hlpr.core.js_parser import parse_project_for_js_uml
             all_classes.extend(parse_project_for_js_uml(root_path, max_depth=max_depth))
         except Exception as e:
             print(f"Error parseando UML JS/TS: {e}", file=sys.stderr)
             
         # 5. PHP UML Parser
         try:
-            from bck_nd_hlpr.php_parser import parse_project_for_php_uml
+            from bck_nd_hlpr.core.php_parser import parse_project_for_php_uml
             all_classes.extend(parse_project_for_php_uml(root_path, max_depth=max_depth))
         except Exception as e:
             print(f"Error parseando UML PHP: {e}", file=sys.stderr)
@@ -331,18 +331,18 @@ class ProjectScanner:
     def calculate_health_score(self, root_path: str, max_depth: int = 5) -> dict:
         """Calcula un Project Health Score consolidado."""
         try:
-            from bck_nd_hlpr.todo_hunter import scan_for_todos
+            from bck_nd_hlpr.core.todo_hunter import scan_for_todos
             todos = scan_for_todos(root_path, max_depth=max_depth) or []
         except Exception:
             todos = []
             
         try:
-            from bck_nd_hlpr.security_auditor import scan_security_risks
+            from bck_nd_hlpr.core.security_auditor import scan_security_risks
             risks = scan_security_risks(root_path, max_depth=max_depth) or []
         except Exception:
             risks = []
             
-        from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+        from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
         from pathlib import Path
         
         def is_test_file(file_path: str) -> bool:
@@ -504,7 +504,7 @@ class ProjectScanner:
 
     def get_onboarding_path(self, root_path: str) -> list:
         """Genera un recorrido pedagógico ordenado del codebase."""
-        from bck_nd_hlpr.dependency_tracker import DependencyTracker
+        from bck_nd_hlpr.core.dependency_tracker import DependencyTracker
         tracker = DependencyTracker(root_path)
         tracker.scan_dependencies()
         return tracker.get_onboarding_path()

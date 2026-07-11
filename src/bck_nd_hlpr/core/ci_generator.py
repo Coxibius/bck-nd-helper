@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import typer
 
 GITHUB_ACTION_YAML = """name: Deploy Documentation to GitHub Pages
 

@@ -9,15 +9,15 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from bck_nd_hlpr.tree_generator import generate_project_tree
-from bck_nd_hlpr.utils.gitignore_parser import parse_gitignore, matches_gitignore
+from bck_nd_hlpr.core.tree_generator import generate_project_tree
+from bck_nd_hlpr.core.utils.gitignore_parser import parse_gitignore, matches_gitignore
 
 
 # ──────────────────────────────────────────────
 # Constantes de configuración
 # ──────────────────────────────────────────────
 
-from bck_nd_hlpr.constants import (
+from bck_nd_hlpr.core.constants import (
     GLOBAL_IGNORE_DIRS,
     SKIP_DIRS,
     SKIP_FILES,
@@ -131,9 +131,9 @@ class ContextDumper:
         ya existente en ProjectScanner (reutilización, no duplicación).
         """
         try:
-            from bck_nd_hlpr.scanner import ProjectScanner
-            from bck_nd_hlpr.detector import ArchitectureDetector
-            from bck_nd_hlpr.uml_parser import generate_mermaid_class_diagram
+            from bck_nd_hlpr.core.scanner import ProjectScanner
+            from bck_nd_hlpr.core.detector import ArchitectureDetector
+            from bck_nd_hlpr.core.uml_parser import generate_mermaid_class_diagram
 
             scanner = ProjectScanner()
             arch_info = scanner.detect_architecture(str(self.root))
@@ -142,31 +142,31 @@ class ContextDumper:
             uml_diagram: Optional[str] = None
 
             if framework == ".NET Core / C#":
-                from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_uml
+                from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_uml
                 classes = parse_project_for_csharp_uml(str(self.root), max_depth=self.depth)
                 if classes:
                     uml_diagram = generate_mermaid_class_diagram(classes)
 
             elif framework in ("Express.js", "Next.js"):
-                from bck_nd_hlpr.js_parser import parse_project_for_js_uml
+                from bck_nd_hlpr.core.js_parser import parse_project_for_js_uml
                 classes = parse_project_for_js_uml(str(self.root), max_depth=self.depth)
                 if classes:
                     uml_diagram = generate_mermaid_class_diagram(classes)
 
             elif framework == "Django":
-                from bck_nd_hlpr.django_parser import parse_project_for_django_uml
+                from bck_nd_hlpr.core.django_parser import parse_project_for_django_uml
                 classes = parse_project_for_django_uml(str(self.root), max_depth=self.depth)
                 if classes:
                     uml_diagram = generate_mermaid_class_diagram(classes)
 
             elif framework in ("Spring Boot", "Java (Maven)", "Java (Gradle)"):
-                from bck_nd_hlpr.java_parser import parse_project_for_java_uml
+                from bck_nd_hlpr.core.java_parser import parse_project_for_java_uml
                 classes = parse_project_for_java_uml(str(self.root), max_depth=self.depth)
                 if classes:
                     uml_diagram = generate_mermaid_class_diagram(classes)
 
             elif framework in ("Laravel", "PHP"):
-                from bck_nd_hlpr.php_parser import parse_project_for_php_uml
+                from bck_nd_hlpr.core.php_parser import parse_project_for_php_uml
                 classes = parse_project_for_php_uml(str(self.root), max_depth=self.depth)
                 if classes:
                     uml_diagram = generate_mermaid_class_diagram(classes)
@@ -188,8 +188,8 @@ class ContextDumper:
         Genera el diagrama ER reutilizando la lógica de er_parser + parsers específicos.
         """
         try:
-            from bck_nd_hlpr.scanner import ProjectScanner
-            from bck_nd_hlpr.er_parser import parse_project_for_er, generate_mermaid_er
+            from bck_nd_hlpr.core.scanner import ProjectScanner
+            from bck_nd_hlpr.core.er_parser import parse_project_for_er, generate_mermaid_er
 
             scanner = ProjectScanner()
             arch_info = scanner.detect_architecture(str(self.root))
@@ -198,23 +198,23 @@ class ContextDumper:
             entities = None
 
             if framework == ".NET Core / C#":
-                from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
+                from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_er
                 entities = parse_project_for_csharp_er(str(self.root), max_depth=self.depth)
 
             elif framework in ("Express.js", "Next.js"):
-                from bck_nd_hlpr.js_parser import parse_project_for_js_er
+                from bck_nd_hlpr.core.js_parser import parse_project_for_js_er
                 entities = parse_project_for_js_er(str(self.root), max_depth=self.depth)
 
             elif framework == "Django":
-                from bck_nd_hlpr.django_parser import parse_project_for_django_er
+                from bck_nd_hlpr.core.django_parser import parse_project_for_django_er
                 entities = parse_project_for_django_er(str(self.root), max_depth=self.depth)
 
             elif framework in ("Spring Boot", "Java (Maven)", "Java (Gradle)"):
-                from bck_nd_hlpr.java_parser import parse_project_for_java_er
+                from bck_nd_hlpr.core.java_parser import parse_project_for_java_er
                 entities = parse_project_for_java_er(str(self.root), max_depth=self.depth)
 
             elif framework in ("Laravel", "PHP"):
-                from bck_nd_hlpr.php_parser import parse_project_for_php_er
+                from bck_nd_hlpr.core.php_parser import parse_project_for_php_er
                 entities = parse_project_for_php_er(str(self.root), max_depth=self.depth)
 
             else:

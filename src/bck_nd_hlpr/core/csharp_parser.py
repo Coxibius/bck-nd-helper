@@ -9,15 +9,15 @@ from typing import List, Optional
 
 from tree_sitter import Node
 
-from bck_nd_hlpr.base_tree_sitter import BaseTreeSitterVisitor
-from bck_nd_hlpr.ts_base import (
+from bck_nd_hlpr.core.base_tree_sitter import BaseTreeSitterVisitor
+from bck_nd_hlpr.core.ts_base import (
     load_grammar,
     module_name_for,
     read_source_bytes,
     walk_source_files,
 )
-from bck_nd_hlpr.uml_parser import UMLClassInfo
-from bck_nd_hlpr.er_parser import EREntity
+from bck_nd_hlpr.core.uml_parser import UMLClassInfo
+from bck_nd_hlpr.core.er_parser import EREntity
 
 PARSER = load_grammar("tree_sitter_c_sharp")
 

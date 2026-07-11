@@ -14,9 +14,9 @@ except ImportError:
     JAVA_LANGUAGE = None
     PARSER = None
 
-from bck_nd_hlpr.uml_parser import UMLClassInfo
-from bck_nd_hlpr.er_parser import EREntity
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.uml_parser import UMLClassInfo
+from bck_nd_hlpr.core.er_parser import EREntity
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 def get_node_text(node: tree_sitter.Node, source_bytes: bytes) -> str:
     """Helper para extraer el texto de un nodo."""

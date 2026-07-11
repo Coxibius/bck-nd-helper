@@ -1,6 +1,6 @@
 import os
-from bck_nd_hlpr.sanitizer import sanitize_text
-from bck_nd_hlpr.ai_providers import get_provider, NoAPIKeyError
+from bck_nd_hlpr.core.sanitizer import sanitize_text
+from bck_nd_hlpr.core.ai_providers import get_provider, NoAPIKeyError
 
 
 class Narrator:
@@ -60,7 +60,6 @@ class Narrator:
         safe_topology = sanitize_text(topology_text)
 
         try:
-            print(f"📡 Calling the Narrator (Mode: {style.upper()})...")
             return self.provider.generate(system_prompt=full_prompt, user_prompt=safe_topology)
         except Exception as e:
             return f"Connection error: {e}"

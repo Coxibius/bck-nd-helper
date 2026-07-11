@@ -11,7 +11,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from bck_nd_hlpr.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 class EREntity:
     """Representa una entidad (tabla) en el diagrama ER."""
@@ -1348,28 +1348,28 @@ def parse_project_for_er(root_path: str, max_depth: int = 3) -> List[EREntity]:
     # Unified execution of language-specific parsers that walk the project:
     # 5. C# ER Parser (Entity Framework)
     try:
-        from bck_nd_hlpr.csharp_parser import parse_project_for_csharp_er
+        from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_er
         all_entities.extend(parse_project_for_csharp_er(root_path, max_depth=max_depth))
     except Exception as e:
         print(f"Error parsing C# ER: {e}", file=sys.stderr)
         
     # 6. Java ER Parser (Spring Boot / JPA)
     try:
-        from bck_nd_hlpr.java_parser import parse_project_for_java_er
+        from bck_nd_hlpr.core.java_parser import parse_project_for_java_er
         all_entities.extend(parse_project_for_java_er(root_path, max_depth=max_depth))
     except Exception as e:
         print(f"Error parsing Java ER: {e}", file=sys.stderr)
         
     # 7. JS/TS ER Parser (Mongoose / Sequelize)
     try:
-        from bck_nd_hlpr.js_parser import parse_project_for_js_er
+        from bck_nd_hlpr.core.js_parser import parse_project_for_js_er
         all_entities.extend(parse_project_for_js_er(root_path, max_depth=max_depth))
     except Exception as e:
         print(f"Error parsing JS/TS ER: {e}", file=sys.stderr)
         
     # 8. PHP ER Parser (Laravel / Eloquent)
     try:
-        from bck_nd_hlpr.php_parser import parse_project_for_php_er
+        from bck_nd_hlpr.core.php_parser import parse_project_for_php_er
         all_entities.extend(parse_project_for_php_er(root_path, max_depth=max_depth))
     except Exception as e:
         print(f"Error parsing PHP ER: {e}", file=sys.stderr)
