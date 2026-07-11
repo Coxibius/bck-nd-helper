@@ -591,41 +591,10 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
         <p>Architecture Control Panel</p>
     </div>
 
-    <!-- NEW SECTION: INTERACTIVE ANALYSIS AND REPORTS -->
+    <!-- GROUP 1: AI & Context Helpers -->
     <details open>
         <summary>
-            <span>🎯 Interactive Features</span>
-            <svg class="chevron" viewBox="0 0 24 24">
-                <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
-        </summary>
-        <div class="section-content">
-            <button class="btn" onclick="runHealth()">
-                <span>❤️</span> Project Health Score
-            </button>
-            <p class="btn-desc">Calculates a consolidated Project Health Score report card.</p>
-
-            <button class="btn" onclick="runTeach()">
-                <span>🎓</span> Guided Onboarding
-            </button>
-            <p class="btn-desc">Guided onboarding tour using the dependency heatmap.</p>
-
-            <button class="btn" onclick="runContract()">
-                <span>🔌</span> API Contract Map
-            </button>
-            <p class="btn-desc">Maps HTTP routes to database models and columns.</p>
-
-            <button class="btn" onclick="runDataScience()">
-                <span>📊</span> Data Lineage Map
-            </button>
-            <p class="btn-desc">Renders data lineage maps from Jupyter Notebooks.</p>
-        </div>
-    </details>
-
-    <!-- SECTION 1: ARTIFICIAL INTELLIGENCE -->
-    <details open>
-        <summary>
-            <span>🤖 Artificial Intelligence (AI)</span>
+            <span>🤖 AI & Context Helpers</span>
             <svg class="chevron" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
@@ -643,10 +612,10 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
         </div>
     </details>
 
-    <!-- SECTION 2: DIAGRAMS -->
+    <!-- GROUP 2: Architecture & Diagrams -->
     <details open>
         <summary>
-            <span>🗺️ Diagram Generation</span>
+            <span>🗺️ Architecture & Diagrams</span>
             <svg class="chevron" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
@@ -671,18 +640,39 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
                 <span>🗄️</span> Entity-Relationship Diagram (ER)
             </button>
             <p class="btn-desc">Logical mapping of tables, keys, and database schemas.</p>
-            
+        </div>
+    </details>
+
+    <!-- GROUP 3: APIs & Data Flow -->
+    <details open>
+        <summary>
+            <span>🔌 APIs & Data Flow</span>
+            <svg class="chevron" viewBox="0 0 24 24">
+                <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+        </summary>
+        <div class="section-content">
             <button class="btn" onclick="generateDiagram('trace')">
                 <span>🛣️</span> Route-to-DB Map
             </button>
             <p class="btn-desc">Traceability of REST endpoints from the API to the database.</p>
+
+            <button class="btn" onclick="runContract()">
+                <span>🔌</span> API Contract Map
+            </button>
+            <p class="btn-desc">Maps HTTP routes to database models and columns.</p>
+
+            <button class="btn" onclick="runDataScience()">
+                <span>📊</span> Data Lineage Map
+            </button>
+            <p class="btn-desc">Renders data lineage maps from Jupyter Notebooks.</p>
         </div>
     </details>
 
-    <!-- SECTION 3: AUDITING AND QUALITY -->
+    <!-- GROUP 4: Security & Code Quality -->
     <details open>
         <summary>
-            <span>🛡️ Audit and Quality</span>
+            <span>🛡️ Security & Code Quality</span>
             <svg class="chevron" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
@@ -697,7 +687,28 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
                 <span>🧹</span> Scan Technical Debt
             </button>
             <p class="btn-desc">Identifies pending comments like TODO, FIXME, HACK, and BUG.</p>
-            
+
+            <button class="btn" onclick="runHealth()">
+                <span>❤️</span> Project Health Score
+            </button>
+            <p class="btn-desc">Calculates a consolidated Project Health Score report card.</p>
+        </div>
+    </details>
+
+    <!-- GROUP 5: Onboarding & Portals -->
+    <details open>
+        <summary>
+            <span>🎓 Onboarding & Portals</span>
+            <svg class="chevron" viewBox="0 0 24 24">
+                <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+        </summary>
+        <div class="section-content">
+            <button class="btn" onclick="runTeach()">
+                <span>🎓</span> Guided Onboarding
+            </button>
+            <p class="btn-desc">Guided onboarding tour using the dependency heatmap.</p>
+
             <button class="btn" onclick="runAudit('docs')">
                 <span>🌐</span> Local HTML Portal
             </button>

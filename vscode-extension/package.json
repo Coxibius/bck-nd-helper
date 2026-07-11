@@ -2,7 +2,7 @@
   "name": "bck-nd-vscode",
   "displayName": "Backend Helper MVP",
   "description": "VS Code integration for bck-nd-hlpr CLI",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.80.0"
   },

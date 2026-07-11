@@ -6,3 +6,37 @@ src/**
 tsconfig.json
 **/*.map
 **/*.ts
+
+
+#############
+
+# Entornos virtuales
+cuarentena_env/
+.venv/
+env/
+
+# Compilación de Python e información de distribución
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+
+# Caché de pruebas y cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Excluir código fuente de TypeScript (solo queremos el JavaScript compilado)
+src/**
+tsconfig.json
+webpack.config.js
+scripts/**
+
+# Excluir dependencias de desarrollo
+node_modules/**
+package-lock.json
+
+# Archivos de configuración de VS Code
+.vscode/**
+.gitignore
