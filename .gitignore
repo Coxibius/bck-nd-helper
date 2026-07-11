@@ -1,65 +1,49 @@
-# Byte-compiled / optimized / DLL files
+# ==========================================
+# 🐍 Python Standard & Compilación
+# ==========================================
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Virtual Environments
-venv/
-env/
-.env
-
-# Models (Optional: If models are >100MB, git will reject them without LFS)
-# Uncomment the line below if your model folders are huge and you want to ignore them for now
-# models/
-
-# IDE settings
-.vscode/
-.idea/
-
-# Distribution / Packaging
+*.egg-info/
 dist/
 build/
-*.egg-info/
 
-pytest_out/
-
-models/
-
-
-__pycache__/
-*.py[cod]
-*$py.class
+# ==========================================
+# 💻 Entornos Virtuales y Configuración IDE
+# ==========================================
 venv/
 .venv/
-.env
-.DS_Store
-dist/
-build/
-*.egg-info/
-
-
-mis_apuntes/
-
-ai_context.txt
-
-ADVANCED.md/
-
-.ai_context_tmp.txt
-
-architecture.txt
-feat/vscode-extension
-
-test_out.txt
-
+env/
+cuarentena_env/
 venv_subida/
+.env
+.vscode/
+.idea/
+.DS_Store
 
-
-docs_main/
-docs_developer/   
-
-verify_pre_merge.py
-
+# ==========================================
+# 📊 Reportes, Pruebas y Cobertura (Local)
+# ==========================================
+.pytest_cache/
+.coverage
+htmlcov/
+pytest_out/
+test_out.txt
+pytest_out.txt
+verify_pre_merge.py    # Opcional (si solo tú usas este script de auditoría)
 PRE_MERGE_REPORT.md
-
 temp_verification_reports/
 
+# ==========================================
+# 📄 Volcados de Contexto y Diagramas Temporales
+# ==========================================
+ai_context.txt
+.ai_context_tmp.txt
+architecture.txt
+mis_apuntes/
+
+# ==========================================
+# 🌍 Documentación Generada (Web)
+# ==========================================
+docs_main/
+docs_developer/
