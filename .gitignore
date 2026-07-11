@@ -47,3 +47,5 @@ mis_apuntes/
 # ==========================================
 docs_main/
 docs_developer/
+
+verify_pre_merge.py
