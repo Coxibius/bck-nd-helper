@@ -18,7 +18,7 @@ sys.path.insert(0, src_path)
 
 if __name__ == "__main__":
     try:
-        from bck_nd_hlpr.mcp_server import main
+        from bck_nd_hlpr.cli.mcp_server import main
         main()
     except ImportError as e:
         print(f"Error starting MCP Server: {e}", file=sys.stderr)

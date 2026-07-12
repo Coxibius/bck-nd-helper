@@ -122,6 +122,7 @@ def scan(
     export_dict: Optional[str] = typer.Option(None, "--export-dict", help="Export Data Dictionary (JSON/CSV from ORM models). Example: bck-nd scan . --export-dict json"),
     datascience: bool = typer.Option(False, "--datascience", help="Generate Data Lineage Map (Mermaid graph LR) from Jupyter Notebooks. Example: bck-nd scan . --datascience"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
+    export_mermaid: bool = typer.Option(False, "--export-mermaid", help="Automatically save diagrams as .mmd files. Example: bck-nd scan . --uml --export-mermaid"),
     provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd scan . --ai --provider openrouter")
 ):
 
@@ -154,38 +155,61 @@ def scan(
     from bck_nd_hlpr.core.orchestrator import ScannerOrchestrator, OrchestratorConfig
     from bck_nd_hlpr.cli.formatters import get_security_report_string, get_impact_report_string
 
-    def output_handler(content: str, context_msg: str):
-        if output:
-            try:
-                with open(output, "a", encoding="utf-8") as f:
-                    if context_msg:
-                        f.write(f"\n{'='*60}\n")
-                        f.write(f"  {context_msg}\n")
-                        f.write(f"{'='*60}\n\n")
-                    f.write(content)
-                    f.write("\n")
-                typer.secho(f"💾 Result saved to: {output}", fg=typer.colors.GREEN, bold=True)
-            except Exception as e:
-                typer.secho(f"❌ Error writing file: {e}", fg=typer.colors.RED)
-        else:
-            if context_msg:
-                if content.strip().startswith("classDiagram") or \
-                   content.strip().startswith("erDiagram") or \
-                   content.strip().startswith("sequenceDiagram") or \
-                   content.strip().startswith("graph"):
-                    print("```mermaid")
-                    print(content)
-                    print("```")
-                    typer.secho("Copy the above block into Mermaid.live", fg=typer.colors.BRIGHT_BLACK)
-                else:
-                    print(content)
-
+    initialized_files = set()
     if output:
         try:
             with open(output, "w", encoding="utf-8") as f:
                 f.write("")
+            initialized_files.add(output)
         except Exception as e:
             typer.secho(f"❌ Error creating output file: {e}", fg=typer.colors.RED)
+
+    def output_handler(content: str, context_msg: str):
+        is_diagram = content.strip().startswith(("classDiagram", "erDiagram", "sequenceDiagram", "graph"))
+        target_output = output
+        
+        if export_mermaid and is_diagram and not target_output:
+            # Auto-generate filename
+            clean_name = "".join(c for c in context_msg.lower() if c.isalnum() or c.isspace()).replace(" ", "_")
+            target_output = f"{clean_name}.mmd"
+
+        if target_output:
+            is_mmd_file = target_output.endswith(".mmd")
+            
+            # Truncate if it's an auto-generated file we haven't written to yet
+            if target_output not in initialized_files:
+                try:
+                    with open(target_output, "w", encoding="utf-8") as f:
+                        f.write("")
+                    initialized_files.add(target_output)
+                except Exception as e:
+                    typer.secho(f"❌ Error creating output file: {e}", fg=typer.colors.RED)
+
+            try:
+                with open(target_output, "a", encoding="utf-8") as f:
+                    if context_msg and not is_mmd_file:
+                        f.write(f"\n{'='*60}\n")
+                        f.write(f"  {context_msg}\n")
+                        f.write(f"{'='*60}\n\n")
+                        
+                    if is_mmd_file:
+                        f.write(content.strip())
+                        f.write("\n")
+                    else:
+                        f.write(content)
+                        f.write("\n")
+                typer.secho(f"💾 Result saved to: {target_output}", fg=typer.colors.GREEN, bold=True)
+            except Exception as e:
+                typer.secho(f"❌ Error writing file: {e}", fg=typer.colors.RED)
+        else:
+            if context_msg:
+                if is_diagram:
+                    print("```mermaid")
+                    print(content.strip())
+                    print("```")
+                    typer.secho("Copy the above block into Mermaid.live", fg=typer.colors.BRIGHT_BLACK)
+                else:
+                    print(content)
 
     typer.secho(f"\n🔍 Analyzing architecture of '{path}'...", fg=typer.colors.CYAN, bold=True)
 
