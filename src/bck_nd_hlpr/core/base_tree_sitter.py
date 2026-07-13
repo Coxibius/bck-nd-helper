@@ -64,8 +64,9 @@ def module_name_for(rel_path) -> str:
 
 def read_source_bytes(file_path) -> bytes:
     """Read a source file and return its contents as UTF-8 bytes."""
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
-        return fh.read().encode("utf-8")
+    from bck_nd_hlpr.core.utils.cache import FileCache
+    content = FileCache.read_file(file_path, encoding="utf-8", errors="ignore")
+    return content.encode("utf-8")
 
 
 def walk_source_files(

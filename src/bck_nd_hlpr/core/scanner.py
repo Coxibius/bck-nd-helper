@@ -40,8 +40,8 @@ class ProjectScanner:
         """Busca imports SOLO hacia archivos que están en la lista blanca."""
         detected = []
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
+            from bck_nd_hlpr.core.utils.cache import FileCache
+            content = FileCache.read_file(file_path, encoding='utf-8', errors='ignore')
             patterns = [r'^from\s+(\w+)\s+import', r'^import\s+(\w+)']
             for line in content.splitlines():
                 for pat in patterns:
@@ -310,15 +310,15 @@ class ProjectScanner:
                 target_file = base_path / file_name
                 if target_file.exists():
                     try:
-                        with open(target_file, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
-                            # Limitamos el tamaño por seguridad (máx 3000 caracteres por archivo)
-                            if len(content) > 3000:
-                                content = content[:3000] + "\n... [TRUNCADO POR EXCESO DE LONGITUD]"
-                            
-                            docs_buffer.append(f"\n--- CONTENIDO DE {file_name} ---")
-                            docs_buffer.append(content)
-                            docs_buffer.append("--------------------------------\n")
+                        from bck_nd_hlpr.core.utils.cache import FileCache
+                        content = FileCache.read_file(target_file, encoding='utf-8', errors='ignore')
+                        # Limitamos el tamaño por seguridad (máx 3000 caracteres por archivo)
+                        if len(content) > 3000:
+                            content = content[:3000] + "\n... [TRUNCADO POR EXCESO DE LONGITUD]"
+                        
+                        docs_buffer.append(f"\n--- CONTENIDO DE {file_name} ---")
+                        docs_buffer.append(content)
+                        docs_buffer.append("--------------------------------\n")
                     except Exception:
                         pass # Si falla leer uno, seguimos
         
@@ -413,8 +413,9 @@ class ProjectScanner:
         """Parse a Jupyter Notebook for input and output data references."""
         result = {"notebook": file_path.name, "inputs": [], "outputs": []}
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                data = json.load(f)
+            from bck_nd_hlpr.core.utils.cache import FileCache
+            content = FileCache.read_file(file_path, encoding="utf-8", errors="ignore")
+            data = json.loads(content)
         except Exception:
             return result
 

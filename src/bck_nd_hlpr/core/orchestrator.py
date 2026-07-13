@@ -16,6 +16,8 @@ from bck_nd_hlpr.core.todo_hunter import scan_for_todos
 from bck_nd_hlpr.core.security_auditor import scan_security_risks
 from bck_nd_hlpr.core.dependency_tracker import DependencyTracker, analyze_impact
 from bck_nd_hlpr.core.narrator import Narrator
+from bck_nd_hlpr.core.utils.indexer import FileSystemIndexer, FileIndex
+from bck_nd_hlpr.core.utils.cache import FileCache
 # NOTE: Heavy polyglot parser modules (analysis, route_parser, infra_parser,
 # traceability, er_parser) are imported lazily inside their respective
 # conditional blocks in ScannerOrchestrator.run() to avoid loading all
@@ -80,6 +82,9 @@ class OrchestratorResult:
     
     # Execution Warnings
     execution_warnings: List[str] = field(default_factory=list)
+    
+    # v3.0.0: Pre-built file index for single-pass scanning
+    file_index: Optional[Any] = None  # FileIndex from utils.indexer
 
 
 class ScannerOrchestrator:
@@ -87,6 +92,9 @@ class ScannerOrchestrator:
     def run(config: OrchestratorConfig) -> OrchestratorResult:
         import logging
         logger = logging.getLogger(__name__)
+
+        # ── v3.0.0: Clear memory cache for new scan ──
+        FileCache.clear()
 
         # Detect architecture & framework first
         try:
@@ -103,189 +111,148 @@ class ScannerOrchestrator:
             features=arch_info.get("features", []),
             summary=arch_info.get("summary", "")
         )
+
+        # ── v3.0.0: Build file index once for all analyzers ──
+        try:
+            indexer = FileSystemIndexer(config.path, max_depth=config.depth)
+            file_index = indexer.build()
+            result.file_index = file_index
+        except Exception as e:
+            logger.warning(f"FileSystemIndexer error (falling back to per-analyzer walks): {e}")
+            file_index = None
         
-        # 1. Tree
+        # ── Build Concurrent Tasks ──
+        import concurrent.futures
+        tasks = [] # List of tuples: (attr_name, func, err_prefix, default_value)
+
         if config.tree:
-            try:
-                result.tree = generate_project_tree(config.path, depth=config.depth)
-            except Exception as e:
-                msg = f"Tree Generation Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.tree = None
-                
-        # 2. UML
+            def _task_tree():
+                return generate_project_tree(config.path, depth=config.depth)
+            tasks.append(("tree", _task_tree, "Tree Generation Error", None))
+
         if config.uml:
-            try:
-                from bck_nd_hlpr.core.analysis import build_uml_diagram  # lazy import
-                result.uml = build_uml_diagram(config.path, config.depth, arch_info)
-            except Exception as e:
-                msg = f"UML Generation Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.uml = None
-                
-        # 3. ER
+            def _task_uml():
+                from bck_nd_hlpr.core.analysis import build_uml_diagram
+                return build_uml_diagram(config.path, config.depth, arch_info)
+            tasks.append(("uml", _task_uml, "UML Generation Error", None))
+
         if config.er:
-            try:
-                from bck_nd_hlpr.core.analysis import build_er_diagram  # lazy import
-                result.er = build_er_diagram(config.path, config.depth, arch_info)
-            except Exception as e:
-                msg = f"ER Diagram Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.er = None
-                
-        # 4. Routes
+            def _task_er():
+                from bck_nd_hlpr.core.analysis import build_er_diagram
+                return build_er_diagram(config.path, config.depth, arch_info)
+            tasks.append(("er", _task_er, "ER Diagram Error", None))
+
         if config.routes:
-            try:
-                from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence  # lazy import
-                routes = parse_project_routes(config.path, max_depth=config.depth)
-                if routes:
-                    result.routes = generate_mermaid_sequence(routes)
-            except Exception as e:
-                msg = f"Routes Diagram Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.routes = None
-                
-        # 5. Infra
+            def _task_routes():
+                from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence
+                r = parse_project_routes(config.path, max_depth=config.depth)
+                return generate_mermaid_sequence(r) if r else None
+            tasks.append(("routes", _task_routes, "Routes Diagram Error", None))
+
         if config.infra:
-            try:
-                from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra  # lazy import
+            def _task_infra():
+                from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
                 compose_file = parse_infra(config.path)
                 if compose_file:
                     services = parse_docker_compose(compose_file)
                     if services:
-                        result.infra = generate_mermaid_infra(services)
-            except Exception as e:
-                msg = f"Infrastructure Diagram Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.infra = None
-                    
-        # 6. Traceability
+                        return generate_mermaid_infra(services)
+                return None
+            tasks.append(("infra", _task_infra, "Infrastructure Diagram Error", None))
+
         if config.trace:
-            try:
-                from bck_nd_hlpr.core.traceability import parse_project_traceability, generate_mermaid_traceability  # lazy import
+            def _task_trace():
+                from bck_nd_hlpr.core.traceability import parse_project_traceability, generate_mermaid_traceability
                 traces = parse_project_traceability(config.path, max_depth=config.depth)
-                if traces:
-                    result.trace = generate_mermaid_traceability(traces)
-            except Exception as e:
-                msg = f"Traceability Diagram Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.trace = None
-                
-        # 7. Jupyter Notebook Data Science lineage
+                return generate_mermaid_traceability(traces) if traces else None
+            tasks.append(("trace", _task_trace, "Traceability Diagram Error", None))
+
         if config.datascience:
-            try:
+            def _task_datascience():
                 scanner = ProjectScanner()
-                result.datascience = scanner.scan_notebooks(config.path, max_depth=config.depth)
-            except Exception as e:
-                msg = f"Data Science Lineage Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.datascience = None
-                
-        # 8. Todos (Technical debt)
+                return scanner.scan_notebooks(config.path, max_depth=config.depth)
+            tasks.append(("datascience", _task_datascience, "Data Science Lineage Error", None))
+
         if config.todo or config.health:
-            try:
-                result.todos = scan_for_todos(config.path, max_depth=config.depth)
-            except Exception as e:
-                msg = f"Technical Debt Scan Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.todos = []
-                
-        # 9. Security Risks
+            def _task_todo():
+                _file_list = file_index.all_files if file_index else None
+                return scan_for_todos(config.path, max_depth=config.depth, file_list=_file_list)
+            tasks.append(("todos", _task_todo, "Technical Debt Scan Error", []))
+
         if config.audit or config.health:
-            try:
-                result.security_risks = scan_security_risks(config.path, max_depth=config.depth)
-            except Exception as e:
-                msg = f"Security Audit Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.security_risks = []
-                
-        # 10. Dependency heatmap
+            def _task_audit():
+                _file_list = file_index.all_files if file_index else None
+                return scan_security_risks(config.path, max_depth=config.depth, file_list=_file_list)
+            tasks.append(("security_risks", _task_audit, "Security Audit Error", []))
+
         if config.impact:
-            try:
-                result.dependency_heatmap = analyze_impact(config.path)
-            except Exception as e:
-                msg = f"Dependency Heatmap Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.dependency_heatmap = {}
-                
-        # 11. Impact radius
+            def _task_impact():
+                return analyze_impact(config.path)
+            tasks.append(("dependency_heatmap", _task_impact, "Dependency Heatmap Error", {}))
+
         if config.impact_radius:
-            try:
-                from bck_nd_hlpr.core.route_parser import get_routes_affected_by_file  # lazy import
+            def _task_impact_radius():
+                from bck_nd_hlpr.core.route_parser import get_routes_affected_by_file
                 abs_changed_file = str(Path(config.impact_radius).resolve())
-                result.impact_radius_report = get_routes_affected_by_file(config.path, abs_changed_file, max_depth=config.depth)
-            except Exception as e:
-                msg = f"Impact Radius Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.impact_radius_report = {}
-                
-        # 12. API Contract map
+                return get_routes_affected_by_file(config.path, abs_changed_file, max_depth=config.depth)
+            tasks.append(("impact_radius_report", _task_impact_radius, "Impact Radius Error", {}))
+
         if config.contract:
-            try:
-                from bck_nd_hlpr.core.route_parser import generate_api_contract_map  # lazy import
-                result.api_contracts = generate_api_contract_map(config.path, max_depth=config.depth)
-            except Exception as e:
-                msg = f"API Contract Map Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.api_contracts = []
-                
-        # 13. Onboarding path
+            def _task_contract():
+                from bck_nd_hlpr.core.route_parser import generate_api_contract_map
+                return generate_api_contract_map(config.path, max_depth=config.depth)
+            tasks.append(("api_contracts", _task_contract, "API Contract Map Error", []))
+
         if config.teach:
-            try:
+            def _task_teach():
                 tracker = DependencyTracker(config.path)
                 tracker.scan_dependencies()
-                result.onboarding_path = tracker.get_onboarding_path()
-            except Exception as e:
-                msg = f"Onboarding Path Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.onboarding_path = []
-                
-        # 14. Project Health Score
+                return tracker.get_onboarding_path()
+            tasks.append(("onboarding_path", _task_teach, "Onboarding Path Error", []))
+
         if config.health:
-            try:
+            def _task_health():
                 scanner = ProjectScanner()
-                result.health_score = scanner.calculate_health_score(config.path, max_depth=config.depth)
-            except Exception as e:
-                msg = f"Project Health Score Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.health_score = {}
-                
-        # 15. Export Data Dictionary
+                return scanner.calculate_health_score(config.path, max_depth=config.depth)
+            tasks.append(("health_score", _task_health, "Project Health Score Error", {}))
+
         if config.export_dict:
-            try:
-                from bck_nd_hlpr.core.er_parser import export_entities_as_dict  # lazy import
-                result.data_dictionary = export_entities_as_dict(config.path, format=config.export_dict, max_depth=config.depth)
-            except Exception as e:
-                msg = f"Data Dictionary Export Error: {e}"
-                logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.data_dictionary = None
-                
-        # 16. AI narrative
+            def _task_export_dict():
+                from bck_nd_hlpr.core.er_parser import export_entities_as_dict
+                return export_entities_as_dict(config.path, format=config.export_dict, max_depth=config.depth)
+            tasks.append(("data_dictionary", _task_export_dict, "Data Dictionary Export Error", None))
+
         if config.ai:
-            try:
+            def _task_ai():
                 narrator = Narrator(force_provider=config.provider)
                 scanner = ProjectScanner()
                 topology_text = scanner.scan(config.path, max_depth=config.depth)
-                result.ai_narrative = narrator.explain(topology_text, use_ai=True, style=config.style)
+                return narrator.explain(topology_text, use_ai=True, style=config.style)
+            tasks.append(("ai_narrative", _task_ai, "AI Narrative Error", None))
+
+        # ── Concurrency Execution Block ──
+        def _execute_task(attr_name, func, error_prefix, default_value):
+            try:
+                res = func()
+                return attr_name, res, []
             except Exception as e:
-                msg = f"AI Narrative Error: {e}"
+                msg = f"{error_prefix}: {e}"
                 logger.warning(msg)
-                result.execution_warnings.append(msg)
-                result.ai_narrative = None
-                
+                return attr_name, default_value, [msg]
+
+        if tasks:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [
+                    executor.submit(_execute_task, name, func, err, default)
+                    for name, func, err, default in tasks
+                ]
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        attr_name, res, warnings = future.result()
+                        setattr(result, attr_name, res)
+                        if warnings:
+                            result.execution_warnings.extend(warnings)
+                    except Exception as e:
+                        logger.error(f"Executor failed unexpectedly: {e}")
+
         return result

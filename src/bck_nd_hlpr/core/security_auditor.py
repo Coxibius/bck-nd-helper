@@ -2,7 +2,7 @@ import re
 import os
 from pathlib import Path
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 # RISK_PATTERNS with pattern, desc, and category
 RISK_PATTERNS = {
@@ -34,10 +34,16 @@ RISK_PATTERNS = {
     ]
 }
 
-def scan_sensitive_exposures(root_path: str, entities: List) -> List[Dict]:
+def scan_sensitive_exposures(root_path: str, entities: List, file_list: Optional[List] = None) -> List[Dict]:
     """
     Analiza los modelos de BD detectados por er_parser y los cruza con las rutas de API
     detectadas por route_parser para advertir si campos sensibles pueden estar expuestos.
+
+    Args:
+        root_path: Root directory of the project.
+        entities: List of ER entities from er_parser.
+        file_list: Optional pre-computed list of Path objects from FileSystemIndexer.
+                   When provided, skips directory walking and scans these files directly.
     """
     risks = []
     SENSITIVE_FIELDS = {
@@ -45,6 +51,8 @@ def scan_sensitive_exposures(root_path: str, entities: List) -> List[Dict]:
         'card_number', 'cvv', 'ssn', 'social_security', 'pin'
     }
     
+    _EXPOSURE_SUFFIXES = {'.py', '.js', '.ts', '.cs', '.java', '.php', '.rb'}
+
     # 1. Identificar entidades con columnas sensibles
     sensitive_entities = {}
     for entity in entities:
@@ -60,70 +68,86 @@ def scan_sensitive_exposures(root_path: str, entities: List) -> List[Dict]:
         
     root = Path(root_path).resolve()
     
-    # 2. Buscar en archivos del proyecto (routers, esquemas, controladores, etc.)
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
-        for file in files:
-            file_path = Path(root_dir) / file
-            if file_path.suffix not in ['.py', '.js', '.ts', '.cs', '.java', '.php', '.rb']:
-                continue
+    # 2. Build file iterator — fast path or legacy walk
+    if file_list is not None:
+        file_iter = (
+            Path(f) for f in file_list
+            if Path(f).suffix in _EXPOSURE_SUFFIXES
+        )
+    else:
+        def _walk_files():
+            for root_dir, dirs, files in os.walk(root):
+                dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
+                for file in files:
+                    file_path = Path(root_dir) / file
+                    if file_path.suffix in _EXPOSURE_SUFFIXES:
+                        yield file_path
+        file_iter = _walk_files()
+
+    for file_path in file_iter:
+        try:
+            from bck_nd_hlpr.core.utils.cache import FileCache
+            content = FileCache.read_file(file_path, encoding='utf-8', errors='ignore')
+            
+            lines = content.splitlines()
+            for i, line in enumerate(lines, 1):
+                if len(line) > 500:
+                    continue
                 
-            try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
+                # Ignorar comentarios
+                stripped = line.strip()
+                if stripped.startswith('#') or stripped.startswith('//'):
+                    continue
                     
-                lines = content.splitlines()
-                for i, line in enumerate(lines, 1):
-                    if len(line) > 500:
-                        continue
+                for ent_name, sens_cols in sensitive_entities.items():
+                    ent_lower = ent_name.lower()
                     
-                    # Ignorar comentarios
-                    stripped = line.strip()
-                    if stripped.startswith('#') or stripped.startswith('//'):
-                        continue
+                    # response_model=User, schema=UserSchema, schema=User
+                    p_model = rf'\b(response_model|schema)\s*=\s*\w*{re.escape(ent_name)}\w*'
+                    
+                    # return user, return user_list, return users
+                    p_return = rf'\breturn\s+[^;]*?\b{re.escape(ent_lower)}\b'
+                    
+                    # jsonify(user), jsonify(user_data)
+                    p_json = rf'\bjsonify\(\s*[^)]*?\b{re.escape(ent_lower)}\b'
+                    
+                    match_type = ""
+                    if re.search(p_model, line):
+                        match_type = "schema/model reference"
+                    elif re.search(p_return, line, re.IGNORECASE):
+                        match_type = "return variable"
+                    elif re.search(p_json, line, re.IGNORECASE):
+                        match_type = "jsonify call"
                         
-                    for ent_name, sens_cols in sensitive_entities.items():
-                        ent_lower = ent_name.lower()
+                    if match_type:
+                        cols_str = ", ".join(sens_cols)
+                        if "import " in line or "from " in line or "require(" in line:
+                            continue
                         
-                        # response_model=User, schema=UserSchema, schema=User
-                        p_model = rf'\b(response_model|schema)\s*=\s*\w*{re.escape(ent_name)}\w*'
-                        
-                        # return user, return user_list, return users
-                        p_return = rf'\breturn\s+[^;]*?\b{re.escape(ent_lower)}\b'
-                        
-                        # jsonify(user), jsonify(user_data)
-                        p_json = rf'\bjsonify\(\s*[^)]*?\b{re.escape(ent_lower)}\b'
-                        
-                        match_type = ""
-                        if re.search(p_model, line):
-                            match_type = "schema/model reference"
-                        elif re.search(p_return, line, re.IGNORECASE):
-                            match_type = "return variable"
-                        elif re.search(p_json, line, re.IGNORECASE):
-                            match_type = "jsonify call"
-                            
-                        if match_type:
-                            cols_str = ", ".join(sens_cols)
-                            if "import " in line or "from " in line or "require(" in line:
-                                continue
-                            
-                            risks.append({
-                                'file': str(file_path.relative_to(root)),
-                                'line': i,
-                                'type': 'Sensitive Data Exposure',
-                                'severity': 'HIGH',
-                                'category': 'Sensitive Data',
-                                'message': f"Entity '{ent_name}' (sensitive cols: {cols_str}) exposed in {match_type}: {stripped[:60]}"
-                            })
-                            break # Evitar duplicar en la misma línea
-            except Exception:
-                pass
+                        risks.append({
+                            'file': str(file_path.relative_to(root)),
+                            'line': i,
+                            'type': 'Sensitive Data Exposure',
+                            'severity': 'HIGH',
+                            'category': 'Sensitive Data',
+                            'message': f"Entity '{ent_name}' (sensitive cols: {cols_str}) exposed in {match_type}: {stripped[:60]}"
+                        })
+                        break # Evitar duplicar en la misma línea
+        except Exception:
+            pass
                 
     return risks
 
-def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
+
+def scan_security_risks(root_path: str, max_depth: int = 10, file_list: Optional[List] = None) -> List[Dict]:
     """
     Scans project for security risks.
+
+    Args:
+        root_path: Root directory to scan.
+        max_depth: Maximum directory depth to traverse.
+        file_list: Optional pre-computed list of Path objects from FileSystemIndexer.
+                   When provided, skips directory walking and scans these files directly.
     """
     risks = []
     root = Path(root_path).resolve()
@@ -147,9 +171,9 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
 
     def scan_file(file_path: Path):
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-                
+            from bck_nd_hlpr.core.utils.cache import FileCache
+            content = FileCache.read_file(file_path, encoding='utf-8', errors='ignore')
+            
             # Scan line by line for precise reporting
             lines = content.splitlines()
             for i, line in enumerate(lines, 1):
@@ -236,25 +260,35 @@ def scan_security_risks(root_path: str, max_depth: int = 10) -> List[Dict]:
         except Exception:
             pass
 
-    for root_dir, dirs, files in os.walk(root):
-        rel_root = Path(root_dir).relative_to(root)
-        if str(rel_root) == ".": depth_val = 0
-        else: depth_val = len(rel_root.parts)
-        
-        if depth_val > max_depth:
-            del dirs[:]
-            continue
-            
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
-        
-        for file in files:
-            file_path = Path(root_dir) / file
-            # Scan source code and config files
-            # Note: dotfiles like .env have no suffix on Windows (Path('.env').suffix == '')
-            scannable_suffixes = {'.py', '.js', '.ts', '.json', '.yml', '.yaml', '.xml', '.sh', '.go', '.rs', '.cs', '.java', '.php', '.rb'}
-            scannable_names = {'.env', '.env.local'}  # dotfiles detected by name
+    # ── File iteration: fast path or legacy walk ──
+    scannable_suffixes = {'.py', '.js', '.ts', '.json', '.yml', '.yaml', '.xml', '.sh', '.go', '.rs', '.cs', '.java', '.php', '.rb'}
+    scannable_names = {'.env', '.env.local'}  # dotfiles detected by name
+
+    if file_list is not None:
+        # Fast path: use pre-indexed file list
+        for f in file_list:
+            file_path = Path(f)
             if file_path.suffix in scannable_suffixes or file_path.name in scannable_names:
                 scan_file(file_path)
+    else:
+        # Legacy path: own directory walk
+        for root_dir, dirs, files in os.walk(root):
+            rel_root = Path(root_dir).relative_to(root)
+            if str(rel_root) == ".": depth_val = 0
+            else: depth_val = len(rel_root.parts)
+            
+            if depth_val > max_depth:
+                del dirs[:]
+                continue
+                
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
+            
+            for file in files:
+                file_path = Path(root_dir) / file
+                # Scan source code and config files
+                # Note: dotfiles like .env have no suffix on Windows (Path('.env').suffix == '')
+                if file_path.suffix in scannable_suffixes or file_path.name in scannable_names:
+                    scan_file(file_path)
                 
     # Run Sensitive Data Tracker
     try:

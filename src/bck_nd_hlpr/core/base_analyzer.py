@@ -25,6 +25,7 @@ class ScanContext:
     depth: int = 5
     arch_info: Dict[str, Any] = field(default_factory=dict)
     plain: bool = False
+    file_index: Any = None  # Optional FileIndex from utils.indexer (typed as Any to avoid circular import)
 
     @property
     def framework(self) -> str:

@@ -363,9 +363,9 @@ class ContextDumper:
 
     def _read_file_safe(self, path: Path, is_entry_point: bool = False) -> Optional[str]:
         """Lee un archivo de forma segura, truncando si es necesario."""
+        from bck_nd_hlpr.core.utils.cache import FileCache
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
+            content = FileCache.read_file(path, encoding="utf-8", errors="ignore")
             if not is_entry_point and len(content) > MAX_FILE_CHARS:
                 content = content[:MAX_FILE_CHARS] + f"\n\n... [TRUNCATED — file exceeds {MAX_FILE_CHARS} chars]"
             return content

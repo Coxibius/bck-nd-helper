@@ -44,18 +44,31 @@ TYPE_COLORS = {
 }
 
 
-def scan_for_todos(root_path: str, max_depth: int = 10) -> List[Dict]:
+def scan_for_todos(root_path: str, max_depth: int = 10, file_list: Optional[List] = None) -> List[Dict]:
     """
     Recursively scans project for technical debt markers.
     
     Args:
         root_path: Root directory to scan
         max_depth: Maximum directory depth to traverse
+        file_list: Optional pre-computed list of Path objects from FileSystemIndexer.
+                   When provided, skips directory walking and scans these files directly.
         
     Returns:
         List of dictionaries containing todo information
     """
     todos = []
+
+    # ── Fast path: use pre-indexed file list ──
+    if file_list is not None:
+        for file_path in file_list:
+            p = Path(file_path)
+            if p.suffix in SCANNABLE_EXTENSIONS:
+                file_todos = parse_file_for_todos(str(p))
+                todos.extend(file_todos)
+        return todos
+
+    # ── Legacy path: own directory walk ──
     root = Path(root_path).resolve()
     
     def should_ignore(path: Path) -> bool:
@@ -110,8 +123,9 @@ def parse_file_for_todos(file_path: str) -> List[Dict]:
     comment_char = COMMENT_STYLES.get(path.suffix, '#')
     
     try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for line_num, line in enumerate(f, start=1):
+        from bck_nd_hlpr.core.utils.cache import FileCache
+        content = FileCache.read_file(file_path, encoding='utf-8', errors='ignore')
+        for line_num, line in enumerate(content.splitlines(), start=1):
                 line = line.strip()
                 
                 # Check each debt marker
