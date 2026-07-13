@@ -1,16 +1,47 @@
 # Advanced Configuration
 
-## 🚀 What's New in Version 2.0.0
+## 🚀 Version 2.0.0
 
-Version 2.0.0 introduces a fully decoupled architecture that separates the analysis engine from the terminal layer:
+Version 2.0.0 decouples the analysis engine from the terminal layer. Full release notes: [CHANGELOG.md](CHANGELOG.md#200).
 
-- **`core/`** — Pure Python engine with no `rich` or `typer` dependencies. Safe to embed in APIs, scripts, or async servers.
-- **`cli/`** — Terminal presentation layer (tables, progress bars, TUI) that consumes structured data from the engine.
-- **`ScannerOrchestrator`** — Single facade accepting `OrchestratorConfig` and returning a serializable `OrchestratorResult`.
-- **Concurrent execution** — Independent analyzers run in parallel via `ThreadPoolExecutor`, with a thread-safe in-memory file cache.
-- **Fault tolerance** — Isolated `try-except` per task; failures are collected in `execution_warnings` without aborting the scan.
-- **Lazy loading** — Heavy Tree-Sitter parsers (C#, Java, PHP, JS/TS) load only when the language is detected.
-- **Direct `.mmd` export** — `bck-nd scan . --er -o schema.mmd` writes clean Mermaid files with ANSI codes stripped.
+### Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph clients ["Clients"]
+        CLI["bck-nd CLI"]
+        MCP["bck-nd-mcp"]
+        VSC["VS Code Extension"]
+    end
+
+    subgraph cli_layer ["cli/ — Presentation"]
+        FMT["formatters.py"]
+        TUI["tui_app.py"]
+        MCPSRV["mcp_server.py"]
+    end
+
+    subgraph core_layer ["core/ — Pure Engine"]
+        ORCH["ScannerOrchestrator"]
+        DET["ArchitectureDetector"]
+        CACHE["FileCache (thread-safe)"]
+        PARSERS["AST / Tree-Sitter Parsers"]
+        TRACK["DependencyTracker"]
+    end
+
+    CLI --> FMT
+    MCP --> MCPSRV
+    VSC -->|"shell exec"| CLI
+    MCPSRV --> ORCH
+    FMT --> ORCH
+    ORCH --> DET
+    ORCH --> CACHE
+    ORCH --> PARSERS
+    ORCH --> TRACK
+    ORCH -->|"OrchestratorResult"| FMT
+    ORCH -->|"OrchestratorResult"| MCPSRV
+```
+
+**Data flow:** Clients pass an `OrchestratorConfig` to `ScannerOrchestrator.run()`. The engine returns a serializable `OrchestratorResult` with diagrams, scan metrics, and `execution_warnings`. The `cli/` layer handles all terminal formatting (`rich`, `typer`); `core/` has zero terminal dependencies.
 
 ---
 
@@ -161,3 +192,9 @@ print(result.uml)
 print(result.er)
 print(result.execution_warnings)  # Non-fatal parser errors
 ```
+
+---
+
+## ⚠️ Known Limitations
+
+See the full limitations table in [README.md](README.md#️-known-limitations). Parser coverage varies by language and ORM — heuristics are best-effort, not compiler-grade analysis.

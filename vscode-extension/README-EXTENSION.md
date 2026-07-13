@@ -4,17 +4,32 @@ Backend Helper is a Visual Studio Code extension that integrates the `bck-nd-hlp
 
 > **Requires `bck-nd-hlpr` ≥ 2.0.0** — the extension consumes the decoupled CLI layer; all analysis runs through `bck-nd` commands.
 
-## 🚀 What's New in CLI 2.0.0 (Backend)
+## Quick Start
 
-The underlying `bck-nd-hlpr` engine was restructured in v2.0.0. The extension benefits automatically from:
+```bash
+# 1. Install the CLI
+pip install -U bck-nd-hlpr
+bck-nd --help
 
-- **Decoupled architecture** — `core/` engine is independent of terminal libraries; the extension only invokes CLI commands.
-- **Faster scans** — concurrent analyzer execution and thread-safe file caching reduce wait times for diagram generation.
-- **Resilient parsing** — a single broken file no longer aborts the entire scan; partial results are still rendered.
-- **Lazy loading** — faster startup when projects don't use C#, Java, PHP, or JS/TS parsers.
-- **Direct `.mmd` export** — diagrams can be saved as clean Mermaid files via `-o diagram.mmd`.
+# 2. Build the extension
+cd vscode-extension
+npm install && npm run compile
 
-For MCP integration (Claude Desktop / Cursor), use the packaged server: `bck-nd-mcp`. See [ADVANCED.md](../ADVANCED.md).
+# 3. Press F5 in VS Code to launch the Extension Development Host
+```
+
+Open any backend project, click the **Backend Helper** icon in the Activity Bar, and generate diagrams or copy AI context.
+
+## When to Use What
+
+| Tool | Best for |
+| --- | --- |
+| **This extension** | In-editor diagram rendering, clipboard context, visual audits |
+| `bck-nd scan` (terminal) | Full CLI with all flags, scripting, and CI/CD pipelines |
+| `bck-nd prompt` | One-shot LLM context file without opening VS Code |
+| `bck-nd-mcp` | Persistent MCP tools in Claude Desktop / Cursor |
+
+See [CHANGELOG.md](../CHANGELOG.md#200) for v2.0.0 engine improvements (concurrency, fault tolerance, lazy loading).
 
 ## Features
 
@@ -46,6 +61,9 @@ Quick access to:
 * Routes overview
 * Infrastructure mapping
 * Architecture visualization
+* Project health score (`--health`)
+* Guided onboarding (`--teach`)
+* API contract map (`--contract`)
 
 ### Native VS Code Integration
 
@@ -71,7 +89,7 @@ bck-nd --help
 bck-nd-mcp --help   # optional, for MCP integration
 ```
 
-Both `bck-nd` and `bck-nd-mcp` must be available in your system PATH.
+`bck-nd` must be available in your system PATH.
 
 ---
 
@@ -103,13 +121,13 @@ vsce package
 This generates:
 
 ```text
-bck-nd-vscode-0.1.0.vsix
+bck-nd-vscode-1.0.0.vsix
 ```
 
 Install the package:
 
 ```bash
-code --install-extension bck-nd-vscode-0.1.0.vsix
+code --install-extension bck-nd-vscode-1.0.0.vsix
 ```
 
 Reload VS Code after installation.
@@ -125,7 +143,7 @@ vscode-extension/
 ├─ src/
 │  └─ extension.ts
 ├─ package.json
-├─ README.md
+├─ README-EXTENSION.md
 ├─ resources/
 └─ ...
 ```
@@ -145,145 +163,64 @@ npm run watch
 
 ### Run Extension Host
 
-Press:
-
-```text
-F5
-```
-
-A new Extension Development Host window will open with the extension loaded.
+Press `F5` — a new Extension Development Host window opens with the extension loaded.
 
 ---
 
 ## Usage
 
-Open a project folder in VS Code.
-
-Click the Backend Helper icon in the Activity Bar.
+Open a project folder in VS Code. Click the Backend Helper icon in the Activity Bar.
 
 ### AI Context
 
-Select:
-
-```text
-🤖 Copy AI Context
-```
-
-The extension executes:
+Select **Copy AI Context**. The extension executes:
 
 ```bash
 bck-nd prompt . -o .ai_context_tmp.txt
 ```
 
-The generated context is copied to the clipboard automatically after the command completes.
-
----
+The generated context is copied to the clipboard automatically.
 
 ### Generate Diagrams
 
-Use any diagram generation button:
+Use any diagram button (UML, ER, Routes, Infrastructure). The extension:
 
-```text
-🔧 UML Diagram
-🔧 ER Diagram
-🔧 Routes Diagram
-🔧 Infrastructure Diagram
-```
-
-The extension:
-
-1. Executes the corresponding CLI command.
+1. Executes the corresponding `bck-nd scan` command.
 2. Extracts Mermaid blocks.
 3. Sanitizes Mermaid syntax.
 4. Renders the diagram inside a VS Code webview.
 
----
-
 ### Security Audit
 
-Select:
-
-```text
-🛡️ Security Audit
-```
-
-The extension executes:
+Select **Security Audit**. The extension executes:
 
 ```bash
 bck-nd scan . --audit
 ```
 
-Results are displayed directly inside VS Code together with traceability information.
+Results are displayed in the Output panel.
+
+---
+
+## Exporting Diagrams
+
+From the terminal (outside the extension UI):
+
+```bash
+bck-nd scan . --uml -o classes.mmd
+bck-nd scan . --er -o schema.mmd
+```
+
+ANSI escape codes are stripped automatically. See [ADVANCED.md](../ADVANCED.md) for details.
 
 ---
 
 ## Testing
 
-### Launch Development Mode
-
-1. Open the extension project.
-2. Run:
-
-```bash
-npm install
-npm run compile
-```
-
-3. Press:
-
-```text
-F5
-```
-
-4. A new Extension Development Host window opens.
-
----
-
-### Test Diagram Generation
-
-1. Open a backend project.
-2. Open Backend Helper.
-3. Generate any diagram.
-4. Verify Mermaid rendering appears correctly.
-
----
-
-### Test AI Context
-
-1. Click:
-
-```text
-🤖 Copy AI Context
-```
-
-2. Paste the clipboard contents into any editor.
-3. Verify project context was generated correctly.
-
----
-
-### Test Security Audit
-
-1. Click:
-
-```text
-🛡️ Security Audit
-```
-
-2. Confirm findings are displayed.
-
----
-
-### Test Error Handling
-
-Temporarily remove the CLI:
-
-```bash
-pip uninstall bck-nd-hlpr
-```
-
-Run any feature again.
-
-The extension should display a clear error indicating that the `bck-nd` executable was not found.
+1. Open the extension project and run `npm install && npm run compile`.
+2. Press `F5` to launch the Extension Development Host.
+3. Open a backend project and test diagram generation, AI context, and security audit.
+4. To test error handling, temporarily uninstall the CLI (`pip uninstall bck-nd-hlpr`) — the extension should show a clear "CLI not found" error.
 
 ---
 
@@ -291,38 +228,16 @@ The extension should display a clear error indicating that the `bck-nd` executab
 
 ### Mermaid Diagram Does Not Render
 
-The extension automatically sanitizes:
-
-* Generic types
-* Invalid identifiers
-* Multi-line signatures
-* Unsupported Mermaid syntax
-
-If rendering still fails, inspect the raw CLI output.
+The extension sanitizes generic types, invalid identifiers, and unsupported Mermaid syntax. If rendering still fails, inspect the raw CLI output in the terminal.
 
 ### Activity Bar Icon Not Appearing
 
-Reload VS Code:
-
-```text
-Developer: Reload Window
-```
-
-Verify the extension is installed and enabled.
+Run **Developer: Reload Window** and verify the extension is installed and enabled.
 
 ### CLI Not Found
 
-Ensure:
-
 ```bash
-bck-nd --help
-```
-
-works from a terminal.
-
-If not, reinstall:
-
-```bash
+bck-nd --help   # must work from a terminal
 pip install -U bck-nd-hlpr
 ```
 
@@ -330,31 +245,18 @@ pip install -U bck-nd-hlpr
 
 ## Temporary Files
 
-Temporary files such as:
-
-```text
-.ai_context_tmp.txt
-```
-
-are created in the workspace root and automatically added to `.gitignore` when necessary.
+`.ai_context_tmp.txt` is created in the workspace root and automatically added to `.gitignore` when necessary.
 
 ---
 
-## Exporting Diagrams
+## Documentation
 
-You can also export diagrams directly from the terminal (outside the extension UI):
-
-```bash
-bck-nd scan . --uml -o classes.mmd
-bck-nd scan . --er -o schema.mmd
-```
-
-ANSI escape codes are stripped automatically, producing clean Mermaid files ready for Obsidian, Notion, or CI/CD pipelines.
+- [README.md](../README.md) — Main CLI documentation
+- [CHANGELOG.md](../CHANGELOG.md) — Release history
+- [ADVANCED.md](../ADVANCED.md) — MCP setup, library API, architecture diagram
 
 ---
 
 ## License
 
-MIT License
-
-© 2024–2026 Coxibius
+MIT License — © 2024–2026 Coxibius

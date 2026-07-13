@@ -8,48 +8,68 @@
 
 `bck-nd-hlpr` is a lightweight Python CLI utility designed to bridge the gap between back-end codebases, human developers, and AI agents. It acts as a context provider, helping extract structural architecture, generate visual diagrams (such as Mermaid.js charts), and facilitate Model Context Protocol (MCP) interactions.
 
+## ⚡ Quick Start
+
+```bash
+pip install bck-nd-hlpr
+
+# Scan architecture and generate diagrams
+bck-nd scan .
+
+# Export LLM-ready context (tree + UML + ER + core files)
+bck-nd prompt .
+
+# Connect to Claude Desktop / Cursor (see ADVANCED.md)
+bck-nd-mcp
+```
+
+## 🧭 When to Use What
+
+| Entry point | Best for |
+| --- | --- |
+| `bck-nd scan` | Interactive terminal analysis, diagrams, audits, and reports |
+| `bck-nd prompt` | One-shot AI context file to paste into ChatGPT / Claude |
+| `bck-nd-mcp` | Persistent MCP tools inside Claude Desktop or Cursor |
+| `bck-nd explore` | Full-screen TUI to browse and visualize the codebase |
+| `bck-nd docs` / `init-ci` | Static HTML portal and GitHub Pages automation |
+| VS Code Extension | In-editor diagrams, audits, and clipboard context — see [README-EXTENSION.md](vscode-extension/README-EXTENSION.md) |
+
 ## ⚡ Key Features
 
-- 🔍 **Auto-Detection**: Identifies Flask, FastAPI, Django, Next.js, Express.js, NestJS, Gin, Actix-web, and more
-- 🏭 **Architecture Recognition**: Detects MVC, Microservices, Layered Architecture patterns
-- **Smart Diagrams**: Different visualizations for Controllers, Models, Services, Routes
-- 🤖 **BYO-Key AI Analysis**: Directly integrate with OpenAI, Anthropic, Gemini, OpenRouter, or local Ollama using API keys. No middleware needed!
-- 🛡️ **Dependency-Free Core**: No PyTorch, No Transformers. Installs in <3 seconds
-- 🪟 **OS-Safe Scanning**: Robust directory traversal ignoring `venv`, `node_modules`, and system restricted files
-- 🎨 **Visual & Mermaid**: Output Unicode diagrams or copy-paste Mermaid code
-- 🚀 **Auto-Documentation (CI/CD)**: One-command setup for GitHub Actions to host living docs on GitHub Pages (`init-ci`)
-- 🧠 **AI Context Dump** (`bck-nd prompt`): Export a single, LLM-optimized `.txt` file with project tree + UML + ER + core files — just copy-paste into ChatGPT/Claude for instant codebase understanding **[NEW ✨]**
-- 🎓 **Guided Onboarding** (`--teach`): Automatically generates a sequential, tier-ordered learning curriculum of the codebase using dependency-graph heatmaps to quickly ramp up new developers.
-- 🛡️ **QA Impact Radius Analysis** (`--impact-radius <file>`): Performs a transitive reverse-dependency traversal to calculate exactly which upstream files and API endpoints might break when a specific file is modified.
-- 🔌 **API Contract Map** (`--contract`): Uses advanced static heuristics to match your backend API endpoints with their corresponding ORM database tables and column schemas.
-- ❤️ **Project Health Score** (`--health`): Computes a consolidated 0-100 score and letter grade (A-F) evaluating hardcoded secrets, technical debt density (TODOs/FIXMEs), and circular dependency risks.
-- 📊 **Jupyter Notebook Lineage** (`--datascience`): Scans and extracts raw data flow/lineage from `.ipynb` files to draw a beautiful Mermaid `graph LR` flowchart of your data pipeline, completely offline and without heavy dependencies (like pandas or nbformat).
+### Detection & Architecture
+
+- 🔍 **Auto-Detection**: Flask, FastAPI, Django, Next.js, Express.js, NestJS, Gin, Actix-web, and more
+- 🏭 **Architecture Recognition**: MVC, Microservices, Layered Architecture patterns
+- 🌍 **Polyglot Ready**: C#, Python, JS/TS, Java, PHP, Go, Rust, Docker, Terraform, Prisma, SQL migrations
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
-- 🌍 **Polyglot Ready**: C# (.NET Core), Python (Django/FastAPI), JavaScript/TypeScript (Next.js/Express.js/Drizzle ORM), Java (Spring Boot), PHP (Laravel), Go, Rust, Docker, Terraform, Prisma schemas (`schema.prisma`), and SQL migrations (`.sql`)
-- 📄 **Automatic .gitignore Support**: Respects `.gitignore`: automatically excludes files and folders listed in `.gitignore` from scans and context dumps.
-- 📱 **Expo/React Native Detection**: Auto-detects Expo and React Native projects for appropriate diagramming.
-- ⚙️ **`--max-core-files N` Flag**: Limits the number of core files exported by `bck-nd prompt`.
+- 📄 **Automatic `.gitignore` Support**: Excludes ignored files from scans and context dumps
+- 📱 **Expo/React Native Detection**: Appropriate diagramming for mobile projects
 
-## 🚀 What's New in Version 2.0.0 (Major Architecture & Performance Update)
+### Diagrams & Visualization
 
-This major release represents a complete restructuring of `bck-nd-hlpr`'s foundations. We've redesigned the tool under a decoupled (MVC) model and equipped the engine with high-performance, concurrency, and resilience capabilities:
+- **Smart Diagrams**: Controllers, Models, Services, Routes — Unicode or Mermaid output
+- 🎨 **Visual & Mermaid**: Terminal diagrams or copy-paste Mermaid code
+- 🚀 **Auto-Documentation (CI/CD)**: One-command GitHub Actions setup for living docs (`init-ci`)
+- 📊 **Jupyter Notebook Lineage** (`--datascience`): Data pipeline flowcharts from `.ipynb` files
 
-### 🏗️ 1. Modular & Decoupled Architecture (Core vs. CLI)
+### AI & Context
 
-- **Agnostic Engine (`core/`):** The analysis engine (AST, Tree-Sitter, trackers) is now 100% independent of the terminal. All `rich` and `typer` dependencies have been completely removed from the engine, enabling clean use as a pure Python library or integration into async servers.
-- **Specialized Views (`cli/`):** Visual presentation logic (colored tables, progress bars, and TUI) now lives exclusively in the console client, consuming pure data from the engine.
-- **ScannerOrchestrator Facade:** A single facade centralizes option input (`OrchestratorConfig`) and compiles a structured output object (`OrchestratorResult`).
+- 🧠 **AI Context Dump** (`bck-nd prompt`): Single LLM-optimized `.txt` with project tree + UML + ER + core files
+- 🤖 **BYO-Key AI Analysis**: OpenAI, Anthropic, Gemini, OpenRouter, or local Ollama — no middleware
+- ⚙️ **`--max-core-files N`**: Limit core files exported by `bck-nd prompt`
 
-### ⚡ 2. High-Performance Suite (Multi-Threading & Caching)
+### Quality, Security & Onboarding
 
-- **Concurrent Orchestrator (ThreadPoolExecutor):** Independent analyzers (Tech Debt, Security Audit, Infrastructure diagramming) no longer run sequentially. The orchestrator distributes tasks across a thread pool in parallel, drastically reducing total scan time.
-- **Thread-Safe In-Memory File Cache:** A cache manager with safe write locks and non-blocking disk reads. If a thread reads a code file, its content is temporarily stored in memory so other concurrent threads can consume it instantly, reducing disk I/O by over 70%.
-- **Lazy Loading:** Heavy Tree-Sitter analyzers for C#, Java, PHP, and JS/TS are imported locally and dynamically only when the detector heuristic confirms the presence of those languages in the repository.
+- 🛡️ **Dependency-Free Core**: No PyTorch, No Transformers. Installs in <3 seconds
+- 🪟 **OS-Safe Scanning**: Ignores `venv`, `node_modules`, and restricted system paths
+- 🎓 **Guided Onboarding** (`--teach`): Tier-ordered learning curriculum via dependency heatmaps
+- 🛡️ **QA Impact Radius** (`--impact-radius <file>`): Transitive reverse-dependency blast radius
+- 🔌 **API Contract Map** (`--contract`): Match API endpoints to ORM tables and columns
+- ❤️ **Project Health Score** (`--health`): 0–100 score with letter grade (A–F)
 
-### 🛡️ 3. Resilience & Documentation Flexibility
+## 🚀 Version 2.0.0
 
-- **Fault Tolerance (Error Isolation):** Each orchestrator task runs in a safe isolated environment (`try-except`). If a single corrupted or syntactically invalid file causes a parser to fail, the orchestrator captures the error, adds it to a warnings list (`execution_warnings`), and continues the scan to deliver the rest of the report intact.
-- **Direct Mermaid Exporter (`.mmd`):** The CLI now supports saving clean diagrams directly to standard Mermaid files (e.g. `bck-nd scan . --er -o schema.mmd`), automatically stripping ANSI escape codes and terminal formatting — ideal for Obsidian, Notion, and GitHub CI/CD workflows.
+Major architecture release: decoupled `core/` engine, concurrent `ScannerOrchestrator`, thread-safe file cache, lazy parser loading, fault-tolerant scans, and direct `.mmd` export. Full details in [CHANGELOG.md](CHANGELOG.md). Advanced usage (library API, MCP config, architecture diagram) in [ADVANCED.md](ADVANCED.md).
 
 ### 🗄️ ORM Parser Support Status
 
@@ -84,7 +104,7 @@ bck-nd --help
 
 ---
 
-### 🌐 `docs` - Static HTML Portal Generation 🆕
+### 🌐 `docs` - Static HTML Portal Generation
 
 Automatically generates a complete, static HTML documentation portal for your project. Perfect for CI/CD and GitHub Pages.
 
@@ -106,7 +126,7 @@ bck-nd docs . --output docs
 
 ---
 
-### 🧠 `prompt` - AI Context Dump 🆕
+### 🧠 `prompt` - AI Context Dump
 
 Generates a **single, LLM-optimized `.txt` file** with XML-like tags that you can copy-paste directly into ChatGPT, Claude, or any AI to give it instant, complete understanding of your project.
 
@@ -186,7 +206,7 @@ erDiagram
 
 ---
 
-### 🚀 `init-ci` - GitHub Actions Automation 🆕
+### 🚀 `init-ci` - GitHub Actions Automation
 
 Set up "Living Documentation" in seconds. This command injects a ready-to-use GitHub Action into your repository.
 
@@ -241,7 +261,7 @@ bck-nd scan .
 - **UML & ER:** Class and Entity-Relationship Mermaid diagrams
 - **TODOs:** Technical Debt Report
 
-##### 2. **Mermaid Export (New!)**
+##### 2. **Mermaid Export**
 
 ```bash
 bck-nd scan . --format mermaid
@@ -263,7 +283,7 @@ bck-nd scan . --uml
 - Uses a unified multi-language parser combining AST (Python) and Tree-Sitter (C#, Java, JS/TS, PHP) to extract classes, methods, properties, and constructors automatically.
 - Automatically infers relationships (`-->` Associations, `..>` Dependencies) and inheritance (`<|--`) across all files.
 
-##### 3. **Diagram + Local Report**
+##### 4. **Diagram + Local Report**
 
 ```bash
 bck-nd scan . --explain
@@ -276,7 +296,7 @@ bck-nd scan . --explain
 - List of Controllers, Models, Services
 - No AI required (100% offline)
 
-##### 5. **Entity-Relationship Diagram (ER) 🆕**
+##### 5. **Entity-Relationship Diagram (ER)**
 
 ```bash
 bck-nd scan . --er
@@ -291,7 +311,7 @@ bck-nd scan . --er
 - Bulletproof Mermaid Syntax: Safely handles Generics (e.g. `List<T>`), table brackets, and special characters.
 - Detects database columns, primary keys (`PK`), data annotations, and auto-generates bidirectional relationships (`||--o{`, `}o--||`) with intelligent schema deduplication and merging.
 
-##### 6. **API Route Map 🆕**
+##### 6. **API Route Map**
 
 ```bash
 bck-nd scan . --routes
@@ -303,7 +323,7 @@ bck-nd scan . --routes
 - Scans `Flask` and `FastAPI` endpoints.
 - Visualizes `Client -> API` interactions with methods and paths.
 
-##### 7. **Infrastructure Diagram 🆕**
+##### 7. **Infrastructure Diagram**
 
 ```bash
 bck-nd scan . --infra
@@ -316,7 +336,7 @@ bck-nd scan . --infra
 - Shows services, images, and dependencies.
 - Database services (postgres, redis, mysql, mongo) displayed as cylinders.
 
-##### 8. **Technical Debt Scanner 🆕**
+##### 8. **Technical Debt Scanner**
 
 ```bash
 bck-nd scan . --todo
@@ -331,7 +351,7 @@ bck-nd scan . --todo
 - Debt level assessment
 - Perfect for code reviews and sprint planning
 
-##### 9. **Security Audit 🆕**
+##### 9. **Security Audit**
 
 ```bash
 bck-nd scan . --audit
@@ -344,7 +364,7 @@ bck-nd scan . --audit
 - Reports "High/Warning" risks like DB passwords or hardcoded IPs
 - Essential for pre-commit checks
 
-##### 10. **Dependency Heatmap 🆕**
+##### 10. **Dependency Heatmap**
 
 ```bash
 bck-nd scan . --impact
@@ -356,7 +376,7 @@ bck-nd scan . --impact
 - Helps identify "Core" modules that are risky to refactor.
 - Sorts by Impact Score and assigns Risk Categories (`🔥 CORE`, `🟡 SHARED`, `🟢 PERIPHERAL`).
 
-##### 10.5 **Route-to-DB Traceability 🆕**
+##### 11. **Route-to-DB Traceability**
 
 ```bash
 bck-nd scan . --trace
@@ -368,7 +388,7 @@ bck-nd scan . --trace
 - Traces API calls starting from your routes down to your services and models.
 - Parses AST (currently supports Python: FastAPI/Flask).
 
-##### 10.6 **Guided Onboarding** [NEW 🎓]
+##### 12. **Guided Onboarding**
 
 ```bash
 bck-nd scan . --teach
@@ -379,7 +399,7 @@ bck-nd scan . --teach
 - Evaluates file relationships to calculate reading hierarchy.
 - Outputs a color-coded sequential table dividing the codebase into Entrypoints, Core Logic, and Infra/Database files.
 
-##### 10.7 **Data Science Lineage Map** [NEW 📊]
+##### 13. **Data Science Lineage Map**
 
 ```bash
 bck-nd scan . --datascience
@@ -390,7 +410,7 @@ bck-nd scan . --datascience
 - Parses `.ipynb` JSON nodes and analyzes cells.
 - Generates a Mermaid `graph LR` lineage flowchart mapping input files, notebooks, and outputs/models.
 
-##### 10.8 **QA Impact Radius** [NEW 🛡️]
+##### 14. **QA Impact Radius**
 
 ```bash
 bck-nd scan . --impact-radius src/bck_nd_hlpr/route_parser.py
@@ -401,7 +421,7 @@ bck-nd scan . --impact-radius src/bck_nd_hlpr/route_parser.py
 - Traverses reverse-dependencies transitively using BFS.
 - Outputs a clean report showing the complete affected file chain and a list of impacted API endpoints.
 
-##### 10.9 **API Contract Map** [NEW 🔌]
+##### 15. **API Contract Map**
 
 ```bash
 bck-nd scan . --contract
@@ -412,7 +432,7 @@ bck-nd scan . --contract
 - Matches backend API routes with ORM models using path-matching, handler-naming, and import-based heuristics.
 - Renders a structured terminal table displaying endpoints, matched database tables, and their column schemas.
 
-##### 10.10 **Project Health Score** [NEW ❤️]
+##### 16. **Project Health Score**
 
 ```bash
 bck-nd scan . --health
@@ -423,7 +443,7 @@ bck-nd scan . --health
 - Calculates a consolidated 0-100 quality score.
 - Renders a beautifully styled Rich report card featuring letter grades (A-F) and details of security/debt point deductions.
 
-##### 11. **Diagram + AI Analysis**
+##### 17. **Diagram + AI Analysis**
 
 ```bash
 bck-nd scan . --ai
@@ -437,7 +457,7 @@ bck-nd scan . --ai
 - Code quality insights
 - Detects API keys in your environment (OpenAI, Anthropic, Gemini, OpenRouter) or uses a local Ollama server.
 
-##### 11. **Force Specific AI Provider 🆕**
+##### 18. **Force Specific AI Provider**
 
 ```bash
 bck-nd scan . --ai --provider openai
@@ -448,7 +468,7 @@ bck-nd scan . --ai --provider openai
 - Supported providers: `openai`, `anthropic`, `gemini`, `groq`, `deepseek`, `openrouter`, `ollama`.
 - Safely reports a styled error if the corresponding API key is missing.
 
-##### 12. **AI Only (No Diagram)**
+##### 19. **AI Only (No Diagram)**
 
 ```bash
 bck-nd scan . --no-graph --ai
@@ -459,7 +479,7 @@ bck-nd scan . --no-graph --ai
 - Only AI analysis (no Mermaid diagram)
 - Faster for text-only reports
 
-##### 13. **Project File/Directory Tree [NEW]**
+##### 20. **Project File/Directory Tree**
 
 ```bash
 bck-nd scan . --tree
@@ -470,24 +490,7 @@ bck-nd scan . --tree
 - Generates a clean ASCII directory tree of the project using Unicode box-drawing characters.
 - Automatically and silently filters out ignored directories (such as `node_modules`, `venv`, `.git`, etc.) based on `GLOBAL_IGNORE_DIRS`.
 
-#### **AI Personalities**
-
-```bash
-# Professional analysis
-bck-nd scan . --ai --style pro
-
-# Security-focused review
-bck-nd scan . --ai --style hacker
-
-# Critical code review (like Gordon Ramsay)
-bck-nd scan . --ai --style ramsay
-
-# Simple explanations
-bck-nd scan . --ai --style eli5
-
-# Available styles:
-# pro, hacker, soviet, eli5, ramsay, jarvis, corporate, medieval, doom
-```
+> Use `--ai --style <name>` to change AI tone. See [AI Personalities (Fun Styles)](#-ai-personalities-fun-styles) at the end of this document.
 
 ---
 
@@ -518,7 +521,7 @@ bck-nd flow "User -> Auth [Service] -> JWT [Token] -> API"
 
 ## 📚 Command Manual
 
-### 🖥️ `explore` - Interactive TUI Mode (Explorer) 🆕
+### 🖥️ `explore` - Interactive TUI Mode (Explorer)
 
 Launch a full-screen Terminal User Interface (TUI) to interactively explore your project's architecture, powered by `textual`.
 
@@ -549,14 +552,14 @@ bck-nd scan .
 **What you get:**
 
 ```
-🔍 Analizando arquitectura de '.'...
-💻 Framework detectado: FastAPI
-🏭 Arquitectura: REST API (Route-based)
-✨ Características: Docker, SQLAlchemy ORM, Authentication
+🔍 Analyzing architecture of '.'...
+💻 Framework detected: FastAPI
+🏭 Architecture: REST API (Route-based)
+✨ Features: Docker, SQLAlchemy ORM, Authentication
 
 📝 FastAPI application using REST API (Route-based) with Docker, SQLAlchemy ORM, Authentication.
 
-📊 DIAGRAMA DE ARQUITECTURA:
+📊 ARCHITECTURE DIAGRAM:
 [ASCII diagram showing Routes -> Services -> Models -> Database]
 ```
 
@@ -634,25 +637,17 @@ Backend Helper automatically detects:
 - API Documentation (Swagger/OpenAPI)
 - CI/CD (GitHub Actions, GitLab CI)
 - Unit Tests
-- **Security**: Auto-redaction of secrets in output (Sanitizer) 🆕
+- **Security**: Auto-redaction of secrets in output (Sanitizer)
 
 ### **Configuration**
 
-You can override architecture detection by adding this to `pyproject.toml`:
-
-```toml
-[tool.bck-nd]
-controllers = ["handlers", "views"]
-models = ["entities", "schemas"]
-services = ["logic", "usecases"]
-```
+See [ADVANCED.md](ADVANCED.md) for `pyproject.toml` overrides and library usage.
 
 ---
 
-## 💾 Output Persistence (New!)
+## 💾 Output Persistence
 
-You can now save any report or diagram to a file using `-o` / `--output`.
-The tool automatically **strips ANSI color codes** for clean text files.
+Save any report or diagram with `-o` / `--output`. ANSI color codes are stripped automatically. See [ADVANCED.md](ADVANCED.md) for `.mmd` export details.
 
 ```bash
 # Save ASCII diagram
@@ -704,21 +699,13 @@ bck-nd scan . --ai --provider ollama
 
 ## 🤖 MCP Integration (Claude Desktop / Cursor)
 
-Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**, providing 16 powerful architecture tools directly to your AI assistants, including our 5 newly supported AI co-pilot tools.
-
-Start the MCP server with the packaged entry point:
+Backend Helper includes an MCP server with **20 local architecture tools** for Claude Desktop and Cursor.
 
 ```bash
 bck-nd-mcp
 ```
 
-- `get_project_health` (Calculates and displays the project health scorecard)
-- `get_guided_onboarding` (Retrieves the step-by-step reading sequence for new devs)
-- `export_data_dictionary` (Outputs schema schemas in JSON/CSV formats)
-- `get_impact_radius` (Maps file modifications transitively to affected API routes)
-- `get_api_contract_map` (Bridges API routes directly to database columns)
-
-For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED.md](ADVANCED.md).
+For the full tool list, client configuration, and troubleshooting, see [ADVANCED.md](ADVANCED.md).
 
 ---
 
@@ -754,27 +741,9 @@ For full configuration instructions for Claude Desktop and Cursor, see [ADVANCED
 
 ---
 
-## 🎭 AI Personalities Guide
-
-> **Note:** AI personalities work with all supported direct providers (OpenAI, Anthropic, Gemini, OpenRouter, Ollama).
-
-| Style         | Description                                   | Use Case                 |
-| ------------- | --------------------------------------------- | ------------------------ |
-| `pro`       | Senior Software Architect - Technical, formal | Production documentation |
-| `hacker`    | Security Expert - Focuses on vulnerabilities  | Security audits          |
-| `soviet`    | Soviet Engineer - Efficiency-focused          | Performance reviews      |
-| `eli5`      | Kindergarten Teacher - Simple explanations    | Onboarding juniors       |
-| `ramsay`    | Gordon Ramsay - Brutally critical             | Code reviews             |
-| `jarvis`    | Tony Stark's AI - Elegant, helpful            | Executive presentations  |
-| `corporate` | Manager - Buzzword-heavy                      | Stakeholder reports      |
-| `medieval`  | Ancient Wizard - Metaphorical                 | Creative documentation   |
-| `doom`      | Doom Slayer - Bugs are demons                 | Bug hunting              |
-
----
-
 ## 🐛 Troubleshooting
 
-### "No se encontraron archivos"
+### "No files found"
 
 **Solution:**
 
@@ -800,10 +769,53 @@ bck-nd scan . --ai
 bck-nd scan . --ai --provider ollama
 ```
 
-### "Framework detectado: Unknown"
+### "Framework detected: Unknown"
 
 **Cause:** Framework not yet supported or non-standard structure
 **Solution:** Use `bck-nd flow` for manual diagrams
+
+---
+
+## ⚠️ Known Limitations
+
+`bck-nd-hlpr` uses static heuristics and parsers — not a full language server or compiler. Keep these in mind:
+
+| Area | Coverage | Notes |
+| --- | --- | --- |
+| **UML (Tree-Sitter)** | C#, Java, JS/TS, PHP, Python | Best-effort AST extraction; dynamic metaprogramming may be missed |
+| **UML (Regex/Lexer)** | TypeORM, Sequelize | Structural matching only — no full type inference |
+| **ER (Tree-Sitter)** | SQLAlchemy, Django, EF Core | Full AST where supported |
+| **ER (Regex/Lexer)** | Prisma, TypeORM, Sequelize | Schema-level matching; complex generics may be simplified |
+| **Route parsing** | Flask, FastAPI (primary) | Other frameworks: detection only, limited endpoint extraction |
+| **Traceability** | Python (FastAPI/Flask) | Route-to-DB tracing not yet polyglot |
+| **API Contract Map** | Heuristic | Matches routes to models by naming/import patterns — not runtime validation |
+| **Security audit** | Pattern-based | Catches common secret patterns; not a substitute for dedicated SAST tools |
+
+Parser errors on individual files are collected in `execution_warnings` and do not abort the scan. See [CHANGELOG.md](CHANGELOG.md#200).
+
+---
+
+## 🎭 AI Personalities (Fun Styles)
+
+> **Note:** AI personalities work with all supported direct providers (OpenAI, Anthropic, Gemini, OpenRouter, Ollama). For production documentation, use `pro` or `hacker`.
+
+| Style         | Description                                   | Use Case                 |
+| ------------- | --------------------------------------------- | ------------------------ |
+| `pro`       | Senior Software Architect - Technical, formal | Production documentation |
+| `hacker`    | Security Expert - Focuses on vulnerabilities  | Security audits          |
+| `soviet`    | Soviet Engineer - Efficiency-focused          | Performance reviews      |
+| `eli5`      | Kindergarten Teacher - Simple explanations    | Onboarding juniors       |
+| `ramsay`    | Gordon Ramsay - Brutally critical             | Code reviews             |
+| `jarvis`    | Tony Stark's AI - Elegant, helpful            | Executive presentations  |
+| `corporate` | Manager - Buzzword-heavy                      | Stakeholder reports      |
+| `medieval`  | Ancient Wizard - Metaphorical                 | Creative documentation   |
+| `doom`      | Doom Slayer - Bugs are demons                 | Bug hunting              |
+
+```bash
+bck-nd scan . --ai --style pro      # Professional
+bck-nd scan . --ai --style hacker   # Security-focused
+bck-nd scan . --ai --style ramsay   # Critical review
+```
 
 ---
 
@@ -870,9 +882,11 @@ bck-nd scan . --ai --style pro > docs/AI_ANALYSIS.md
 
 ## 📚 Documentation
 
+- [CHANGELOG.md](CHANGELOG.md) - Release history
+- [ADVANCED.md](ADVANCED.md) - MCP setup, library API, architecture diagram
+- [vscode-extension/README-EXTENSION.md](vscode-extension/README-EXTENSION.md) - VS Code extension guide
 - [IA-context.md](IA-context.md) - Development rules & architecture
 - [ROADMAP.txt](ROADMAP.txt) - Feature roadmap
-- [MANIFEST.in](MANIFEST.in) - Package configuration
 
 ---
 
