@@ -2,6 +2,20 @@
 
 Backend Helper is a Visual Studio Code extension that integrates the `bck-nd-hlpr` CLI directly into the editor, providing AI context generation, architecture visualization, UML/ER diagrams, project insights, and security auditing from a unified control panel.
 
+> **Requires `bck-nd-hlpr` ≥ 2.0.0** — the extension consumes the decoupled CLI layer; all analysis runs through `bck-nd` commands.
+
+## 🚀 What's New in CLI 2.0.0 (Backend)
+
+The underlying `bck-nd-hlpr` engine was restructured in v2.0.0. The extension benefits automatically from:
+
+- **Decoupled architecture** — `core/` engine is independent of terminal libraries; the extension only invokes CLI commands.
+- **Faster scans** — concurrent analyzer execution and thread-safe file caching reduce wait times for diagram generation.
+- **Resilient parsing** — a single broken file no longer aborts the entire scan; partial results are still rendered.
+- **Lazy loading** — faster startup when projects don't use C#, Java, PHP, or JS/TS parsers.
+- **Direct `.mmd` export** — diagrams can be saved as clean Mermaid files via `-o diagram.mmd`.
+
+For MCP integration (Claude Desktop / Cursor), use the packaged server: `bck-nd-mcp`. See [ADVANCED.md](../ADVANCED.md).
+
 ## Features
 
 ### AI Context Generation
@@ -44,19 +58,20 @@ Quick access to:
 
 ## Prerequisites
 
-Install the Backend Helper CLI:
+Install the Backend Helper CLI (v2.0.0+):
 
 ```bash
-pip install bck-nd-hlpr
+pip install -U bck-nd-hlpr
 ```
 
 Verify installation:
 
 ```bash
 bck-nd --help
+bck-nd-mcp --help   # optional, for MCP integration
 ```
 
-The CLI must be available in your system PATH.
+Both `bck-nd` and `bck-nd-mcp` must be available in your system PATH.
 
 ---
 
@@ -195,7 +210,7 @@ Select:
 The extension executes:
 
 ```bash
-bck-nd audit
+bck-nd scan . --audit
 ```
 
 Results are displayed directly inside VS Code together with traceability information.
@@ -322,6 +337,19 @@ Temporary files such as:
 ```
 
 are created in the workspace root and automatically added to `.gitignore` when necessary.
+
+---
+
+## Exporting Diagrams
+
+You can also export diagrams directly from the terminal (outside the extension UI):
+
+```bash
+bck-nd scan . --uml -o classes.mmd
+bck-nd scan . --er -o schema.mmd
+```
+
+ANSI escape codes are stripped automatically, producing clean Mermaid files ready for Obsidian, Notion, or CI/CD pipelines.
 
 ---
 

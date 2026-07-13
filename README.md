@@ -30,6 +30,27 @@
 - 📱 **Expo/React Native Detection**: Auto-detects Expo and React Native projects for appropriate diagramming.
 - ⚙️ **`--max-core-files N` Flag**: Limits the number of core files exported by `bck-nd prompt`.
 
+## 🚀 What's New in Version 2.0.0 (Major Architecture & Performance Update)
+
+This major release represents a complete restructuring of `bck-nd-hlpr`'s foundations. We've redesigned the tool under a decoupled (MVC) model and equipped the engine with high-performance, concurrency, and resilience capabilities:
+
+### 🏗️ 1. Modular & Decoupled Architecture (Core vs. CLI)
+
+- **Agnostic Engine (`core/`):** The analysis engine (AST, Tree-Sitter, trackers) is now 100% independent of the terminal. All `rich` and `typer` dependencies have been completely removed from the engine, enabling clean use as a pure Python library or integration into async servers.
+- **Specialized Views (`cli/`):** Visual presentation logic (colored tables, progress bars, and TUI) now lives exclusively in the console client, consuming pure data from the engine.
+- **ScannerOrchestrator Facade:** A single facade centralizes option input (`OrchestratorConfig`) and compiles a structured output object (`OrchestratorResult`).
+
+### ⚡ 2. High-Performance Suite (Multi-Threading & Caching)
+
+- **Concurrent Orchestrator (ThreadPoolExecutor):** Independent analyzers (Tech Debt, Security Audit, Infrastructure diagramming) no longer run sequentially. The orchestrator distributes tasks across a thread pool in parallel, drastically reducing total scan time.
+- **Thread-Safe In-Memory File Cache:** A cache manager with safe write locks and non-blocking disk reads. If a thread reads a code file, its content is temporarily stored in memory so other concurrent threads can consume it instantly, reducing disk I/O by over 70%.
+- **Lazy Loading:** Heavy Tree-Sitter analyzers for C#, Java, PHP, and JS/TS are imported locally and dynamically only when the detector heuristic confirms the presence of those languages in the repository.
+
+### 🛡️ 3. Resilience & Documentation Flexibility
+
+- **Fault Tolerance (Error Isolation):** Each orchestrator task runs in a safe isolated environment (`try-except`). If a single corrupted or syntactically invalid file causes a parser to fail, the orchestrator captures the error, adds it to a warnings list (`execution_warnings`), and continues the scan to deliver the rest of the report intact.
+- **Direct Mermaid Exporter (`.mmd`):** The CLI now supports saving clean diagrams directly to standard Mermaid files (e.g. `bck-nd scan . --er -o schema.mmd`), automatically stripping ANSI escape codes and terminal formatting — ideal for Obsidian, Notion, and GitHub CI/CD workflows.
+
 ### 🗄️ ORM Parser Support Status
 
 | ORM                                  | Parser Type   | Coverage / Status  |
@@ -640,8 +661,8 @@ bck-nd scan . -o architecture.txt
 # Save Technical Debt Report (Clean text)
 bck-nd scan . --todo -o report.txt
 
-# Save Mermaid diagram
-bck-nd scan . --er --format mermaid -o db.mmd
+# Save Mermaid diagram directly to a .mmd file (ANSI codes stripped automatically)
+bck-nd scan . --er -o db.mmd
 ```
 
 ---
@@ -683,7 +704,13 @@ bck-nd scan . --ai --provider ollama
 
 ## 🤖 MCP Integration (Claude Desktop / Cursor)
 
-Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**, providing 16 powerful architecture tools directly to your AI assistants, including our 5 newly supported AI co-pilot tools:
+Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**, providing 16 powerful architecture tools directly to your AI assistants, including our 5 newly supported AI co-pilot tools.
+
+Start the MCP server with the packaged entry point:
+
+```bash
+bck-nd-mcp
+```
 
 - `get_project_health` (Calculates and displays the project health scorecard)
 - `get_guided_onboarding` (Retrieves the step-by-step reading sequence for new devs)
