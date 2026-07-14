@@ -1,6 +1,6 @@
 """
-Módulo para el análisis estático de código Java utilizando tree-sitter.
-Genera estructuras compatibles con UMLClassInfo y EREntity para Spring Boot / JPA.
+Module for static analysis of Java code using Tree-Sitter.
+Generates structures compatible with UMLClassInfo and EREntity for Spring Boot / JPA.
 """
 import os
 from pathlib import Path
@@ -19,7 +19,7 @@ from bck_nd_hlpr.core.er_parser import EREntity
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 def get_node_text(node: tree_sitter.Node, source_bytes: bytes) -> str:
-    """Helper para extraer el texto de un nodo."""
+    """Helper to extract text from a node."""
     return source_bytes[node.start_byte:node.end_byte].decode('utf-8')
 
 def find_child_by_type(node: tree_sitter.Node, node_type: str) -> Optional[tree_sitter.Node]:
@@ -225,7 +225,7 @@ class JavaERVisitor:
 
 def parse_project_for_java_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
     if not PARSER:
-         print("⚠️ No se pudo cargar tree-sitter-java.")
+         print("⚠️ Could not load Tree-Sitter parser (tree-sitter-java).")
          return []
          
     all_classes = []

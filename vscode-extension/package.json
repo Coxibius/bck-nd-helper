@@ -1,55 +1,10 @@
 {
   "name": "bck-nd-vscode",
-  "displayName": "Backend Helper MVP",
-  "description": "VS Code integration for bck-nd-hlpr CLI",
   "version": "1.0.0",
-  "engines": {
-    "vscode": "^1.80.0"
+  "publisher": "coxibius",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Coxibius/bck-nd-helper.git"
   },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [
-    "onView:backendHelperView.controlPanel"
-  ],
-  "main": "./out/extension.js",
-  "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "backendHelperView",
-          "title": "Backend Helper",
-          "icon": "resources/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "backendHelperView": [
-        {
-          "type": "webview",
-          "id": "backendHelperView.controlPanel",
-          "name": "BCK-ND: Control Panel"
-        }
-      ]
-    },
-    "commands": [
-      {
-        "command": "bck-nd.generateDiagram",
-        "title": "Backend Helper: Generate Architecture Diagram"
-      }
-    ]
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "build": "npm run compile",
-    "watch": "tsc -watch -p ./",
-    "package": "npx @vscode/vsce package"
-  },
-  "devDependencies": {
-    "@types/node": "18.x",
-    "@types/vscode": "^1.80.0",
-    "@vscode/vsce": "^3.9.2",
-    "typescript": "^5.1.3"
-  }
+...
 }

@@ -307,7 +307,7 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
                         this._handleExecError(error, stderr);
                     } else {
                         this._outputChannel.appendLine(`\n>>> Execution finished successfully.`);
-                        vscode.window.showInformationMessage(`¡${config.title} completed! Results in the Backend Helper panel.`);
+                        vscode.window.showInformationMessage(`${config.title} completed! Results in the Backend Helper panel.`);
                     }
                     resolve();
                 });
@@ -449,7 +449,7 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
      */
     private _getHtmlForWebview(webview: vscode.Webview): string {
         return `<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

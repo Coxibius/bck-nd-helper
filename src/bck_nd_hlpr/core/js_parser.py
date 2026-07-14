@@ -1,9 +1,9 @@
 """
-Módulo para el análisis estático de código JavaScript/TypeScript utilizando tree-sitter.
-Genera estructuras compatibles con UMLClassInfo y EREntity para Node/Express (Mongoose/Sequelize).
+Module for static analysis of JavaScript/TypeScript code using Tree-Sitter.
+Generates structures compatible with UMLClassInfo and EREntity for Node/Express (Mongoose/Sequelize).
 
-Los visitors heredan de :class:`~bck_nd_hlpr.ts_base.BaseTreeSitterVisitor`,
-que centraliza el recorrido del árbol y los helpers de extracción.
+Visitors inherit from :class:`~bck_nd_hlpr.ts_base.BaseTreeSitterVisitor`,
+which centralizes tree traversal and extraction helpers.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ _HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPT
 
 
 class JSUMLVisitor(BaseTreeSitterVisitor):
-    """Extrae clases, componentes React y route handlers como UMLClassInfo."""
+    """Extracts classes, React components, and route handlers as UMLClassInfo."""
 
     def __init__(self, source_bytes: bytes, module_name: str) -> None:
         super().__init__(source_bytes)
@@ -35,7 +35,7 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
         self.classes: List[UMLClassInfo] = []
         self.current_class: Optional[UMLClassInfo] = None
 
-    # -- dispatch handlers (convención visit_<node_type>) ---------------
+    # -- dispatch handlers (convention: visit_<node_type>) ---------------
 
     def visit_class_declaration(self, node: Node) -> None:
         self._visit_class(node)
@@ -115,7 +115,7 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
 
 
 class JSERVisitor(BaseTreeSitterVisitor):
-    """Detecta modelos Mongoose (`.model`) y Sequelize (`.define`) como EREntity."""
+    """Detects Mongoose (`.model`) and Sequelize (`.define`) models as EREntity."""
 
     def __init__(self, source_bytes: bytes) -> None:
         super().__init__(source_bytes)
@@ -126,7 +126,7 @@ class JSERVisitor(BaseTreeSitterVisitor):
     def visit_call_expression(self, node: Node) -> bool:
         # Look for mongoose.model('Name', schema) or sequelize.define('Name', schema)
         self._check_model_definition(node)
-        return True  # seguir recorriendo: pueden existir llamadas anidadas
+        return True  # continue traversal: nested calls may exist
 
     # -- extraction ---------------------------------------------------------
 
@@ -187,7 +187,7 @@ class JSERVisitor(BaseTreeSitterVisitor):
 
 def parse_project_for_js_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
     if not PARSER:
-        print("⚠️ No se pudo cargar tree-sitter-javascript.")
+        print("⚠️ Could not load Tree-Sitter parser (tree-sitter-javascript).")
         return []
 
     all_classes: List[UMLClassInfo] = []

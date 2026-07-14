@@ -1,3 +1,4 @@
+import html
 import os
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from bck_nd_hlpr.core.uml_parser import parse_file_for_uml, generate_mermaid_cla
 from bck_nd_hlpr.core.todo_hunter import scan_for_todos
 from bck_nd_hlpr.core.scanner import ProjectScanner
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
+from bck_nd_hlpr.core.context_dumper import ContextDumper
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en" data-theme="light">
@@ -72,7 +74,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         h1 { margin: 0; font-size: 1.5rem; font-weight: 700; background: linear-gradient(to right, var(--primary), #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 
-        .theme-toggle {
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .theme-toggle, .copy-ai-btn {
             background: var(--border);
             border: none;
             padding: 0.5rem 1rem;
@@ -83,8 +92,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            font-family: inherit;
+            font-size: 0.875rem;
         }
-        .theme-toggle:hover { opacity: 0.8; }
+        .theme-toggle:hover, .copy-ai-btn:hover { opacity: 0.8; }
+
+        .copy-ai-btn {
+            background: var(--primary);
+            color: white;
+        }
+        .copy-ai-btn.copied {
+            background: #10b981;
+        }
 
         .container { max-width: 1400px; margin: 2rem auto; padding: 0 1rem; }
         
@@ -158,11 +177,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
     <header>
         <h1>Project Architecture Documentation 🛠️</h1>
-        <button class="theme-toggle" id="theme-toggle">
-            <span id="theme-icon">🌙</span>
-            <span id="theme-text">Dark Mode</span>
-        </button>
+        <div class="header-actions">
+            <button class="copy-ai-btn" id="copy-ai-context-btn" type="button" title="Copy the full LLM-optimized project context to your clipboard">
+                🤖 Copy Complete AI Context to Clipboard
+            </button>
+            <button class="theme-toggle" id="theme-toggle">
+                <span id="theme-icon">🌙</span>
+                <span id="theme-text">Dark Mode</span>
+            </button>
+        </div>
     </header>
+
+    <textarea id="ai-context-content" style="display:none;" readonly aria-hidden="true">{ai_context}</textarea>
 
     <div class="container">
         <div class="card">
@@ -228,6 +254,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+
+        const copyAiBtn = document.getElementById('copy-ai-context-btn');
+        const aiContextEl = document.getElementById('ai-context-content');
+        const defaultCopyLabel = copyAiBtn.textContent;
+
+        copyAiBtn.addEventListener('click', async () => {
+            const text = aiContextEl.value;
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch (err) {
+                // Fallback for file:// or restricted clipboard permissions
+                aiContextEl.style.display = 'block';
+                aiContextEl.select();
+                document.execCommand('copy');
+                aiContextEl.style.display = 'none';
+            }
+            copyAiBtn.textContent = 'Copied! 👍';
+            copyAiBtn.classList.add('copied');
+            setTimeout(() => {
+                copyAiBtn.textContent = defaultCopyLabel;
+                copyAiBtn.classList.remove('copied');
+            }, 2000);
+        });
 
         const themeToggle = document.getElementById('theme-toggle');
         const themeIcon = document.getElementById('theme-icon');
@@ -390,7 +439,14 @@ class DocGenerator:
         else:
             todos_table = "<p>No data detected</p>"
 
-        # Render HTML
+        # 5. AI Context dump (LLM-optimized XML) for clipboard copy
+        try:
+            ai_context = ContextDumper(path=root_path).build()
+        except Exception as e:
+            ai_context = f"<!-- Failed to generate AI context: {e} -->"
+        ai_context_escaped = html.escape(ai_context)
+
+        # Render HTML (ai_context last so dump content cannot collide with other placeholders)
         html_content = HTML_TEMPLATE.replace(
             "{project_tree}", project_tree
         ).replace(
@@ -403,6 +459,8 @@ class DocGenerator:
             "{er_diagram}", er_diagram
         ).replace(
             "{todos_table}", todos_table
+        ).replace(
+            "{ai_context}", ai_context_escaped
         )
 
         # Write to file

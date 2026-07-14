@@ -1,5 +1,5 @@
 """
-Detector de tipos de arquitectura y frameworks backend.
+Detector for backend architecture types and frameworks.
 """
 import re
 import os
@@ -16,7 +16,7 @@ except ImportError:
         toml = None # Fallback if installation fails/not present
 
 class ArchitectureDetector:
-    """Detecta el tipo de backend y arquitectura del proyecto."""
+    """Detects the backend type and architecture of the project."""
     
     DEFAULT_CONFIG = {
         "controllers": ["controller", "controllers"],
@@ -33,7 +33,7 @@ class ArchitectureDetector:
         self.config = self.DEFAULT_CONFIG.copy()
 
     def _load_config(self, root: Path):
-        """Carga configuración desde pyproject.toml si existe."""
+        """Loads configuration from pyproject.toml if it exists."""
         config_file = root / "pyproject.toml"
         if not config_file.exists() or toml is None:
             return
@@ -42,23 +42,23 @@ class ArchitectureDetector:
             with open(config_file, "rb") as f:
                 data = toml.load(f)
             
-            # Buscar sección [tool.bck-nd]
+            # Look for [tool.bck-nd] section
             tool_config = data.get("tool", {}).get("bck-nd", {})
             
             if tool_config:
-                # Actualizar claves permitidas
+                # Update allowed keys
                 for key in self.config.keys():
                     if key in tool_config and isinstance(tool_config[key], list):
                         self.config[key] = tool_config[key]
-                        # Normalizar a minusculas
+                        # Normalize to lowercase
                         self.config[key] = [x.lower() for x in self.config[key]]
         except Exception:
-            pass # Si falla leer config, usamos defaults silenciosamente
+            pass # If reading config fails, silently use defaults
         
     def _safe_walk(self, root: Path, extension: str = None):
-        """Itera de forma segura sobre los archivos respetando GLOBAL_IGNORE_DIRS."""
+        """Safely iterates over files respecting GLOBAL_IGNORE_DIRS."""
         for root_dir, dirs, files in os.walk(root):
-            # Filtramos directorios in-place para no descender en ellos
+            # Filter directories in-place to prevent descending into them
             dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
             
             for file in files:
@@ -69,7 +69,7 @@ class ArchitectureDetector:
                     yield Path(root_dir) / file
 
     def detect(self, root_path: str) -> Dict:
-        """Analiza el proyecto y retorna información arquitectónica."""
+        """Analyzes the project and returns architectural information."""
         root = Path(root_path).resolve()
         if not root.is_dir():
             return {
@@ -79,16 +79,16 @@ class ArchitectureDetector:
                 'summary': f"Single file: {root.name}"
             }
         
-        # Cargar configuración personalizada
+        # Load custom configuration
         self._load_config(root)
         
-        # Detectar framework
+        # Detect framework
         self.framework = self._detect_framework(root)
         
-        # Detectar tipo de arquitectura
+        # Detect architecture type
         self.architecture_type = self._detect_architecture_type(root)
         
-        # Detectar características específicas
+        # Detect specific features
         self._detect_features(root)
         
         return {
@@ -99,7 +99,7 @@ class ArchitectureDetector:
         }
     
     def _detect_framework(self, root: Path) -> str:
-        """Detecta el framework principal."""
+        """Detects the main framework."""
         # Python Web Frameworks
         for py_file in self._safe_walk(root, ".py"):
             try:
@@ -212,7 +212,7 @@ class ArchitectureDetector:
         return 'Unknown'
     
     def _detect_architecture_type(self, root: Path) -> str:
-        """Detecta el patrón arquitectónico."""
+        """Detects the architectural pattern."""
         if self.framework == 'Next.js':
             if (root / 'app').exists() or (root / 'src' / 'app').exists():
                 return 'Next.js App Router'
@@ -227,11 +227,11 @@ class ArchitectureDetector:
         has_docker = False
         has_microservices = False
         
-        # Usamos os.walk para iterar directorios de forma segura
+        # Use os.walk to safely iterate directories
         for root_dir, dirs, files in os.walk(root):
             dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
             
-            # Verificar nombres de directorios actuales
+            # Check current directory names
             for dir_name in dirs:
                 name_lower = dir_name.lower()
                 
@@ -244,11 +244,11 @@ class ArchitectureDetector:
                 if name_lower in self.config['routes']:
                     has_routes = True
         
-        # Detectar Docker
+        # Detect Docker
         if (root / 'docker-compose.yml').exists() or (root / 'Dockerfile').exists():
             has_docker = True
             
-        # Detectar microservicios (múltiples services en docker-compose)
+        # Detect microservices (multiple services in docker-compose)
         docker_compose = root / 'docker-compose.yml'
         if docker_compose.exists():
             try:
@@ -259,7 +259,7 @@ class ArchitectureDetector:
             except:
                 pass
         
-        # Determinar tipo
+        # Determine type
         if has_microservices:
             return 'Microservices Architecture'
         elif has_controllers and has_models and has_services:
@@ -274,8 +274,8 @@ class ArchitectureDetector:
             return 'Monolithic Application'
     
     def _detect_features(self, root: Path):
-        """Detecta características y tecnologías adicionales."""
-        # Base de datos
+        """Detects additional features and technologies."""
+        # Database
         for ext in ['.sql', '.db', '.sqlite']:
             # Verificar si existe alguno usando safe walk
             found = False
@@ -323,7 +323,7 @@ class ArchitectureDetector:
                 continue
     
     def _generate_summary(self) -> str:
-        """Genera un resumen textual de la arquitectura."""
+        """Generates a textual summary of the architecture."""
         parts = []
         
         if self.framework != 'Unknown':

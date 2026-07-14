@@ -32,90 +32,90 @@ class ArchitectureExplorer(App):
         yield Horizontal(
             DirectoryTree("./", id="tree_view", classes="sidebar"),
             Vertical(
-                Static("Selecciona un archivo o directorio en el árbol para ver su análisis...", id="info_box"),
+                Static("Select a file or directory in the tree to view its analysis...", id="info_box"),
                 id="main_view", classes="content"
             )
         )
         yield Footer()
 
     def action_toggle_dark(self) -> None:
-        """Acción para cambiar el tema oscuro/claro."""
+        """Action to toggle dark/light theme."""
         self.dark = not self.dark
 
     def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
-        """Maneja cuando se selecciona un archivo individual."""
+        """Handles when an individual file is selected."""
         path = str(event.path)
         info_box = self.query_one("#info_box", Static)
         
         try:
             if path.endswith(".py"):
-                # Mostrar Imports/Flujo local
+                # Show Imports/Local flow
                 flow = self.scanner.scan_file(path)
                 
-                # Mostrar rutas de API si existen
+                # Show API routes if they exist
                 routes = parse_project_routes(path, max_depth=1)
                 
-                output = f"[b]Archivo:[/b] {path}\n\n"
+                output = f"[b]File:[/b] {path}\n\n"
                 
                 if flow:
-                    # Usamos el modo local text de narrator / ascii
+                    # Use local text mode of narrator / ascii
                     # The Router generates ASCII rendering
                     ascii_diagram = self.router.render_ascii(flow)
-                    output += "[b]Diagrama ASCII:[/b]\n"
+                    output += "[b]ASCII Diagram:[/b]\n"
                     output += ascii_diagram + "\n\n"
                 else:
-                    output += "[i]No se detectaron relaciones externas (importaciones locales).[/i]\n\n"
+                    output += "[i]No external dependencies or relationships detected...[/i]\n\n"
                 
                 if routes:
-                    output += "[b]Rutas API Detectadas:[/b]\n"
+                    output += "[b]Detected API Routes:[/b]\n"
                     seq_code = generate_mermaid_sequence(routes)
-                    output += "```mermaid\n" + seq_code + "\n```\n(Copia para Mermaid)"
+                    output += "```mermaid\n" + seq_code + "\n```\n(Copy for Mermaid)"
                 
                 info_box.update(output)
             else:
-                # Intentar leer como archivo de texto plano
+                # Try to read as plain text file
                 try:
                     with open(path, 'r', encoding='utf-8') as f:
                         content = f.read()
                     
-                    # Limitar tamaño de visualización si es muy grande
+                    # Limit display size if the file is too large
                     if len(content) > 10000:
-                        content = content[:10000] + "\n\n... [Contenido truncado. Archivo muy grande.]"
+                        content = content[:10000] + "\n\n... [Content truncated. File too large.]"
                         
-                    output = f"[b]Vista previa ({path}):[/b]\n\n"
-                    # Usamos escape para que Textual no intente interpretar
-                    # caracteres especiales como rich markup inesperado
+                    output = f"[b]Preview ({path}):[/b]\n\n"
+                    # Use escape so Textual doesn't try to interpret
+                    # special characters as unexpected rich markup
                     escaped_content = content.replace("[", "\\[")
                     output += escaped_content
                     info_box.update(output)
 
                 except UnicodeDecodeError:
-                    info_box.update(f"[b]Archivo seleccionado:[/b] {path}\n\n[yellow]⚠️ Archivo no legible (Binario o codificación no soportada).[/yellow]")
+                    info_box.update(f"[b]Selected file:[/b] {path}\n\n[yellow]⚠️ Unreadable file (binary or unsupported encoding).[/yellow]")
                  
         except Exception as e:
-            info_box.update(f"[red]Error procesando archivo: {e}[/red]")
+            info_box.update(f"[red]Error processing file: {e}[/red]")
 
     def on_directory_tree_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
-        """Maneja cuando se selecciona un directorio."""
+        """Handles when a directory is selected."""
         path = str(event.path)
         info_box = self.query_one("#info_box", Static)
         
         try:
-            # Escanear al nivel de directorio seleccionado
-            output = f"[b]Directorio:[/b] {path}\n\n"
-            flow = self.scanner.scan(path, max_depth=1) # Usamos depth bajo para no colapsar la app
+            # Scan at the selected directory level
+            output = f"[b]Directory:[/b] {path}\n\n"
+            flow = self.scanner.scan(path, max_depth=1) # Use low depth to avoid collapsing the app
             
             if flow:
                 ascii_diagram = self.router.render_ascii(flow)
-                output += "[b]Arquitectura del Directorio:[/b]\n"
+                output += "[b]Directory Architecture:[/b]\n"
                 output += ascii_diagram
             else:
-                output += "[i]Directorio vacío o sin código estructural.[/i]"
+                output += "[i]Empty directory or no structural code found.[/i]"
                 
             info_box.update(output)
             
         except Exception as e:
-            info_box.update(f"[red]Error procesando directorio: {e}[/red]")
+            info_box.update(f"[red]Error processing directory: {e}[/red]")
 
 if __name__ == "__main__":
     app = ArchitectureExplorer()

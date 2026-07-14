@@ -36,8 +36,8 @@ RISK_PATTERNS = {
 
 def scan_sensitive_exposures(root_path: str, entities: List, file_list: Optional[List] = None) -> List[Dict]:
     """
-    Analiza los modelos de BD detectados por er_parser y los cruza con las rutas de API
-    detectadas por route_parser para advertir si campos sensibles pueden estar expuestos.
+    Analyzes the DB models detected by er_parser and cross-references them with the API
+    routes detected by route_parser to warn if sensitive fields may be exposed.
 
     Args:
         root_path: Root directory of the project.
@@ -53,7 +53,7 @@ def scan_sensitive_exposures(root_path: str, entities: List, file_list: Optional
     
     _EXPOSURE_SUFFIXES = {'.py', '.js', '.ts', '.cs', '.java', '.php', '.rb'}
 
-    # 1. Identificar entidades con columnas sensibles
+    # 1. Identify entities with sensitive columns
     sensitive_entities = {}
     for entity in entities:
         sens_cols = []
@@ -94,7 +94,7 @@ def scan_sensitive_exposures(root_path: str, entities: List, file_list: Optional
                 if len(line) > 500:
                     continue
                 
-                # Ignorar comentarios
+                # Ignore comments
                 stripped = line.strip()
                 if stripped.startswith('#') or stripped.startswith('//'):
                     continue
@@ -132,7 +132,7 @@ def scan_sensitive_exposures(root_path: str, entities: List, file_list: Optional
                             'category': 'Sensitive Data',
                             'message': f"Entity '{ent_name}' (sensitive cols: {cols_str}) exposed in {match_type}: {stripped[:60]}"
                         })
-                        break # Evitar duplicar en la misma línea
+                        break # Avoid duplicating on the same line
         except Exception:
             pass
                 
@@ -179,7 +179,7 @@ def scan_security_risks(root_path: str, max_depth: int = 10, file_list: Optional
             for i, line in enumerate(lines, 1):
                 if len(line) > 500: continue # Skip huge lines (minified code)
                 
-                # Ignorar comentarios
+                # Ignore comments
                 stripped_line = line.strip()
                 if stripped_line.startswith('#') or stripped_line.startswith('//'):
                     continue
@@ -242,7 +242,7 @@ def scan_security_risks(root_path: str, max_depth: int = 10, file_list: Optional
                             if '%' in val_clean and val_clean.endswith('s'):
                                 continue
                                 
-                            # Mínimo de longitud para el valor (> 6 chars)
+                            # Minimum length for the value (> 6 chars)
                             if desc in ["Hardcoded Credential", "Database Password"] and len(val_clean) <= 6:
                                 continue
                             
@@ -304,15 +304,15 @@ def scan_security_risks(root_path: str, max_depth: int = 10, file_list: Optional
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FUTURE FUNCTIONS — Cimientos para features planificadas
+# FUTURE FUNCTIONS — Foundations for planned features
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_security_score_breakdown(root_path: str, max_depth: int = 10) -> dict:
-    """[STUB] Retorna métricas de seguridad normalizadas para el Health Score.
+    """[STUB] Returns normalized security metrics for the Health Score.
     
-    Diseño futuro:
-    1. Llamar a scan_security_risks(root_path, max_depth).
-    2. Calcular penalización: CRITICAL × 20, HIGH × 10, WARNING × 3.
-    3. Retornar: {total_risks, critical, high, warning, penalty_score, has_env_exposed: bool}.
+    Future design:
+    1. Call scan_security_risks(root_path, max_depth).
+    2. Calculate penalty: CRITICAL × 20, HIGH × 10, WARNING × 3.
+    3. Return: {total_risks, critical, high, warning, penalty_score, has_env_exposed: bool}.
     """
     pass

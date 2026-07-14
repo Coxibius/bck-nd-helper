@@ -49,3 +49,8 @@ def test_doc_generator_basic(tmp_path):
     assert "<title>Project Documentation</title>" in html_content
     assert "MyService" in html_content
     assert "nginx" in html_content
+    assert 'id="copy-ai-context-btn"' in html_content
+    assert 'id="ai-context-content"' in html_content
+    assert "Copy Complete AI Context to Clipboard" in html_content
+    assert "&lt;project_tree&gt;" in html_content or "<project_tree>" in html_content
+    assert "navigator.clipboard.writeText" in html_content

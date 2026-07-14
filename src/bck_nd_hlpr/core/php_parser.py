@@ -1,6 +1,6 @@
 """
-Módulo para el análisis estático de código PHP utilizando tree-sitter.
-Genera estructuras compatibles con UMLClassInfo y EREntity para Laravel/Eloquent.
+Module for static analysis of PHP code using Tree-Sitter.
+Generates structures compatible with UMLClassInfo and EREntity for Laravel/Eloquent.
 """
 import os
 from pathlib import Path
@@ -203,7 +203,7 @@ class PHPERVisitor:
 
 def parse_project_for_php_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
     if not PARSER:
-         print("⚠️ No se pudo cargar tree-sitter-php.")
+         print("⚠️ Could not load Tree-Sitter parser (tree-sitter-php).")
          return []
          
     all_classes = []

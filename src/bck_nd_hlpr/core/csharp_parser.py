@@ -1,6 +1,6 @@
 """
-Módulo para el análisis estático de código C# utilizando tree-sitter.
-Genera estructuras compatibles con UMLClassInfo y EREntity.
+Module for static analysis of C# code using Tree-Sitter.
+Generates structures compatible with UMLClassInfo and EREntity.
 """
 from __future__ import annotations
 
@@ -189,7 +189,7 @@ class CSharpERVisitor(BaseTreeSitterVisitor):
 
 def parse_project_for_csharp_uml(root_path: str, max_depth: int = 3) -> List[UMLClassInfo]:
     if not PARSER:
-        print("⚠️ No se pudo cargar tree-sitter.")
+        print("⚠️ Could not load Tree-Sitter parser.")
         return []
 
     all_classes: List[UMLClassInfo] = []
@@ -208,7 +208,7 @@ def parse_project_for_csharp_uml(root_path: str, max_depth: int = 3) -> List[UML
 
 def parse_project_for_csharp_er(root_path: str, max_depth: int = 3) -> List[EREntity]:
     if not PARSER:
-        print("⚠️ No se pudo cargar tree-sitter.")
+        print("⚠️ Could not load Tree-Sitter parser.")
         return []
 
     all_entities: List[EREntity] = []
