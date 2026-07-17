@@ -64,7 +64,7 @@ jobs:
       - name: Generate static documentation
         run: |
           mkdir -p docs
-          python -m bck_nd_hlpr.cli docs . --output docs
+          bck-nd docs . --output docs
         shell: bash
 
       - name: Create .nojekyll
