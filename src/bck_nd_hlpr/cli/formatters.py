@@ -9,9 +9,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from bck_nd_hlpr.core.todo_hunter import scan_for_todos
-from bck_nd_hlpr.cli.formatters import get_todos_table_string
-
 # Color scheme for each debt type (moved from todo_hunter)
 DEBT_MARKERS = ['TODO', 'FIXME', 'HACK', 'XXX', 'BUG']
 TYPE_COLORS = {

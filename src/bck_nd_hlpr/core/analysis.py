@@ -212,7 +212,8 @@ class TodoAnalyzer(Analyzer):
     intro = "Searching for: TODO, FIXME, HACK, XXX, BUG..."
 
     def run(self, ctx: ScanContext) -> AnalyzerResult:
-        from bck_nd_hlpr.core.todo_hunter import scan_for_todos, get_todos_table_string
+        from bck_nd_hlpr.core.todo_hunter import scan_for_todos
+        from bck_nd_hlpr.cli.formatters import get_todos_table_string
         todos = scan_for_todos(ctx.path, max_depth=ctx.depth)
         if not todos:
             return AnalyzerResult(
@@ -234,7 +235,8 @@ class AuditAnalyzer(Analyzer):
     intro = "Searching for: Credentials, Keys, IPs, Secrets..."
 
     def run(self, ctx: ScanContext) -> AnalyzerResult:
-        from bck_nd_hlpr.core.security_auditor import scan_security_risks, get_security_report_string
+        from bck_nd_hlpr.core.security_auditor import scan_security_risks
+        from bck_nd_hlpr.cli.formatters import get_security_report_string
         risks = scan_security_risks(ctx.path, max_depth=ctx.depth)
         return AnalyzerResult(
             content=get_security_report_string(risks, plain=ctx.plain),
@@ -249,7 +251,8 @@ class ImpactAnalyzer(Analyzer):
     banner = "[IMPACT] 🕸️ ANALYZING DEPENDENCY AND CHANGE RISK:"
 
     def run(self, ctx: ScanContext) -> AnalyzerResult:
-        from bck_nd_hlpr.core.dependency_tracker import analyze_impact, get_impact_report_string
+        from bck_nd_hlpr.core.dependency_tracker import analyze_impact
+        from bck_nd_hlpr.cli.formatters import get_impact_report_string
         usage_map = analyze_impact(ctx.path)
         return AnalyzerResult(
             content=get_impact_report_string(usage_map, plain=ctx.plain),
