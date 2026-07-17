@@ -36,12 +36,17 @@ from bck_nd_hlpr.core.narrator import Narrator
 from bck_nd_hlpr.core.er_parser import parse_project_for_er, generate_mermaid_er
 from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence
 from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
-from bck_nd_hlpr.core.todo_hunter import scan_for_todos, get_todos_table_string
-from bck_nd_hlpr.core.security_auditor import scan_security_risks, get_security_report_string
+from bck_nd_hlpr.core.todo_hunter import scan_for_todos
+from bck_nd_hlpr.core.security_auditor import scan_security_risks
 from bck_nd_hlpr.core.doc_generator import DocGenerator
 from bck_nd_hlpr.core.ci_generator import generate_ci_workflow
 from bck_nd_hlpr.core.traceability import parse_project_traceability, generate_mermaid_traceability
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
+from bck_nd_hlpr.cli.formatters import (
+    get_todos_table_string,
+    get_security_report_string,
+    get_impact_report_string,
+)
 
 mcp = FastMCP(
     "Backend Helper MCP Server",
@@ -192,7 +197,7 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
 
         # 7. DEPENDENCY IMPACT HEATMAP
         try:
-            from bck_nd_hlpr.core.dependency_tracker import analyze_impact as _analyze_impact, get_impact_report_string
+            from bck_nd_hlpr.core.dependency_tracker import analyze_impact as _analyze_impact
             usage_map = _analyze_impact(path)
             if usage_map:
                 result.append("\n[IMPACT] DEPENDENCY HEATMAP:")
@@ -475,7 +480,7 @@ def analyze_impact(path: str = ".") -> str:
         path: Path to the project root to analyze. Default ".".
     """
     try:
-        from bck_nd_hlpr.core.dependency_tracker import analyze_impact as _analyze_impact, get_impact_report_string
+        from bck_nd_hlpr.core.dependency_tracker import analyze_impact as _analyze_impact
         usage_map = _analyze_impact(path)
         return get_impact_report_string(usage_map, plain=True)
     except Exception as e:
