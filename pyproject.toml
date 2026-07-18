@@ -5,9 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bck-nd-hlpr"
 
-version = "2.0.1" 
-
-
+version = "2.0.2"
 
 description = "The Backend Helper - Your CLI Context help for AI and Humans"
 
@@ -56,5 +54,11 @@ Homepage = "https://github.com/Coxibius/bck-nd-helper"
 Repository = "https://github.com/Coxibius/bck-nd-helper"
 "Bug Tracker" = "https://github.com/Coxibius/bck-nd-helper/issues"
 
+# Strict src-layout only. Never pick up a leftover ./bck_nd_hlpr flat package.
+[tool.setuptools.package-dir]
+"" = "src"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["bck_nd_hlpr*"]
+exclude = ["tests*", "vscode-extension*", "docs*"]

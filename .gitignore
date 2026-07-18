@@ -8,6 +8,9 @@ __pycache__/
 dist/
 build/
 
+# Leftover flat-layout package from pre-src migrations (shadows src/bck_nd_hlpr)
+/bck_nd_hlpr/
+
 # ==========================================
 # 💻 Entornos Virtuales y Configuración IDE
 # ==========================================
