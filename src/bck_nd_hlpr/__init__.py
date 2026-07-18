@@ -71,5 +71,9 @@ sys.modules["bck_nd_hlpr.utils.cleaning"] = cleaning
 sys.modules["bck_nd_hlpr.utils.downloader"] = downloader
 sys.modules["bck_nd_hlpr.utils.gitignore_parser"] = gitignore_parser
 
-# Expose the cli app for backend execution compatibility
-from bck_nd_hlpr.cli.cli import app
+def __getattr__(name: str):
+    """Lazy-load CLI so `import bck_nd_hlpr` never pulls Typer/MCP into core imports."""
+    if name == "app":
+        from bck_nd_hlpr.cli.cli import app as _app
+        return _app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
