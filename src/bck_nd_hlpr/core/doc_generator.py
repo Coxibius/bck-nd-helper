@@ -12,7 +12,7 @@ from bck_nd_hlpr.core.tree_generator import generate_project_tree
 from bck_nd_hlpr.core.context_dumper import ContextDumper
 
 HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -22,31 +22,35 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #1e293b;
-            --text-muted: #64748b;
-            --primary: #3b82f6;
-            --border: #e2e8f0;
-            --header-bg: #ffffff;
-            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-            --textarea-bg: #f1f5f9;
-            --textarea-text: #0f172a;
-            --preview-bg: #ffffff;
+            --bg-color: #0d0e12;
+            --card-bg: #151720;
+            --text-main: #e5e9f0;
+            --text-muted: #8e96a7;
+            --primary: #00f0ff; /* Electric Cyan */
+            --border: #252936;
+            --header-bg: #151720;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            --textarea-bg: #0d0e12;
+            --textarea-text: #e5e9f0;
+            --preview-bg: #0d0e12;
+            --badge-bg: rgba(0, 240, 255, 0.1);
+            --gradient: linear-gradient(to right, #00f0ff, #00ff66);
         }
 
         [data-theme="dark"] {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --text-main: #f1f5f9;
-            --text-muted: #94a3b8;
-            --primary: #60a5fa;
-            --border: #334155;
-            --header-bg: #1e293b;
-            --shadow: 0 10px 15px -3px rgb(0 0 0 / 0.5);
-            --textarea-bg: #0f172a;
-            --textarea-text: #f1f5f9;
-            --preview-bg: #0f172a;
+            --bg-color: #0d0e12;
+            --card-bg: #151720;
+            --text-main: #e5e9f0;
+            --text-muted: #8e96a7;
+            --primary: #00ff66; /* Neon Cyber-Green */
+            --border: #252936;
+            --header-bg: #151720;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            --textarea-bg: #0d0e12;
+            --textarea-text: #e5e9f0;
+            --preview-bg: #0d0e12;
+            --badge-bg: rgba(0, 255, 102, 0.1);
+            --gradient: linear-gradient(to right, #00ff66, #00f0ff);
         }
 
         * { box-sizing: border-box; transition: background-color 0.2s, color 0.2s, border-color 0.2s; }
@@ -72,7 +76,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             backdrop-filter: blur(8px);
         }
 
-        h1 { margin: 0; font-size: 1.5rem; font-weight: 700; background: linear-gradient(to right, var(--primary), #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h1 { margin: 0; font-size: 1.5rem; font-weight: 700; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 
         .header-actions {
             display: flex;
@@ -81,11 +85,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             flex-wrap: wrap;
         }
 
-        .theme-toggle, .copy-ai-btn {
-            background: var(--border);
-            border: none;
+        .theme-toggle, .copy-ai-btn, .copy-diagram-btn {
+            background: transparent;
+            border: 1px solid var(--border);
             padding: 0.5rem 1rem;
-            border-radius: 9999px;
+            border-radius: 6px;
             cursor: pointer;
             font-weight: 600;
             color: var(--text-main);
@@ -94,15 +98,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             gap: 0.5rem;
             font-family: inherit;
             font-size: 0.875rem;
+            transition: all 0.2s ease;
         }
-        .theme-toggle:hover, .copy-ai-btn:hover { opacity: 0.8; }
+        .theme-toggle:hover, .copy-ai-btn:hover, .copy-diagram-btn:hover {
+            border-color: var(--primary);
+            color: var(--text-main);
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+            text-shadow: 0 0 4px rgba(0, 240, 255, 0.3);
+        }
+        
+        [data-theme="dark"] .theme-toggle:hover, 
+        [data-theme="dark"] .copy-ai-btn:hover, 
+        [data-theme="dark"] .copy-diagram-btn:hover {
+            box-shadow: 0 0 8px rgba(0, 255, 102, 0.3);
+            text-shadow: 0 0 4px rgba(0, 255, 102, 0.3);
+        }
 
         .copy-ai-btn {
-            background: var(--primary);
-            color: white;
+            color: var(--text-main);
         }
-        .copy-ai-btn.copied {
-            background: #10b981;
+        .copy-ai-btn.copied, .copy-diagram-btn.copied-highlight {
+            border-color: #00ff66;
+            color: #00ff66;
+            box-shadow: 0 0 8px rgba(0, 255, 102, 0.4);
+            text-shadow: 0 0 4px rgba(0, 255, 102, 0.4);
         }
 
         .container { max-width: 1400px; margin: 2rem auto; padding: 0 1rem; }
@@ -125,6 +144,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             color: var(--text-main);
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 0.5rem;
         }
 
@@ -157,15 +177,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
         th, td { border: 1px solid var(--border); padding: 1rem; text-align: left; }
         th { background-color: var(--textarea-bg); font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
-        tr:hover { background-color: rgba(59, 130, 246, 0.05); }
+        tr:hover { background-color: rgba(0, 240, 255, 0.05); }
+        [data-theme="dark"] tr:hover { background-color: rgba(0, 255, 102, 0.05); }
 
         .badge {
-            background: var(--primary);
-            color: white;
+            background: var(--badge-bg);
+            color: var(--primary);
+            border: 1px solid var(--primary);
             padding: 0.25rem 0.5rem;
             border-radius: 4px;
             font-size: 0.75rem;
             font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+
+        .copy-diagram-btn {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
         }
 
         @media (max-width: 1024px) {
@@ -192,12 +220,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <div class="container">
         <div class="card">
-            <h2><span class="badge" style="background: #10b981;">TREE</span> Project Structure</h2>
-            <pre style="font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: var(--textarea-bg); border-radius: 8px; border: 1px solid var(--border); overflow-x: auto; white-space: pre; color: var(--text-main);">{project_tree}</pre>
+            <h2>
+                <span style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="badge">TREE</span> Project Structure
+                </span>
+                <button class="copy-diagram-btn" id="copy-btn-tree" onclick="copyDiagram('tree')">📋 Copy Tree</button>
+            </h2>
+            <pre id="tree-code" style="font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: var(--textarea-bg); border-radius: 8px; border: 1px solid var(--border); overflow-x: auto; white-space: pre; color: var(--text-main);">{project_tree}</pre>
         </div>
 
         <div class="card">
-            <h2><span class="badge">INFRA</span> Infrastructure Map</h2>
+            <h2>
+                <span style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="badge">INFRA</span> Infrastructure Map
+                </span>
+                <button class="copy-diagram-btn" id="copy-btn-infra" onclick="copyDiagram('infra')">📋 Copy Diagram</button>
+            </h2>
             <div class="editor-container">
                 <div class="editor-pane">
                     <textarea id="infra-source" data-target="infra">{infra_diagram}</textarea>
@@ -209,7 +247,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="card">
-            <h2><span class="badge">API</span> API Routes (Sequence)</h2>
+            <h2>
+                <span style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="badge">API</span> API Routes (Sequence)
+                </span>
+                <button class="copy-diagram-btn" id="copy-btn-seq" onclick="copyDiagram('seq')">📋 Copy Diagram</button>
+            </h2>
             <div class="editor-container">
                 <div class="editor-pane">
                     <textarea id="seq-source" data-target="seq">{sequence_diagram}</textarea>
@@ -221,7 +264,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="card">
-            <h2><span class="badge">UML</span> UML Class Diagram</h2>
+            <h2>
+                <span style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="badge">UML</span> UML Class Diagram
+                </span>
+                <button class="copy-diagram-btn" id="copy-btn-uml" onclick="copyDiagram('uml')">📋 Copy Diagram</button>
+            </h2>
             <div class="editor-container">
                 <div class="editor-pane">
                     <textarea id="uml-source" data-target="uml">{uml_diagram}</textarea>
@@ -233,7 +281,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="card">
-            <h2><span class="badge">ER</span> Entity-Relationship Diagram</h2>
+            <h2>
+                <span style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="badge">ER</span> Entity-Relationship Diagram
+                </span>
+                <button class="copy-diagram-btn" id="copy-btn-er" onclick="copyDiagram('er')">📋 Copy Diagram</button>
+            </h2>
             <div class="editor-container">
                 <div class="editor-pane">
                     <textarea id="er-source" data-target="er">{er_diagram}</textarea>
@@ -245,7 +298,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         <div class="card">
-            <h2><span class="badge">TODO</span> Technical Debt & TODOs</h2>
+            <h2>
+                <span style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="badge">TODO</span> Technical Debt & TODOs
+                </span>
+            </h2>
             <div style="overflow-x: auto;">
                 {todos_table}
             </div>
@@ -278,13 +335,47 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }, 2000);
         });
 
+        window.copyDiagram = async function(id) {
+            const el = document.getElementById(id + '-source') || document.getElementById(id + '-code');
+            const btn = document.getElementById('copy-btn-' + id);
+            if (!el || !btn) return;
+            const originalText = btn.innerHTML;
+            const text = el.tagName === 'TEXTAREA' ? el.value : el.textContent;
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch (err) {
+                // Fallback for restricted clipboards
+                if (el.tagName === 'TEXTAREA') {
+                    const prevDisplay = el.style.display;
+                    el.style.display = 'block';
+                    el.select();
+                    document.execCommand('copy');
+                    el.style.display = prevDisplay;
+                } else {
+                    const range = document.createRange();
+                    range.selectNodeContents(el);
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    document.execCommand('copy');
+                    sel.removeAllRanges();
+                }
+            }
+            btn.innerHTML = 'Copied! ✔️';
+            btn.classList.add('copied-highlight');
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.classList.remove('copied-highlight');
+            }, 2000);
+        };
+
         const themeToggle = document.getElementById('theme-toggle');
         const themeIcon = document.getElementById('theme-icon');
         const themeText = document.getElementById('theme-text');
         const html = document.documentElement;
 
         function getTheme() {
-            return localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            return localStorage.getItem('theme') || 'dark';
         }
 
         async function setTheme(theme) {
@@ -293,10 +384,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             themeIcon.textContent = theme === 'dark' ? '☀️' : '🌙';
             themeText.textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
             
-            // Initialize mermaid with new theme
+            // Initialize mermaid with new theme (always dark theme for diagrams in Cyber-Dark)
             mermaid.initialize({ 
                 startOnLoad: false, 
-                theme: theme === 'dark' ? 'dark' : 'default',
+                theme: 'dark',
                 fontFamily: 'Inter'
             });
             
