@@ -455,45 +455,59 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Backend Helper</title>
     <style>
+        :root {
+            --bg-color: #0d0e12;
+            --card-bg: #151720;
+            --border-color: #252936;
+            --text-main: #e5e9f0;
+            --text-muted: #8e96a7;
+            --accent: #00f0ff; /* Electric Cyan */
+            --accent-green: #00ff66; /* Neon Cyber-Green */
+            --gradient: linear-gradient(to right, #00f0ff, #00ff66);
+        }
         body {
             padding: 12px 10px;
-            color: var(--vscode-sideBar-foreground, #cccccc);
+            color: var(--text-main);
             font-family: var(--vscode-font-family, sans-serif);
             font-size: var(--vscode-font-size, 13px);
-            background-color: var(--vscode-sideBar-background, #252526);
+            background-color: var(--bg-color);
             margin: 0;
         }
         
         .header {
             margin-bottom: 16px;
             padding-bottom: 12px;
-            border-bottom: 1px solid var(--vscode-sideBar-border, rgba(255, 255, 255, 0.1));
+            border-bottom: 1px solid var(--border-color);
         }
         
         .header h2 {
             margin: 0 0 4px 0;
             font-size: 1.15rem;
             font-weight: 600;
-            color: var(--vscode-sideBarTitle-foreground, #ffffff);
+            color: var(--text-main);
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
         
         .header p {
             margin: 0;
             font-size: 0.8rem;
-            opacity: 0.7;
+            color: var(--text-muted);
         }
 
         details {
             margin-bottom: 12px;
-            border: 1px solid var(--vscode-sideBar-border, rgba(255, 255, 255, 0.1));
+            border: 1px solid var(--border-color);
             border-radius: 6px;
             overflow: hidden;
-            background-color: rgba(255, 255, 255, 0.01);
+            background-color: var(--card-bg);
             transition: border-color 0.25s ease;
         }
 
         details:hover {
-            border-color: var(--vscode-focusBorder, #007acc);
+            border-color: var(--accent);
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
         }
 
         summary {
@@ -506,8 +520,8 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background-color: var(--vscode-sideBarSectionHeader-background, #2d2d2d);
-            color: var(--vscode-sideBarSectionHeader-foreground, #cccccc);
+            background-color: var(--card-bg);
+            color: var(--text-main);
             user-select: none;
             transition: background-color 0.2s ease;
         }
@@ -517,11 +531,11 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
         }
 
         summary:hover {
-            background-color: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
+            background-color: rgba(255, 255, 255, 0.02);
         }
 
         details[open] summary {
-            border-bottom: 1px solid var(--vscode-sideBar-border, rgba(255, 255, 255, 0.1));
+            border-bottom: 1px solid var(--border-color);
         }
 
         .chevron {
@@ -546,11 +560,11 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
         }
 
         .btn {
-            background-color: var(--vscode-button-background, #007acc);
-            color: var(--vscode-button-foreground, #ffffff);
-            border: 1px solid var(--vscode-button-border, transparent);
+            background-color: transparent;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
             padding: 8px 12px;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             width: 100%;
             display: flex;
@@ -562,24 +576,24 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
             font-family: inherit;
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             text-align: left;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
 
         .btn:hover {
-            background-color: var(--vscode-button-hoverBackground, #0062a3);
+            border-color: var(--accent);
+            color: var(--text-main);
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+            text-shadow: 0 0 4px rgba(0, 240, 255, 0.3);
             transform: translateY(-1px);
-            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
         }
 
         .btn:active {
             transform: translateY(1px);
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
         }
 
         .btn-desc {
             margin: -4px 0 2px 0;
             font-size: 0.75rem;
-            opacity: 0.6;
+            color: var(--text-muted);
             line-height: 1.25;
             padding-left: 2px;
         }
@@ -830,9 +844,16 @@ function getTreeWebviewContent(title: string, rawStdout: string): string {
     <meta charset="UTF-8">
     <title>${title}</title>
     <style>
+        :root {
+            --bg-color: #0d0e12;
+            --fg-color: #e5e9f0;
+            --border-color: #252936;
+            --panel-bg: #151720;
+            --accent: #00f0ff;
+        }
         body {
-            background-color: var(--vscode-editor-background, #1e1e1e);
-            color: var(--vscode-editor-foreground, #d4d4d4);
+            background-color: var(--bg-color);
+            color: var(--fg-color);
             font-family: var(--vscode-font-family, sans-serif);
             margin: 0;
             display: flex;
@@ -844,34 +865,39 @@ function getTreeWebviewContent(title: string, rawStdout: string): string {
             justify-content: space-between;
             align-items: center;
             padding: 10px 18px;
-            background-color: var(--vscode-sideBar-background, #252526);
-            border-bottom: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1));
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
             flex-shrink: 0;
         }
-        .header-bar h3 { margin: 0; font-size: 1rem; font-weight: 500; }
+        .header-bar h3 { margin: 0; font-size: 1rem; font-weight: 600; color: var(--fg-color); }
         .controls { display: flex; gap: 8px; }
         .btn {
-            background-color: var(--vscode-button-background, #007acc);
-            color: var(--vscode-button-foreground, #ffffff);
-            border: none;
+            background-color: transparent;
+            color: var(--fg-color);
+            border: 1px solid var(--border-color);
             padding: 6px 12px;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 0.85rem;
             display: flex;
             align-items: center;
             gap: 6px;
+            transition: all 0.2s ease;
         }
-        .btn:hover { background-color: var(--vscode-button-hoverBackground, #0062a3); }
+        .btn:hover {
+            border-color: var(--accent);
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+            text-shadow: 0 0 4px rgba(0, 240, 255, 0.3);
+        }
         .content-area { flex-grow: 1; overflow: auto; padding: 20px 24px; }
         pre {
             font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
             font-size: 0.9rem;
             line-height: 1.6;
             padding: 1.5rem;
-            background: rgba(255,255,255,0.03);
+            background: rgba(255,255,255,0.02);
             border-radius: 8px;
-            border: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1));
+            border: 1px solid var(--border-color);
             overflow-x: auto;
             white-space: pre;
             margin: 0;
@@ -942,33 +968,34 @@ function extractMermaidDiagrams(stdout: string): string[] {
 function getSharedWebviewCSS(): string {
     return `
         :root {
-            --bg-color: var(--vscode-editor-background, #1e1e1e);
-            --fg-color: var(--vscode-editor-foreground, #d4d4d4);
-            --btn-bg: var(--vscode-button-background, #007acc);
-            --btn-fg: var(--vscode-button-foreground, #ffffff);
-            --btn-hover: var(--vscode-button-hoverBackground, #0062a3);
-            --panel-bg: var(--vscode-sideBar-background, #252526);
-            --border-color: var(--vscode-sideBar-border, rgba(255, 255, 255, 0.1));
-            --active-tab-bg: var(--vscode-tab-activeBackground, #1e1e1e);
-            --active-tab-fg: var(--vscode-tab-activeForeground, #ffffff);
-            --inactive-tab-bg: var(--vscode-tab-inactiveBackground, #2d2d2d);
-            --inactive-tab-fg: var(--vscode-tab-inactiveForeground, #8e8e8e);
+            --bg-color: #0d0e12;
+            --fg-color: #e5e9f0;
+            --btn-bg: transparent;
+            --btn-fg: #e5e9f0;
+            --btn-border: #252936;
+            --panel-bg: #151720;
+            --border-color: #252936;
+            --active-tab-bg: #0d0e12;
+            --active-tab-fg: #e5e9f0;
+            --inactive-tab-bg: #151720;
+            --inactive-tab-fg: #8e96a7;
+            --accent: #00f0ff;
         }
         body { background-color: var(--bg-color); color: var(--fg-color); font-family: var(--vscode-font-family, sans-serif); margin: 0; display: flex; flex-direction: column; height: 100vh; }
         .header-bar { display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; background-color: var(--panel-bg); border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
-        .header-bar h3 { margin: 0; font-size: 1rem; font-weight: 500; }
+        .header-bar h3 { margin: 0; font-size: 1rem; font-weight: 600; color: var(--fg-color); }
         .controls { display: flex; gap: 8px; }
-        .btn { background-color: var(--btn-bg); color: var(--btn-fg); border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
-        .btn:hover { background-color: var(--btn-hover); }
+        .btn { background-color: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-border); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; }
+        .btn:hover { border-color: var(--accent); box-shadow: 0 0 8px rgba(0, 240, 255, 0.3); text-shadow: 0 0 4px rgba(0, 240, 255, 0.3); }
         .tabs { display: flex; background-color: var(--panel-bg); border-bottom: 1px solid var(--border-color); flex-shrink: 0; overflow-x: auto; }
-        .tab-btn { background: var(--inactive-tab-bg); color: var(--inactive-tab-fg); border: none; border-right: 1px solid var(--border-color); padding: 10px 16px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
-        .tab-btn.active { background: var(--active-tab-bg); color: var(--active-tab-fg); border-bottom: 2px solid var(--btn-bg); }
+        .tab-btn { background: var(--inactive-tab-bg); color: var(--inactive-tab-fg); border: none; border-right: 1px solid var(--border-color); padding: 10px 16px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; transition: all 0.2s ease; }
+        .tab-btn.active { background: var(--active-tab-bg); color: var(--active-tab-fg); border-bottom: 2px solid var(--accent); }
         .content-area { flex-grow: 1; overflow: auto; position: relative; }
         .tab-content { display: none; height: 100%; }
         .tab-content.active { display: block; }
         .mermaid-wrapper { padding: 20px; display: flex; justify-content: center; align-items: flex-start; min-height: 100%; background-color: var(--bg-color); }
         .tree-wrapper { padding: 20px 24px; }
-        .tree-wrapper pre { font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.6; padding: 1.5rem; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border-color); overflow-x: auto; white-space: pre; color: var(--fg-color); margin: 0; }
+        .tree-wrapper pre { font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.6; padding: 1.5rem; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid var(--border-color); overflow-x: auto; white-space: pre; color: var(--fg-color); margin: 0; }
     `;
 }
 
@@ -1079,9 +1106,16 @@ function getPromptWebviewContent(title: string, rawStdout: string): string {
     <meta charset="UTF-8">
     <title>${title}</title>
     <style>
+        :root {
+            --bg-color: #0d0e12;
+            --fg-color: #e5e9f0;
+            --border-color: #252936;
+            --panel-bg: #151720;
+            --accent: #00f0ff;
+        }
         body {
-            background-color: var(--vscode-editor-background, #1e1e1e);
-            color: var(--vscode-editor-foreground, #d4d4d4);
+            background-color: var(--bg-color);
+            color: var(--fg-color);
             font-family: var(--vscode-font-family, sans-serif);
             margin: 0;
             display: flex;
@@ -1093,34 +1127,39 @@ function getPromptWebviewContent(title: string, rawStdout: string): string {
             justify-content: space-between;
             align-items: center;
             padding: 10px 18px;
-            background-color: var(--vscode-sideBar-background, #252526);
-            border-bottom: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1));
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
             flex-shrink: 0;
         }
-        .header-bar h3 { margin: 0; font-size: 1rem; font-weight: 500; }
+        .header-bar h3 { margin: 0; font-size: 1rem; font-weight: 600; color: var(--fg-color); }
         .controls { display: flex; gap: 8px; }
         .btn {
-            background-color: var(--vscode-button-background, #007acc);
-            color: var(--vscode-button-foreground, #ffffff);
-            border: none;
+            background-color: transparent;
+            color: var(--fg-color);
+            border: 1px solid var(--border-color);
             padding: 6px 12px;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 0.85rem;
             display: flex;
             align-items: center;
             gap: 6px;
+            transition: all 0.2s ease;
         }
-        .btn:hover { background-color: var(--vscode-button-hoverBackground, #0062a3); }
+        .btn:hover {
+            border-color: var(--accent);
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+            text-shadow: 0 0 4px rgba(0, 240, 255, 0.3);
+        }
         .content-area { flex-grow: 1; overflow: auto; padding: 20px 24px; }
         pre {
             font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
             font-size: 0.9rem;
             line-height: 1.6;
             padding: 1.5rem;
-            background: rgba(255,255,255,0.03);
+            background: rgba(255,255,255,0.02);
             border-radius: 8px;
-            border: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.1));
+            border: 1px solid var(--border-color);
             overflow-x: auto;
             white-space: pre-wrap;
             margin: 0;
