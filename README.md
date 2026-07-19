@@ -55,6 +55,7 @@ bck-nd-mcp
 ### AI & Context
 
 - 🧠 **AI Context Dump** (`bck-nd prompt`): Single LLM-optimized `.txt` with project tree + UML + ER + core files
+- 🎯 **Focused Export** (`--uml`, `--er`, `--tree`): Lightweight context files with only the sections you need
 - 🤖 **BYO-Key AI Analysis**: OpenAI, Anthropic, Gemini, OpenRouter, or local Ollama — no middleware
 - ⚙️ **`--max-core-files N`**: Limit core files exported by `bck-nd prompt`
 
@@ -132,7 +133,7 @@ Generates a **single, LLM-optimized `.txt` file** with XML-like tags that you ca
 
 No more manually explaining your codebase structure — one command, one file, instant AI context.
 
-#### **Usage**
+#### **Full Mode (Default)**
 
 ```bash
 # Generate ai_context.txt in the current directory
@@ -145,7 +146,37 @@ bck-nd prompt /my/project -o context.txt
 bck-nd prompt . --depth 6
 ```
 
-#### **What the file contains**
+#### **Focused Mode (`--uml`, `--er`, `--tree`)**
+
+Export **only** the sections you need into a lightweight file. The default output filename adapts dynamically:
+
+| Flags used          | Default output file          |
+| ------------------- | ---------------------------- |
+| `--uml`             | `ai_context_uml.txt`         |
+| `--er`              | `ai_context_er.txt`          |
+| `--tree`            | `ai_context_tree.txt`        |
+| `--uml --er`        | `ai_context_diagrams.txt`    |
+| `--uml --er --tree` | `ai_context_diagrams.txt`    |
+| *(no flags)*        | `ai_context.txt`             |
+
+```bash
+# UML diagram only
+bck-nd prompt . --uml
+
+# ER diagram only
+bck-nd prompt . --er
+
+# Project tree only
+bck-nd prompt . --tree
+
+# Combine: UML + ER diagrams
+bck-nd prompt . --uml --er
+
+# Custom output with focused flag
+bck-nd prompt . --uml -o my_diagrams.txt
+```
+
+#### **What the full file contains**
 
 | XML Tag                | Contents                                          |
 | ---------------------- | ------------------------------------------------- |

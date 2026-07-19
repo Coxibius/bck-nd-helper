@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-07-18
+
+### Added
+
+- **Focused prompt export (`--uml`, `--er`, `--tree`):** `bck-nd prompt` now supports three boolean flags to generate lightweight context files containing only the requested diagram sections (UML, ER, or project tree).
+- **Dynamic default filenames:** When using focused flags, the output filename adapts automatically — `ai_context_uml.txt`, `ai_context_er.txt`, `ai_context_tree.txt`, or `ai_context_diagrams.txt` for combinations.
+- **`ContextDumper.build_focused()` method:** New core engine method for surgical diagram-only context assembly, reusing existing UML/ER/tree generators.
+
 ## [2.0.0] - 2026-07-12
 
 ### Added

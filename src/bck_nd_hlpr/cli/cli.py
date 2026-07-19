@@ -701,18 +701,26 @@ def init_ci(
 @app.command(name="prompt")
 def prompt_cmd(
     path: str = typer.Argument(".", help="Path to the project to analyze. Use '.' for current directory or provide an absolute/relative path. Example: bck-nd prompt /home/user/my-api"),
-    output: str = typer.Option("ai_context.txt", "--output", "-o", help="Output file path/name for the context dump (default: ai_context.txt in current dir). Example: bck-nd prompt . -o context.txt"),
+    output: str = typer.Option("ai_context.txt", "--output", "-o", help="Output file path/name for the context dump (default adapts to flags). Example: bck-nd prompt . -o context.txt"),
     depth: int = typer.Option(4, "--depth", "-d", help="Directory scan depth (default: 4). Increase for deep project structures. Example: bck-nd prompt . --depth 6"),
     max_core_files: Optional[int] = typer.Option(None, "--max-core-files", help="Maximum number of core files to include in the context dump (default: 8 for mobile, 5 for backend)."),
+    uml: bool = typer.Option(False, "--uml", help="Generate a focused UML-only context file (default output: ai_context_uml.txt)."),
+    er: bool = typer.Option(False, "--er", help="Generate a focused ER-only context file (default output: ai_context_er.txt)."),
+    tree: bool = typer.Option(False, "--tree", help="Generate a focused tree-only context file (default output: ai_context_tree.txt)."),
 ):
     """
     Export an AI-ready context file (project tree, UML, ER, core files).
 
-    What you get (single .txt):
+    Default (no flags) — full context dump:
     - <project_tree>: filtered directory tree
     - <architecture_uml>: Mermaid classDiagram
     - <architecture_er>: Mermaid erDiagram
     - <core_files>: prioritized key files
+
+    Focused mode (--uml, --er, --tree):
+    - Exports ONLY the requested sections into a lightweight file.
+    - Default filename adapts: ai_context_uml.txt, ai_context_er.txt, etc.
+    - Flags can be combined: --uml --er → ai_context_diagrams.txt
 
     Usage:
     1) bck-nd prompt .
@@ -723,11 +731,37 @@ def prompt_cmd(
     - bck-nd prompt .
     - bck-nd prompt /my/project -o ctx.txt
     - bck-nd prompt . --depth 6
+    - bck-nd prompt . --uml
+    - bck-nd prompt . --er
+    - bck-nd prompt . --tree
+    - bck-nd prompt . --uml --er
     """
+    # ── Detect focused mode ──────────────────────────────────────────────
+    focused_mode = uml or er or tree
+
+    # ── Dynamic default filename ─────────────────────────────────────────
+    user_set_output = output != "ai_context.txt"
+    if focused_mode and not user_set_output:
+        active_flags = []
+        if uml:
+            active_flags.append("uml")
+        if er:
+            active_flags.append("er")
+        if tree:
+            active_flags.append("tree")
+
+        if len(active_flags) == 1:
+            output = f"ai_context_{active_flags[0]}.txt"
+        else:
+            output = "ai_context_diagrams.txt"
+
+    # ── Stdout piping mode ───────────────────────────────────────────────
     if output == "-":
         dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
-        context = dumper.build()
-        print(context)
+        if focused_mode:
+            print(dumper.build_focused(include_tree=tree, include_uml=uml, include_er=er))
+        else:
+            print(dumper.build())
         return
 
     from rich.console import Console
@@ -736,6 +770,84 @@ def prompt_cmd(
 
     console = Console(force_terminal=True, highlight=False)
 
+    # ── FOCUSED MODE ─────────────────────────────────────────────────────
+    if focused_mode:
+        focus_parts = []
+        if tree:
+            focus_parts.append("Tree")
+        if uml:
+            focus_parts.append("UML")
+        if er:
+            focus_parts.append("ER")
+        focus_label = " + ".join(focus_parts)
+
+        console.print(
+            Panel.fit(
+                f"[bold cyan]bck-nd Focused Context ({focus_label})[/bold cyan]\n"
+                "[dim]Generating lightweight diagram file...[/dim]",
+                border_style="cyan",
+                box=box.ASCII2,
+            )
+        )
+
+        dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
+
+        total_steps = sum([tree, uml, er])
+        step = 0
+
+        if tree:
+            step += 1
+            typer.secho(f"  [{step}/{total_steps}] Building directory tree...", fg=typer.colors.CYAN)
+            dumper.get_project_tree()
+
+        uml_result = None
+        if uml:
+            step += 1
+            typer.secho(f"  [{step}/{total_steps}] Generating UML diagram...", fg=typer.colors.MAGENTA)
+            uml_result = dumper.get_uml_diagram()
+
+        er_result = None
+        if er:
+            step += 1
+            typer.secho(f"  [{step}/{total_steps}] Generating ER diagram...", fg=typer.colors.MAGENTA)
+            er_result = dumper.get_er_diagram()
+
+        context = dumper.build_focused(include_tree=tree, include_uml=uml, include_er=er)
+
+        try:
+            output_path = Path(output)
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(context)
+        except Exception as e:
+            typer.secho(f"[ERROR] Could not save file: {e}", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+
+        # Summary
+        status_lines = []
+        if tree:
+            status_lines.append("[bold]Tree:[/bold]      [green][OK] Generated[/green]")
+        if uml:
+            uml_status = "[green][OK] Generated[/green]" if uml_result else "[yellow][--] No classes detected[/yellow]"
+            status_lines.append(f"[bold]UML:[/bold]       {uml_status}")
+        if er:
+            er_status = "[green][OK] Generated[/green]" if er_result else "[yellow][--] No models detected[/yellow]"
+            status_lines.append(f"[bold]ER:[/bold]        {er_status}")
+
+        console.print()
+        console.print(
+            Panel(
+                f"[bold]Project:[/bold]   [cyan]{Path(path).resolve().name}[/cyan]\n"
+                + "\n".join(status_lines) + "\n\n"
+                f"[bold green]Focused context saved to [underline]{output}[/underline].[/bold green]\n"
+                f"[italic]Lightweight file — ready to paste into your AI![/italic]",
+                title=f"[bold cyan]Focused Context Complete ({focus_label})[/bold cyan]",
+                border_style="green",
+                box=box.ASCII2,
+            )
+        )
+        return
+
+    # ── FULL MODE (default — unchanged) ──────────────────────────────────
     console.print(
         Panel.fit(
             "[bold cyan]bck-nd Context Dump[/bold cyan]\n"
@@ -748,13 +860,13 @@ def prompt_cmd(
     dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
 
     typer.secho("  [1/4] Building directory tree...", fg=typer.colors.CYAN)
-    tree = dumper.get_project_tree()
+    tree_out = dumper.get_project_tree()
 
     typer.secho("  [2/4] Generating UML diagram...", fg=typer.colors.MAGENTA)
-    uml = dumper.get_uml_diagram()
+    uml_out = dumper.get_uml_diagram()
 
     typer.secho("  [3/4] Generating ER diagram...", fg=typer.colors.MAGENTA)
-    er = dumper.get_er_diagram()
+    er_out = dumper.get_er_diagram()
 
     typer.secho("  [4/4] Assembling context file...", fg=typer.colors.GREEN)
     context = dumper.build()
@@ -769,8 +881,8 @@ def prompt_cmd(
         raise typer.Exit(code=1)
 
     # -- Summary report -------------------------------------------------------
-    uml_status  = "[green][OK] Generated[/green]" if uml else "[yellow][--] No classes detected[/yellow]"
-    er_status   = "[green][OK] Generated[/green]" if er  else "[yellow][--] No models detected[/yellow]"
+    uml_status  = "[green][OK] Generated[/green]" if uml_out else "[yellow][--] No classes detected[/yellow]"
+    er_status   = "[green][OK] Generated[/green]" if er_out  else "[yellow][--] No models detected[/yellow]"
 
     console.print()
     console.print(
@@ -789,3 +901,4 @@ def prompt_cmd(
 
 if __name__ == "__main__":
     app()
+

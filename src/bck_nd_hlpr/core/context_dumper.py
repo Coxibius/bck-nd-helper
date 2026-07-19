@@ -373,7 +373,77 @@ class ContextDumper:
             return None
 
     # ──────────────────────────────────────────
-    # 4. ENSAMBLADO FINAL DEL CONTEXTO
+    # 4. FOCUSED BUILD (--uml / --er / --tree)
+    # ──────────────────────────────────────────
+
+    def build_focused(
+        self,
+        include_tree: bool = False,
+        include_uml: bool = False,
+        include_er: bool = False,
+    ) -> str:
+        """
+        Build a lightweight context file containing only the requested sections.
+        At least one of the three flags must be True.
+        Returns the XML-tagged string ready to write to disk.
+        """
+        sections: List[str] = []
+
+        # Header
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # Build a human-readable label for the header
+        parts = []
+        if include_tree:
+            parts.append("Tree")
+        if include_uml:
+            parts.append("UML")
+        if include_er:
+            parts.append("ER")
+        focus_label = " + ".join(parts)
+
+        sections.append(
+            f"<!-- ============================================================ -->\n"
+            f"<!-- bck-nd-hlpr Focused Context ({focus_label}) — Generated: {now} -->\n"
+            f"<!-- Paste this file into ChatGPT / Claude for instant AI context -->\n"
+            f"<!-- ============================================================ -->\n"
+        )
+
+        # ── Tree ──────────────────────────────────────────────────────────
+        if include_tree:
+            sections.append("<project_tree>")
+            sections.append(self.get_project_tree())
+            sections.append("</project_tree>\n")
+
+        # ── UML ───────────────────────────────────────────────────────────
+        if include_uml:
+            sections.append("<architecture_uml>")
+            uml = self.get_uml_diagram()
+            if uml:
+                sections.append("```mermaid")
+                sections.append(uml)
+                sections.append("```")
+            else:
+                sections.append("<!-- No UML classes detected in this project. -->")
+            sections.append("</architecture_uml>\n")
+
+        # ── ER ────────────────────────────────────────────────────────────
+        if include_er:
+            sections.append("<architecture_er>")
+            er = self.get_er_diagram()
+            if er:
+                sections.append("```mermaid")
+                sections.append(er)
+                sections.append("```")
+            else:
+                sections.append("<!-- No database models detected in this project. -->")
+            sections.append("</architecture_er>\n")
+
+        return "\n".join(sections)
+
+    # ──────────────────────────────────────────
+    # 5. ENSAMBLADO FINAL DEL CONTEXTO (FULL)
     # ──────────────────────────────────────────
 
     def build(self) -> str:
