@@ -35,7 +35,7 @@ jobs:
       - name: Install bck-nd-hlpr
         run: |
           python -m pip install --upgrade pip
-          pip install .
+          pip install --no-cache-dir --force-reinstall .
 
       - name: Assert installed package paths
         run: |
