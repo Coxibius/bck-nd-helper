@@ -34,20 +34,8 @@ jobs:
 
       - name: Install bck-nd-hlpr
         run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip setuptools wheel build
-
-          if [ -f pyproject.toml ] && grep -q 'name = "bck-nd-hlpr"' pyproject.toml; then
-            # This repo IS the tool. Wipe path-shadow leftovers, build a wheel
-            # from src-layout only, then install THAT wheel (never a stale tree).
-            rm -rf ./bck_nd_hlpr ./build ./dist ./*.egg-info ./src/*.egg-info
-            test -f src/bck_nd_hlpr/cli/mcp_server.py
-            test -f src/bck_nd_hlpr/cli/formatters.py
-            python -m build --wheel
-            python -m pip install --no-cache-dir --force-reinstall dist/bck_nd_hlpr-*.whl
-          else
-            python -m pip install --no-cache-dir --force-reinstall "bck-nd-hlpr>=2.0.2"
-          fi
+          python -m pip install --upgrade pip
+          pip install .
 
       - name: Assert installed package paths
         run: |
