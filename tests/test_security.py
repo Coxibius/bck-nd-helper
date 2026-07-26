@@ -1,6 +1,7 @@
 import pytest
 from pathlib import Path
-from bck_nd_hlpr.security_auditor import scan_security_risks, get_security_report_string
+from bck_nd_hlpr.security_auditor import scan_security_risks
+from bck_nd_hlpr.cli.formatters import get_security_report_string
 from bck_nd_hlpr.er_parser import EREntity
 
 def test_hardcoded_secrets_detection(tmp_path):

@@ -180,4 +180,15 @@ def generate_mermaid_class_diagram(all_classes: List[UMLClassInfo]) -> str:
                             lines.append(f"    {safe_cls_name} ..> {word}")
                             drawn_associations.add(dep_pair)
 
+    # Factory dependency heuristic: ModelFactory ..> Model : "generates"
+    for cls in all_classes:
+        safe_cls_name = cls.name.replace("-", "_")
+        if safe_cls_name.endswith("Factory") and len(safe_cls_name) > 7:
+            target_model = safe_cls_name[:-7]
+            if target_model in class_map:
+                factory_key = f"{safe_cls_name}_generates_{target_model}"
+                if factory_key not in drawn_associations:
+                    lines.append(f"    {safe_cls_name} ..> {target_model} : \"generates\"")
+                    drawn_associations.add(factory_key)
+
     return "\n".join(lines)

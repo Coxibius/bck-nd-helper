@@ -1409,6 +1409,74 @@ def parse_project_for_er(root_path: str, max_depth: int = 3) -> List[EREntity]:
             
     return deduped
 
+def resolve_relationship_target(target: str, label: str, entity_names: set) -> Optional[str]:
+    """Resolves relationship target using exact match, namespace stripping,
+    singularization, casing matching, and method label fallback.
+    
+    Returns resolved target entity name if matched, or None if target is Unknown/unresolved.
+    """
+    import re
+    def sanitize(name: str) -> str:
+        s = re.sub(r'[^A-Za-z0-9_]', '_', str(name).strip())
+        if not s: return "E_UNKNOWN"
+        if not s[0].isalpha():
+            s = 'E_' + s
+        return s
+
+    def clean_php_namespace(raw: str) -> str:
+        if not raw: return ""
+        c = raw.strip("'\" \t\r\n")
+        c = re.sub(r'::class$', '', c, flags=re.IGNORECASE)
+        c = c.replace('/', '\\')
+        parts = [p for p in c.split('\\') if p]
+        if parts:
+            res = parts[-1].strip("'\" ")
+            if res and res.lower() != "class":
+                return res
+        return ""
+
+    raw_target = str(target).strip() if target else ""
+    cleaned_target = clean_php_namespace(raw_target)
+
+    candidates = []
+    if cleaned_target and cleaned_target.lower() not in ("unknown", "e_unknown"):
+        candidates.append(cleaned_target)
+
+    safe_label = str(label).strip() if label else ""
+    if safe_label:
+        candidates.append(safe_label)
+
+    def get_variations(s: str) -> List[str]:
+        if not s: return []
+        res = [s, s.capitalize(), s.lower(), s.upper()]
+        if s.endswith("ies") and len(s) > 3:
+            sing = s[:-3] + "y"
+            res.extend([sing, sing.capitalize()])
+        elif s.endswith("es") and len(s) > 2:
+            sing = s[:-2]
+            res.extend([sing, sing.capitalize()])
+        elif s.endswith("s") and not s.endswith("ss") and len(s) > 1:
+            sing = s[:-1]
+            res.extend([sing, sing.capitalize()])
+        return res
+
+    entity_names_lower = {e.lower(): e for e in entity_names}
+
+    for cand in candidates:
+        for v in get_variations(cand):
+            safe_v = sanitize(v)
+            if safe_v in entity_names:
+                return safe_v
+            if v.lower() in entity_names_lower:
+                return entity_names_lower[v.lower()]
+
+    if cleaned_target and cleaned_target.lower() not in ("unknown", "e_unknown"):
+        s_target = sanitize(cleaned_target)
+        if s_target != "E_UNKNOWN" and s_target.lower() != "unknown":
+            return s_target
+
+    return None
+
 def generate_mermaid_er(entities: List[EREntity]) -> str:
     lines = ["erDiagram"]
     
@@ -1447,23 +1515,11 @@ def generate_mermaid_er(entities: List[EREntity]) -> str:
             target, rel_type, label, *rest = rel
             comment = rest[0] if rest else None
             
-            safe_target = sanitize(target)
+            real_target = resolve_relationship_target(target, label, entity_names)
             
-            # Heurística para encontrar el nombre real de la clase destino
-            real_target = safe_target
-            
-            # Si target es 'users' (tabla) y tenemos clase 'User'
-            candidate_singular = safe_target.capitalize()
-            # Quitamos 's' final simple
-            candidate_singular_s = safe_target[:-1].capitalize() if safe_target.endswith('s') else safe_target
+            if not real_target or real_target == "E_UNKNOWN" or real_target.lower() == "unknown":
+                continue
 
-            if safe_target in entity_names:
-                real_target = safe_target
-            elif candidate_singular in entity_names:
-                real_target = candidate_singular
-            elif candidate_singular_s in entity_names:
-                real_target = candidate_singular_s
-            
             safe_label = str(label).replace('"', '').replace('\n', '')
             rel_line = f"    {safe_entity_name} {rel_type} {real_target} : \"{safe_label}\""
             if comment:

@@ -14,10 +14,10 @@ def test_generate_ci_workflow(tmp_path):
     
     # Verify content
     content = expected_path.read_text(encoding="utf-8")
-    assert "name: Generate Documentation" in content
+    assert "name: Deploy Documentation to GitHub Pages" in content
     assert "push:" in content
     assert "main" in content
-    assert "workflow_dispatch" not in content
+    assert "workflow_dispatch" in content
     assert "bck-nd docs ." in content
     assert "documentation.yml" not in content
 
