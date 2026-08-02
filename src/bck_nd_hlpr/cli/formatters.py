@@ -23,6 +23,7 @@ TYPE_COLORS = {
 def display_todos_table(todos: List[Dict]) -> None:
     """
     Displays technical debt items in a beautiful Rich table.
+    Supports scoped tags: TODO(audit), FIXME(security), HACK(perf), etc.
     """
     console = Console()
     
@@ -35,10 +36,10 @@ def display_todos_table(todos: List[Dict]) -> None:
         title_style="bold magenta"
     )
     
-    # Add columns
+    # Add columns — Type column widened to 18 to hold scoped forms e.g. "TODO(audit)"
     table.add_column("File", style="cyan", no_wrap=False, width=30)
     table.add_column("Line", style="white", justify="right", width=6)
-    table.add_column("Type", style="bold", width=8)
+    table.add_column("Type", style="bold", width=18)
     table.add_column("Message", style="white", no_wrap=False)
     
     # Sort todos by file, then line number
@@ -47,7 +48,9 @@ def display_todos_table(todos: List[Dict]) -> None:
     # Add rows
     for todo in sorted_todos:
         type_color = TYPE_COLORS.get(todo['type'], 'white')
-        type_text = Text(todo['type'], style=type_color)
+        scope = todo.get('scope', '') or ''
+        display_type = f"{todo['type']}({scope})" if scope else todo['type']
+        type_text = Text(display_type, style=type_color)
         
         message = todo['message']
         if len(message) > 60:
@@ -72,6 +75,7 @@ def display_todos_table(todos: List[Dict]) -> None:
 def get_todos_table_string(todos: List[Dict], plain: bool = False) -> str:
     """
     Returns the technical debt table as a string.
+    Supports scoped tags: TODO(audit), FIXME(security), HACK(perf), etc.
     """
     output = io.StringIO()
     
@@ -89,10 +93,10 @@ def get_todos_table_string(todos: List[Dict], plain: bool = False) -> str:
         title_style="bold magenta" if not plain else None,
     )
     
-    # Add columns
+    # Add columns — Type column widened to 18 to hold scoped forms e.g. "TODO(audit)"
     table.add_column("File", style="cyan" if not plain else None, no_wrap=False, width=30)
     table.add_column("Line", style="white" if not plain else None, justify="right", width=6)
-    table.add_column("Type", style="bold" if not plain else None, width=8)
+    table.add_column("Type", style="bold" if not plain else None, width=18)
     table.add_column("Message", style="white" if not plain else None, no_wrap=False)
     
     # Sort todos
@@ -101,7 +105,9 @@ def get_todos_table_string(todos: List[Dict], plain: bool = False) -> str:
     # Add rows
     for todo in sorted_todos:
         type_color = TYPE_COLORS.get(todo['type'], 'white')
-        type_text = Text(todo['type'], style=type_color if not plain else None)
+        scope = todo.get('scope', '') or ''
+        display_type = f"{todo['type']}({scope})" if scope else todo['type']
+        type_text = Text(display_type, style=type_color if not plain else None)
         message = todo['message']
         if len(message) > 60:
             message = message[:57] + "..."
@@ -118,28 +124,45 @@ def get_todos_table_string(todos: List[Dict], plain: bool = False) -> str:
 def display_todo_statistics(todos: List[Dict], console: Console) -> None:
     """
     Displays summary statistics of technical debt.
+    Also includes a scope breakdown when scoped tags (e.g. TODO(audit)) are present.
     """
-    # Count by type
+    # Count by base type (TODO, FIXME, HACK, XXX, BUG)
     type_counts = {}
+    # Count by scoped type (TODO(audit), FIXME(security), ...) for detailed breakdown
+    scoped_counts = {}
     for todo in todos:
         debt_type = todo['type']
+        scope = todo.get('scope', '') or ''
         type_counts[debt_type] = type_counts.get(debt_type, 0) + 1
-    
+        scoped_key = f"{debt_type}({scope})" if scope else debt_type
+        scoped_counts[scoped_key] = scoped_counts.get(scoped_key, 0) + 1
+
     # Display summary
     console.print("📊 [bold cyan]Summary by Type:[/bold cyan]")
-    
+
     for marker in DEBT_MARKERS:
         count = type_counts.get(marker, 0)
         color = TYPE_COLORS.get(marker, 'white')
-        
+
         if count > 0:
             console.print(f"  [{color}]●[/{color}] {marker}: [bold]{count}[/bold] items")
         else:
             console.print(f"  [dim]○[/dim] {marker}: [dim]0[/dim] items")
-    
+
+    # Scope breakdown (only if any scoped tags exist)
+    has_scopes = any((t.get('scope', '') or '') for t in todos)
+    if has_scopes:
+        console.print()
+        console.print("🔖 [bold cyan]Scoped Breakdown:[/bold cyan]")
+        for scoped_key in sorted(scoped_counts.keys()):
+            if '(' in scoped_key:
+                base_marker = scoped_key.split('(')[0]
+                color = TYPE_COLORS.get(base_marker, 'white')
+                console.print(f"  [{color}]◆[/{color}] {scoped_key}: [bold]{scoped_counts[scoped_key]}[/bold] items")
+
     console.print()
     console.print(f"[bold yellow]Total Technical Debt:[/bold yellow] [bold]{len(todos)}[/bold] items")
-    
+
     # Calculate debt level
     if len(todos) == 0:
         console.print("[bold green]✨ Debt Level: EXCELLENT[/bold green]")
