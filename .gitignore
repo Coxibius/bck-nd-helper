@@ -43,6 +43,7 @@ temp_verification_reports/
 ai_context.txt
 .ai_context_tmp.txt
 architecture.txt
+.bck-nd-cache
 mis_apuntes/
 
 # ==========================================

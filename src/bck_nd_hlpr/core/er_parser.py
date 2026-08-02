@@ -20,6 +20,9 @@ class EREntity:
         self.columns: List[tuple[str, str]] = []  # (name, type)
         self.relationships: List[tuple[str, str, str]] = [] # (target_entity, relation_type, label)
 
+# TODO(audit): Extend AST visitor to handle Python 3.10-3.12 syntax throughout: PEP 695 `type` alias statements
+# TODO(audit): (ast.TypeAlias), structural pattern matching blocks (ast.Match / match_case), and comprehensive
+# TODO(audit): SQLAlchemy 2.0 declarative Mapped[<type>] annotation resolution with nested generic unwrapping.
 class ERExtractor(ast.NodeVisitor):
     """
     Analiza AST para encontrar modelos de base de datos.
@@ -31,6 +34,8 @@ class ERExtractor(ast.NodeVisitor):
         self.is_model_file = is_model_file
 
     def _extract_type_from_annotation(self, node: ast.AST) -> str:
+        # TODO(audit): Handle SQLAlchemy 2.0 nested Mapped[Optional[Mapped[X]]], Mapped[list[Mapped[Y]]],
+        # TODO(audit): and stringified forward-reference PEP 604 union types ('X | None') inside Mapped[...] annotations.
         try:
             if isinstance(node, ast.Name):
                 return node.id
@@ -102,6 +107,8 @@ class ERExtractor(ast.NodeVisitor):
             pass
         return False
 
+    # TODO(audit): Implement visit_TypeAlias (Python 3.12 PEP 695) and visit_Match (Python 3.10 pattern matching)
+    # TODO(audit): visitor methods to gracefully skip over / record new AST node types without AttributeError crashes.
     def visit_ClassDef(self, node: ast.ClassDef):
         try:
             if self._is_model(node.bases) or self.is_model_file:

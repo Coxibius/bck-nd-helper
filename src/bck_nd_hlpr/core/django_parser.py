@@ -16,8 +16,13 @@ from bck_nd_hlpr.core.er_parser import ERExtractor
 # but we wrap them here to maintain the same API signature as the tree-sitter ones.
 # If we need Django specific enhancements in the future, we can override the Visitors here.
 
+# TODO(audit): Add support for Python 3.10-3.12 syntax features: ast.TypeAlias (PEP 695 `type` statements),
+# TODO(audit): ast.Match structural pattern matching (match/case), and robust SQLAlchemy 2.0 Mapped[...] type
+# TODO(audit): annotation parsing with declarative-style mapped_column() declarations.
 class DjangoERExtractor(ERExtractor):
     """Extends the generic ERExtractor to enforce Django models only (optional) or add specific heuristics."""
+    # TODO(audit): Override visit_ClassDef to detect class-level `type` alias statements (PEP 695)
+    # TODO(audit): inside Django model classes to resolve forward-referenced Mapped[...] generic type strings.
     def _is_model(self, bases: List[ast.expr]) -> bool:
         # Django models inherit from models.Model
         for base in bases:

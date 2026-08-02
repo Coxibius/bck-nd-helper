@@ -123,7 +123,8 @@ def scan(
     datascience: bool = typer.Option(False, "--datascience", help="Generate Data Lineage Map (Mermaid graph LR) from Jupyter Notebooks. Example: bck-nd scan . --datascience"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
     export_mermaid: bool = typer.Option(False, "--export-mermaid", help="Automatically save diagrams as .mmd files. Example: bck-nd scan . --uml --export-mermaid"),
-    provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd scan . --ai --provider openrouter")
+    provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd scan . --ai --provider openrouter"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Bypass incremental delta cache and force a complete full re-scan.")
 ):
 
     """
@@ -144,6 +145,7 @@ def scan(
     - --impact-radius: show routes/files impacted by a given file
     - --teach, --health, --datascience, --contract, --export-dict (see help)
     - --output: write results to file
+    - --no-cache: disable delta cache engine
 
     Examples:
     - bck-nd scan .
@@ -234,7 +236,8 @@ def scan(
         ai=ai,
         style=style,
         provider=provider,
-        plain=bool(output)
+        plain=bool(output),
+        use_cache=not no_cache
     )
 
     try:

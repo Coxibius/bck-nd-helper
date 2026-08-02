@@ -26,6 +26,7 @@ class ScanContext:
     arch_info: Dict[str, Any] = field(default_factory=dict)
     plain: bool = False
     file_index: Any = None  # Optional FileIndex from utils.indexer (typed as Any to avoid circular import)
+    asg_graph: Any = None   # Optional ASGGraph instance (typed as Any to avoid circular import)
 
     @property
     def framework(self) -> str:
@@ -40,6 +41,7 @@ class AnalyzerResult:
     warning: str = "Nothing found."
     warning_color: str = "yellow"
     raw: Any = None
+    asg_graph: Any = None   # Optional ASGGraph produced by this analyzer
 
     @property
     def ok(self) -> bool:

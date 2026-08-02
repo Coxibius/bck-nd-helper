@@ -3,7 +3,7 @@ Formatters module for CLI and Textual UI outputs.
 Decouples terminal presentation libraries (Rich, Typer) from the core logic.
 """
 
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Any
 import io
 from rich.console import Console
 from rich.table import Table
@@ -304,3 +304,22 @@ def get_impact_report_string(usage_map: Dict[str, Set[str]], plain: bool = False
         console.print("\n[yellow]No internal dependencies detected (or project is flat).[/yellow]" if not plain else "\nNo internal dependencies detected.")
         
     return output.getvalue()
+
+
+def format_asg_json(asg_graph: Any, indent: int = 2) -> str:
+    """
+    Format ASGGraph object into a clean JSON string representation.
+    """
+    import json
+    if asg_graph is None:
+        return json.dumps({"nodes": [], "edges": []}, indent=indent)
+
+    if hasattr(asg_graph, "to_dict"):
+        data = asg_graph.to_dict()
+    elif isinstance(asg_graph, dict):
+        data = asg_graph
+    else:
+        data = {"nodes": [], "edges": []}
+
+    return json.dumps(data, indent=indent)
+

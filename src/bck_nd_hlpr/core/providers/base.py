@@ -5,6 +5,13 @@ Each provider encapsulates detection logic and metadata for a single
 framework/language ecosystem, enabling a plugin-style architecture
 where new frameworks can be added without modifying the core detector.
 """
+# TODO(audit): Document and implement support for future framework expansion candidates:
+# TODO(audit):   - Go: Gin (web router) + GORM (ORM) provider with go.mod detection
+# TODO(audit):   - Rust: Actix-web (framework) + Diesel ORM with Cargo.toml detection
+# TODO(audit):   - Ruby on Rails: ActiveRecord ORM with Gemfile + app/models/ detection
+# TODO(audit):   - Java Quarkus: RESTEasy Reactive + Panache ORM with pom.xml/gradle.build detection
+# TODO(audit): Each new provider subclass should follow the BaseArchitectureProvider ABC contract below
+# TODO(audit): and register itself via the ProviderRegistry plugin mechanism.
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, List, Optional

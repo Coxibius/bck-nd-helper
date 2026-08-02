@@ -64,6 +64,8 @@ def find_all_descendants(node: tree_sitter.Node, node_type: str) -> List[tree_si
         found.extend(find_all_descendants(child, node_type))
     return found
 
+# TODO(audit): Add support for PHP 8.1-8.3 language features: enum_declaration nodes,
+# TODO(audit): readonly class modifiers, #[...] attribute list annotations, and constructor_property_promotion.
 class PHPUMLVisitor:
     def __init__(self, source_bytes: bytes, module_name: str):
         self.source_bytes = source_bytes
@@ -72,6 +74,8 @@ class PHPUMLVisitor:
         self.current_class: Optional[UMLClassInfo] = None
 
     def visit(self, node: tree_sitter.Node):
+        # TODO(audit): Dispatch enum_declaration nodes (PHP 8.1 backed enums with int/string backing types)
+        # TODO(audit): alongside class/interface declarations to capture enum cases and value mappings.
         if node.type in ['class_declaration', 'interface_declaration']:
             self._visit_class(node)
         elif node.type == 'namespace_definition':
@@ -84,6 +88,8 @@ class PHPUMLVisitor:
             for child in node.children: self.visit(child)
 
     def _visit_class(self, node: tree_sitter.Node):
+        # TODO(audit): Inspect class_declaration modifier list for the `readonly` keyword (PHP 8.2 readonly classes)
+        # TODO(audit): and propagate readonly semantics to all declared properties and UML attribute stereotypes.
         name_node = node.child_by_field_name('name')
         if not name_node: return
         
@@ -136,6 +142,8 @@ class PHPUMLVisitor:
             self.current_class.methods.append(f"{name}{params_text}")
 
 
+# TODO(audit): Parse PHP 8 #[...] attribute list annotations instead of legacy PHPDoc @annotations
+# TODO(audit): for detecting ORM entity markers such as #[ORM\Entity], #[ORM\Column], #[ORM\ManyToOne], etc.
 class PHPERVisitor:
     def __init__(self, source_bytes: bytes):
         self.source_bytes = source_bytes
@@ -154,6 +162,8 @@ class PHPERVisitor:
         
         # Check if extends Model
         is_model = False
+        # TODO(audit): Check class-level attribute_lists for #[Model] or #[ORM\Entity] style PHP 8 attributes
+        # TODO(audit): in addition to the base_clause Model inheritance check.
         extends = find_child_by_type(node, 'base_clause')
         if extends:
             for child in extends.children:

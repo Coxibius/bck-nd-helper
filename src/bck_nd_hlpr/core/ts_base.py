@@ -6,6 +6,9 @@ The shared tree-sitter infrastructure now lives in
 existing imports (``from bck_nd_hlpr.core.ts_base import BaseTreeSitterVisitor``)
 keep working. Prefer importing from ``base_tree_sitter`` in new code.
 """
+# TODO(audit): Centralize TypeScript 5.x decorator extraction helpers (@Injectable, @Controller, @Module,
+# TODO(audit): @Entity, etc.) and generic type parameter parsing for NestJS DI metadata and schema generics here,
+# TODO(audit): so they can be shared by both js_parser.py (JS/TS visitors) and any future TS-specific parsers.
 from __future__ import annotations
 
 from bck_nd_hlpr.core.base_tree_sitter import (  # noqa: F401

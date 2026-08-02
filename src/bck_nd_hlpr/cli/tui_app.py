@@ -95,14 +95,54 @@ class ArchitectureExplorer(App):
         except Exception as e:
             info_box.update(f"[red]Error processing file: {e}[/red]")
 
+    def on_mount(self) -> None:
+        """Dashboard initialization to show provider details and cache status."""
+        self._update_dashboard_summary("./")
+
+    def _update_dashboard_summary(self, path: str) -> None:
+        info_box = self.query_one("#info_box", Static)
+        try:
+            from bck_nd_hlpr.core.detector import ArchitectureDetector
+            from bck_nd_hlpr.core.providers.registry import ProviderRegistry
+            from bck_nd_hlpr.core.utils.delta_cache import DeltaCacheManager
+            from pathlib import Path
+
+            detector = ArchitectureDetector()
+            arch_info = detector.detect(path)
+            provider = getattr(detector, "_matched_provider", None)
+            if not provider:
+                provider = ProviderRegistry.get_instance().detect_provider(Path(path))
+
+            cache_mgr = DeltaCacheManager(path)
+            cache_status = f"Active ({len(cache_mgr.signatures)} file signatures cached)" if cache_mgr.cache_path.exists() else "Ready (New cache will be created)"
+
+            lines = []
+            lines.append(f"[b]Architecture Explorer Dashboard — {os.path.abspath(path)}[/b]\n")
+            lines.append(f"• [cyan]Framework:[/cyan] {arch_info.get('framework', 'Unknown')}")
+            lines.append(f"• [blue]Architecture:[/blue] {arch_info.get('architecture', 'Unknown')}")
+
+            if provider:
+                lines.append(f"• [green]Detected Provider:[/green] {getattr(provider, 'name', 'generic')} (Lang: {getattr(provider, 'language', 'unknown')})")
+
+            lines.append(f"• [yellow]Delta Cache Status:[/yellow] {cache_status}\n")
+            lines.append("[i]Select a file or directory in the tree on the left to analyze...[/i]")
+
+            info_box.update("\n".join(lines))
+        except Exception as e:
+            info_box.update(f"Select a file or directory in the tree to view its analysis... (Notice: {e})")
+
     def on_directory_tree_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
         """Handles when a directory is selected."""
         path = str(event.path)
         info_box = self.query_one("#info_box", Static)
         
         try:
+            from bck_nd_hlpr.core.utils.delta_cache import DeltaCacheManager
+            cache_mgr = DeltaCacheManager(path)
+            cache_info = f"Cache: {len(cache_mgr.signatures)} cached signatures" if cache_mgr.cache_path.exists() else "Cache: Initializing"
+
             # Scan at the selected directory level
-            output = f"[b]Directory:[/b] {path}\n\n"
+            output = f"[b]Directory:[/b] {path}  |  [yellow]{cache_info}[/yellow]\n\n"
             flow = self.scanner.scan(path, max_depth=1) # Use low depth to avoid collapsing the app
             
             if flow:
