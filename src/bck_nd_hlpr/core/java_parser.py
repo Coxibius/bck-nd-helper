@@ -31,6 +31,9 @@ def find_child_by_type(node: tree_sitter.Node, node_type: str) -> Optional[tree_
 def find_children_by_type(node: tree_sitter.Node, node_type: str) -> List[tree_sitter.Node]:
     return [child for child in node.children if child.type == node_type]
 
+# TODO(audit): Implement support for Java 17-21 language features including record_declaration nodes,
+# TODO(audit): sealed/permitted subclasses on class/interface modifiers, and pattern matching for_instance patterns.
+# TODO(audit): Add proper parsing of jakarta.* package imports and references (replace javax.* legacy mappings).
 class JavaUMLVisitor:
     def __init__(self, source_bytes: bytes, module_name: str):
         self.source_bytes = source_bytes
@@ -39,6 +42,8 @@ class JavaUMLVisitor:
         self.current_class: Optional[UMLClassInfo] = None
 
     def visit(self, node: tree_sitter.Node):
+        # TODO(audit): Extend dispatch to handle record_declaration (Java 14+) and sealed_class_declaration (Java 17+)
+        # TODO(audit): node types alongside existing class/interface/enum declarations.
         if node.type in ['class_declaration', 'interface_declaration', 'enum_declaration']:
             self._visit_class(node)
         else:
@@ -97,6 +102,8 @@ class JavaUMLVisitor:
             params_text = get_node_text(params_node, self.source_bytes)
             self.current_class.methods.append(f"{name}{params_text}")
 
+# TODO(audit): Map jakarta.persistence.* annotations (Entity, Table, Id, Column, ManyToOne, etc.)
+# TODO(audit): alongside existing javax.persistence.* legacy mappings for Spring Boot 3+ compatibility.
 class JavaERVisitor:
     def __init__(self, source_bytes: bytes):
         self.source_bytes = source_bytes
@@ -114,12 +121,16 @@ class JavaERVisitor:
         # Look for @Entity or @Table annotation
         is_entity = False
         modifiers = node.child_by_field_name('modifiers')
+        # TODO(audit): Support sealed/permitted class hierarchy and record components when
+        # TODO(audit): extracting JPA entities from Java 17+ record-based projections.
         if modifiers:
             for child in modifiers.children:
                 if child.type == 'annotation':
                     ann_name = child.child_by_field_name('name')
                     if ann_name:
                         name_text = get_node_text(ann_name, self.source_bytes)
+                        # TODO(audit): Also check for fully-qualified jakarta.persistence.Entity / jakarta.persistence.Table
+                        # TODO(audit): annotation references in addition to the short-form names.
                         if name_text in ['Entity', 'Table', 'Document']: # Includes Mongo Document
                             is_entity = True
         

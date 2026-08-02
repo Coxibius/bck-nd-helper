@@ -100,6 +100,10 @@ def walk_source_files(
 # BaseTreeSitterVisitor class
 # =====================================================================
 
+# TODO(audit): Implement graceful error degradation logic for unhandled Tree-sitter ERROR nodes.
+# TODO(audit): When a node.type == 'ERROR' is encountered during traversal, log a non-fatal warning with
+# TODO(audit): the surrounding source context (line numbers, node snippet) and continue traversing the
+# TODO(audit): next sibling instead of propagating AttributeError or KeyError crashes up the visitor stack.
 class BaseTreeSitterVisitor:
     def __init__(self, source_bytes: bytes):
         self.source_bytes = source_bytes
@@ -107,6 +111,8 @@ class BaseTreeSitterVisitor:
     def visit(self, node):
         if node is None:
             return None
+        # TODO(audit): Add explicit visit_ERROR handler here that records error metrics and
+        # TODO(audit): short-circuits problematic subtrees, then falls through to generic_visit siblings.
         method_name = f"visit_{node.type}"
         visitor = getattr(self, method_name, self.generic_visit)
         return visitor(node)

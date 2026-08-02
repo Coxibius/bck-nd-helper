@@ -26,6 +26,9 @@ PARSER = load_grammar("tree_sitter_javascript")
 _HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
 
 
+# TODO(audit): Implement support for TypeScript 5.x decorators (@Controller, @Injectable, @Module, etc.)
+# TODO(audit): to detect NestJS dependency injection patterns and extract module/provider/controller metadata.
+# TODO(audit): Add generic schema type parsing for Zod, class-validator, and TypeBox generic type inference.
 class JSUMLVisitor(BaseTreeSitterVisitor):
     """Extracts classes, React components, and route handlers as UMLClassInfo."""
 
@@ -37,6 +40,8 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
 
     # -- dispatch handlers (convention: visit_<node_type>) ---------------
 
+    # TODO(audit): Add a decorator_list / decorator pre-processing pass for TypeScript 5.x decorator nodes
+    # TODO(audit): on class_declaration and method_definition to detect NestJS @Injectable/@Controller patterns.
     def visit_class_declaration(self, node: Node) -> None:
         self._visit_class(node)
 
@@ -114,6 +119,8 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
             self.current_class = None
 
 
+# TODO(audit): Add support for parsing generic schema type definitions (z.object<T>, TypeBox.Type.Object<T>,
+# TODO(audit): NestJS DTOs with class-validator decorators) to extract strongly-typed column definitions.
 class JSERVisitor(BaseTreeSitterVisitor):
     """Detects Mongoose (`.model`) and Sequelize (`.define`) models as EREntity."""
 
@@ -124,6 +131,8 @@ class JSERVisitor(BaseTreeSitterVisitor):
     # -- dispatch handlers ------------------------------------------------
 
     def visit_call_expression(self, node: Node) -> bool:
+        # TODO(audit): Extend model detection to parse NestJS @Entity() decorators + TypeORM Repository<T>
+        # TODO(audit): generic injection patterns for ER entity extraction alongside mongoose/sequelize calls.
         # Look for mongoose.model('Name', schema) or sequelize.define('Name', schema)
         self._check_model_definition(node)
         return True  # continue traversal: nested calls may exist

@@ -912,6 +912,103 @@ def get_api_contract_map(root_path: str = ".", depth: int = 3) -> str:
         return f"Error generating API contract map: {str(e)}\n{traceback.format_exc()}"
 
 
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_asg_graph(root_path: str = ".", depth: int = 3) -> str:
+    """Get the structured JSON representation of the Abstract Semantic Graph (ASG) for the project.
+
+    Use this tool when:
+    - The user asks for the ASG graph, semantic graph, structural JSON IR, or graph representation of the project.
+
+    Args:
+        root_path: Path to the project root. Default ".".
+        depth: Scan depth.
+    """
+    try:
+        from bck_nd_hlpr.core.asg import ASGGraph, ASGBuilder
+        from bck_nd_hlpr.core.er_parser import parse_project_for_er
+        from bck_nd_hlpr.core.route_parser import parse_project_routes
+        from bck_nd_hlpr.cli.formatters import format_asg_json
+        from pathlib import Path
+
+        graph = ASGGraph()
+
+        try:
+            entities = parse_project_for_er(root_path, max_depth=depth)
+            if entities:
+                ASGBuilder.from_er_entities(entities, graph=graph)
+        except Exception:
+            pass
+
+        try:
+            routes = parse_project_routes(root_path, max_depth=depth)
+            if routes:
+                ASGBuilder.from_routes(routes, graph=graph)
+        except Exception:
+            pass
+
+        return format_asg_json(graph)
+    except Exception as e:
+        return f"Error generating ASG graph: {str(e)}\n{traceback.format_exc()}"
+
+
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_architecture_summary(root_path: str = ".", depth: int = 3) -> str:
+    """Get a high-level architectural summary of the project including framework, architecture pattern, features, and provider metadata.
+
+    Use this tool when:
+    - The user asks for an architecture summary, provider info, framework overview, or high-level architecture stats.
+
+    Args:
+        root_path: Path to the project root. Default ".".
+        depth: Scan depth.
+    """
+    try:
+        from pathlib import Path
+        from bck_nd_hlpr.core.detector import ArchitectureDetector
+        from bck_nd_hlpr.core.providers.registry import ProviderRegistry
+
+        detector = ArchitectureDetector()
+        arch_info = detector.detect(root_path)
+
+        summary_lines = []
+        summary_lines.append(f"Architectural Summary of: {os.path.abspath(root_path)}")
+        summary_lines.append(f"Framework: {arch_info.get('framework', 'Unknown')}")
+        summary_lines.append(f"Architecture Pattern: {arch_info.get('architecture', 'Unknown')}")
+
+        features = arch_info.get("features", [])
+        if features:
+            summary_lines.append(f"Features: {', '.join(features)}")
+
+        if arch_info.get("summary"):
+            summary_lines.append(f"Summary: {arch_info.get('summary')}")
+
+        provider = getattr(detector, "_matched_provider", None)
+        if not provider:
+            provider = ProviderRegistry.get_instance().detect_provider(Path(root_path))
+
+        if provider:
+            summary_lines.append("\nProvider Metadata:")
+            summary_lines.append(f"- Provider Name: {getattr(provider, 'name', 'generic')}")
+            summary_lines.append(f"- Primary Language: {getattr(provider, 'language', 'unknown')}")
+            if hasattr(provider, "get_framework_info"):
+                try:
+                    f_info = provider.get_framework_info(Path(root_path))
+                    if isinstance(f_info, dict):
+                        if f_info.get("orm"):
+                            summary_lines.append(f"- ORM: {f_info.get('orm')}")
+                        if f_info.get("architecture_type"):
+                            summary_lines.append(f"- Provider Architecture Type: {f_info.get('architecture_type')}")
+                except Exception:
+                    pass
+
+        return "\n".join(summary_lines)
+    except Exception as e:
+        return f"Error getting architecture summary: {str(e)}\n{traceback.format_exc()}"
+
+
+
 def main():
     mcp.run(transport="stdio")
 

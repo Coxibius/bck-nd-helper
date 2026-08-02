@@ -31,6 +31,8 @@ _FOREIGN_KEY_RE = re.compile(
 )
 
 
+# TODO(audit): Add support for C# 10 file-scoped namespaces (file_scoped_namespace_declaration) and global usings.
+# TODO(audit): Add support for C# 9-12 top-level statements in unmanaged files.
 class CSharpUMLVisitor(BaseTreeSitterVisitor):
     def __init__(self, source_bytes: bytes, module_name: str) -> None:
         super().__init__(source_bytes)
@@ -41,10 +43,12 @@ class CSharpUMLVisitor(BaseTreeSitterVisitor):
     def visit_class_declaration(self, node: Node) -> None:
         self._visit_class(node)
 
+    # TODO(audit): Add visit_record_declaration and visit_record_struct_declaration for C# 9-12 records.
     def visit_interface_declaration(self, node: Node) -> None:
         self._visit_class(node)
 
     def _visit_class(self, node: Node) -> None:
+        # TODO(audit): Handle C# 12 Primary Constructors on class header parameter_list.
         name_node = self.child(node, "identifier")
         if not name_node:
             return

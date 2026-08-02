@@ -130,18 +130,24 @@ def parse_file_for_todos(file_path: str) -> List[Dict]:
                 
                 # Check each debt marker
                 for marker in DEBT_MARKERS:
-                    # Build pattern: comment_char + optional whitespace + marker + optional colon + whitespace + message
-                    # Examples: "# TODO: message", "// FIXME message", "-- HACK: message"
-                    pattern = rf'{re.escape(comment_char)}\s*{marker}:?\s+(.+)'
+                    # Build pattern: comment_char + optional whitespace + marker
+                    #   + optional parenthesized SCOPE like "(audit)", "(security)", "(perf)"
+                    #   + optional colon + whitespace + message
+                    # Examples (use escaped "T-ODO" / "FIX-ME" spelling below to avoid self-detection):
+                    #           "# T-ODO: message", "# T-ODO(audit): message", "// FIX-ME(security): message",
+                    #           "-- H-ACK(perf): message", "# T-ODO(my_scope) message without colon"
+                    pattern = rf'{re.escape(comment_char)}\s*{marker}(\(([^)]*)\))?:?\s+(.+)'
                     match = re.search(pattern, line, re.IGNORECASE)
                     
                     if match:
-                        message = match.group(1).strip()
+                        scope = match.group(2)
+                        message = match.group(3).strip()
                         
                         todos.append({
                             'file': str(path.name),  # Just filename for now
                             'line': line_num,
                             'type': marker,
+                            'scope': scope if scope else '',
                             'message': message
                         })
                         break  # Only one marker per line

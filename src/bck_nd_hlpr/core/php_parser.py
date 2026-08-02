@@ -23,8 +23,34 @@ from bck_nd_hlpr.core.uml_parser import UMLClassInfo
 from bck_nd_hlpr.core.er_parser import EREntity
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
+import re
+
 def get_node_text(node: tree_sitter.Node, source_bytes: bytes) -> str:
     return source_bytes[node.start_byte:node.end_byte].decode('utf-8')
+
+def sanitize_php_class_name(raw_name: str) -> str:
+    """Sanitizes PHP class strings or namespace references.
+
+    Examples:
+        - '\\App\\Models\\Solicitud' -> 'Solicitud'
+        - 'App\\Models\\Solicitud::class' -> 'Solicitud'
+        - 'Solicitud::class' -> 'Solicitud'
+        - "'App\\\\Models\\\\Solicitud'" -> 'Solicitud'
+    """
+    if not raw_name:
+        return "Unknown"
+    cleaned = raw_name.strip("'\" \t\r\n")
+    # Strip ::class suffix if present
+    cleaned = re.sub(r'::class$', '', cleaned, flags=re.IGNORECASE)
+    # Replace forward slashes or double backslashes
+    cleaned = cleaned.replace('/', '\\')
+    # Split by backslash and take the last component
+    parts = [p for p in cleaned.split('\\') if p]
+    if parts:
+        result = parts[-1].strip("'\" ")
+        if result and result.lower() != "class":
+            return result
+    return "Unknown"
 
 def find_child_by_type(node: tree_sitter.Node, node_type: str) -> Optional[tree_sitter.Node]:
     for child in node.children:
@@ -38,6 +64,8 @@ def find_all_descendants(node: tree_sitter.Node, node_type: str) -> List[tree_si
         found.extend(find_all_descendants(child, node_type))
     return found
 
+# TODO(audit): Add support for PHP 8.1-8.3 language features: enum_declaration nodes,
+# TODO(audit): readonly class modifiers, #[...] attribute list annotations, and constructor_property_promotion.
 class PHPUMLVisitor:
     def __init__(self, source_bytes: bytes, module_name: str):
         self.source_bytes = source_bytes
@@ -46,6 +74,8 @@ class PHPUMLVisitor:
         self.current_class: Optional[UMLClassInfo] = None
 
     def visit(self, node: tree_sitter.Node):
+        # TODO(audit): Dispatch enum_declaration nodes (PHP 8.1 backed enums with int/string backing types)
+        # TODO(audit): alongside class/interface declarations to capture enum cases and value mappings.
         if node.type in ['class_declaration', 'interface_declaration']:
             self._visit_class(node)
         elif node.type == 'namespace_definition':
@@ -58,6 +88,8 @@ class PHPUMLVisitor:
             for child in node.children: self.visit(child)
 
     def _visit_class(self, node: tree_sitter.Node):
+        # TODO(audit): Inspect class_declaration modifier list for the `readonly` keyword (PHP 8.2 readonly classes)
+        # TODO(audit): and propagate readonly semantics to all declared properties and UML attribute stereotypes.
         name_node = node.child_by_field_name('name')
         if not name_node: return
         
@@ -110,6 +142,8 @@ class PHPUMLVisitor:
             self.current_class.methods.append(f"{name}{params_text}")
 
 
+# TODO(audit): Parse PHP 8 #[...] attribute list annotations instead of legacy PHPDoc @annotations
+# TODO(audit): for detecting ORM entity markers such as #[ORM\Entity], #[ORM\Column], #[ORM\ManyToOne], etc.
 class PHPERVisitor:
     def __init__(self, source_bytes: bytes):
         self.source_bytes = source_bytes
@@ -128,6 +162,8 @@ class PHPERVisitor:
         
         # Check if extends Model
         is_model = False
+        # TODO(audit): Check class-level attribute_lists for #[Model] or #[ORM\Entity] style PHP 8 attributes
+        # TODO(audit): in addition to the base_clause Model inheritance check.
         extends = find_child_by_type(node, 'base_clause')
         if extends:
             for child in extends.children:
@@ -173,26 +209,46 @@ class PHPERVisitor:
                                 if method:
                                     method_txt = get_node_text(method, self.source_bytes)
                                     args = call.child_by_field_name('arguments')
-                                    if method_txt in ['hasMany', 'belongsTo', 'hasOne', 'belongsToMany']:
+                                    rel_methods = [
+                                        'hasMany', 'belongsTo', 'hasOne', 'belongsToMany',
+                                        'hasOneThrough', 'hasManyThrough', 'morphOne',
+                                        'morphMany', 'morphTo', 'morphToMany', 'morphedByMany'
+                                    ]
+                                    if method_txt in rel_methods:
                                         rel_type = "||--o{" if "Many" in method_txt else "}o--||"
                                         target = "Unknown"
                                         if args:
-                                            # Arg 0 is usually Target::class
                                             for arg_child in args.children:
                                                 if arg_child.type == 'argument':
-                                                    # e.g., User::class
                                                     sr_expr = find_child_by_type(arg_child, 'scoped_resolution_expression')
                                                     if sr_expr:
                                                         scope = sr_expr.child_by_field_name('scope')
                                                         if scope:
-                                                            target = get_node_text(scope, self.source_bytes)
+                                                            target = sanitize_php_class_name(get_node_text(scope, self.source_bytes))
+                                                        else:
+                                                            target = sanitize_php_class_name(get_node_text(sr_expr, self.source_bytes))
                                                     else:
-                                                        # could be a string 'App\\Models\\User'
                                                         strs = find_all_descendants(arg_child, 'string')
                                                         if strs:
-                                                            val = get_node_text(strs[0], self.source_bytes).strip("'\"")
-                                                            target = val.split("\\")[-1]
-                                                    break # just take the first arg
+                                                            val = get_node_text(strs[0], self.source_bytes)
+                                                            target = sanitize_php_class_name(val)
+                                                        else:
+                                                            raw_txt = get_node_text(arg_child, self.source_bytes)
+                                                            target = sanitize_php_class_name(raw_txt)
+                                                    if target != "Unknown":
+                                                        break
+                                        
+                                        # Fallback inspection of return call body if target is still Unknown
+                                        if target == "Unknown":
+                                            scopes = find_all_descendants(ret, 'scoped_resolution_expression')
+                                            for s in scopes:
+                                                sc_node = s.child_by_field_name('scope')
+                                                if sc_node:
+                                                    possible_target = sanitize_php_class_name(get_node_text(sc_node, self.source_bytes))
+                                                    if possible_target != "Unknown":
+                                                        target = possible_target
+                                                        break
+
                                         entity.relationships.append((target, rel_type, rel_name))
 
         if entity.columns or entity.relationships:

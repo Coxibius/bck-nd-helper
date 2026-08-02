@@ -18,6 +18,7 @@ from bck_nd_hlpr.core.dependency_tracker import DependencyTracker, analyze_impac
 from bck_nd_hlpr.core.narrator import Narrator
 from bck_nd_hlpr.core.utils.indexer import FileSystemIndexer, FileIndex
 from bck_nd_hlpr.core.utils.cache import FileCache
+from bck_nd_hlpr.core.utils.delta_cache import DeltaCacheManager
 # NOTE: Heavy polyglot parser modules (analysis, route_parser, infra_parser,
 # traceability, er_parser) are imported lazily inside their respective
 # conditional blocks in ScannerOrchestrator.run() to avoid loading all
@@ -47,6 +48,7 @@ class OrchestratorConfig:
     style: str = "pro"                 # AI personality style
     provider: Optional[str] = None     # Force specific AI provider
     plain: bool = True                 # Return raw unformatted text (strips ANSI internally if requested)
+    use_cache: bool = True             # Enable incremental delta cache engine
 
 
 @dataclass
@@ -86,6 +88,12 @@ class OrchestratorResult:
     # v3.0.0: Pre-built file index for single-pass scanning
     file_index: Optional[Any] = None  # FileIndex from utils.indexer
 
+    # v3.1.0: Unified Abstract Semantic Graph
+    asg_graph: Optional[Any] = None  # ASGGraph instance
+
+    # v3.2.0: Delta Cache Manager instance
+    delta_cache: Optional[Any] = None  # DeltaCacheManager instance
+
 
 class ScannerOrchestrator:
     @staticmethod
@@ -95,6 +103,9 @@ class ScannerOrchestrator:
 
         # ── v3.0.0: Clear memory cache for new scan ──
         FileCache.clear()
+
+        # ── v3.2.0: Delta Cache Initialization ──
+        delta_cache = DeltaCacheManager(config.path) if config.use_cache else None
 
         # Detect architecture & framework first
         try:
@@ -109,7 +120,8 @@ class ScannerOrchestrator:
             framework=arch_info.get("framework", "Unknown"),
             architecture=arch_info.get("architecture", "Single File"),
             features=arch_info.get("features", []),
-            summary=arch_info.get("summary", "")
+            summary=arch_info.get("summary", ""),
+            delta_cache=delta_cache
         )
 
         # ── v3.0.0: Build file index once for all analyzers ──
@@ -117,6 +129,8 @@ class ScannerOrchestrator:
             indexer = FileSystemIndexer(config.path, max_depth=config.depth)
             file_index = indexer.build()
             result.file_index = file_index
+            if delta_cache and file_index:
+                delta_cache.sync_files(file_index.all_files)
         except Exception as e:
             logger.warning(f"FileSystemIndexer error (falling back to per-analyzer walks): {e}")
             file_index = None
@@ -254,5 +268,8 @@ class ScannerOrchestrator:
                             result.execution_warnings.extend(warnings)
                     except Exception as e:
                         logger.error(f"Executor failed unexpectedly: {e}")
+
+        if delta_cache:
+            delta_cache.save_cache()
 
         return result

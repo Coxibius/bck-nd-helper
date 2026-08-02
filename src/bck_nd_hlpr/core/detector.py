@@ -1,12 +1,16 @@
 """
 Detector for backend architecture types and frameworks.
+
+Delegates framework detection to the :mod:`providers` registry when a
+specific provider matches, falling back to the legacy file-scanning
+heuristics for frameworks without a dedicated provider.
 """
 import re
 import os
 import json
 from pathlib import Path
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
-from typing import Dict, List, Set, Any
+from typing import Dict, List, Set, Any, Optional
 try:
     import tomllib as toml # Python 3.11+
 except ImportError:
@@ -31,6 +35,8 @@ class ArchitectureDetector:
         self.features = set()
         self.connections = []
         self.config = self.DEFAULT_CONFIG.copy()
+        # Provider pattern — populated by _detect_framework()
+        self._matched_provider: Optional[object] = None
 
     def _load_config(self, root: Path):
         """Loads configuration from pyproject.toml if it exists."""
@@ -99,7 +105,23 @@ class ArchitectureDetector:
         }
     
     def _detect_framework(self, root: Path) -> str:
-        """Detects the main framework."""
+        """Detects the main framework.
+
+        Tries the :class:`ProviderRegistry` first; falls back to the
+        legacy file-scanning heuristics for uncovered frameworks.
+        """
+        # ── Provider-first detection ────────────────────────────────────
+        try:
+            from bck_nd_hlpr.core.providers.registry import ProviderRegistry, GenericProvider
+            registry = ProviderRegistry.get_instance()
+            provider = registry.detect_provider(root)
+            if not isinstance(provider, GenericProvider):
+                self._matched_provider = provider
+                return provider.name
+        except Exception:
+            pass  # If the provider subsystem fails, fall through to legacy
+
+        # ── Legacy heuristic scanning (frameworks without a provider) ───
         # Python Web Frameworks
         for py_file in self._safe_walk(root, ".py"):
             try:
