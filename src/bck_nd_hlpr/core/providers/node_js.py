@@ -8,7 +8,32 @@ import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
-from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider
+from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider, find_files_by_glob
+
+
+def find_package_json(root_path: Path) -> Optional[Path]:
+    """Return the canonical ``package.json`` path for *root_path*.
+
+    First checks for ``root_path / "package.json"`` (the common single-package layout).
+    For monorepos without a top-level manifest the helper performs a shallow 3-level walk
+    and returns the first ``package.json`` found closest to the project root.
+    Returns *None* if no manifest is discoverable.
+    """
+    root = Path(root_path)
+    direct = root / "package.json"
+    if direct.is_file():
+        return direct
+    try:
+        candidates = find_files_by_glob(root, "**/package.json")
+    except Exception:
+        return None
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate
+        except Exception:
+            continue
+    return None
 
 
 # Maps package.json dependency keys → (framework display name, architecture type)
@@ -171,3 +196,71 @@ class NodeJsProvider(BaseArchitectureProvider):
                     ) or "route" in name_lower or "controller" in name_lower:
                         results.append(p)
         return sorted(results)
+
+
+def find_routes_or_controllers(root_path: Path) -> List[Path]:
+    """Locate NestJS and Express route / controller source files.
+
+    Covers the conventional directory layouts used by NestJS (``src/*/``
+    with ``*.controller.ts``), Express (``routes/``, ``controllers/``),
+    and monorepo-style packages with a top-level ``src``.  Also scans
+    the project root for route files when no ``src`` directory exists,
+    and includes any ``app.ts`` / ``server.ts`` / ``index.ts`` bootstrap
+    files that define route mounts directly.  Results are de-duplicated
+    and returned sorted alphabetically.
+    """
+    root = Path(root_path)
+    seen: set = set()
+    results: List[Path] = []
+
+    def _accept(p: Path) -> None:
+        try:
+            key = p.resolve()
+        except Exception:
+            key = Path(str(p)).absolute()
+        if key in seen or not p.is_file():
+            return
+        seen.add(key)
+        results.append(p)
+
+    try:
+        existing = NodeJsProvider().find_route_files(root)
+        for p in existing:
+            _accept(p)
+    except Exception:
+        pass
+
+    bootstrap_names = {"app", "server", "index", "main", "routes", "router"}
+
+    def _scan_dir(d: Path) -> None:
+        if not d.is_dir():
+            return
+        for ext in ("*.ts", "*.js", "*.tsx", "*.jsx"):
+            for p in d.rglob(ext):
+                try:
+                    rel = p.relative_to(root)
+                except ValueError:
+                    rel = Path(p.name)
+                parts_lower = [part.lower() for part in rel.parts]
+                name_lower = p.stem.lower()
+                parent_lower = p.parent.name.lower()
+                is_route_dir = any(seg in ("routes", "route", "controllers", "controller")
+                                   for seg in parts_lower)
+                is_route_name = ("route" in name_lower or "controller" in name_lower
+                                 or "handler" in name_lower)
+                is_bootstrap = name_lower in bootstrap_names
+                if is_route_dir or is_route_name or (
+                    is_bootstrap and parent_lower in ("src", "")
+                ):
+                    _accept(p)
+
+    for candidate in (
+        root / "src",
+        root / "packages",
+        root / "apps",
+        root / "server",
+        root,
+    ):
+        _scan_dir(candidate)
+
+    return sorted(results)

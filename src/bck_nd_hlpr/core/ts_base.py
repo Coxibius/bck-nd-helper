@@ -6,10 +6,11 @@ The shared tree-sitter infrastructure now lives in
 existing imports (``from bck_nd_hlpr.core.ts_base import BaseTreeSitterVisitor``)
 keep working. Prefer importing from ``base_tree_sitter`` in new code.
 """
-# TODO(audit): Centralize TypeScript 5.x decorator extraction helpers (@Injectable, @Controller, @Module,
-# TODO(audit): @Entity, etc.) and generic type parameter parsing for NestJS DI metadata and schema generics here,
-# TODO(audit): so they can be shared by both js_parser.py (JS/TS visitors) and any future TS-specific parsers.
 from __future__ import annotations
+
+from typing import List, Optional
+
+from tree_sitter import Node
 
 from bck_nd_hlpr.core.base_tree_sitter import (  # noqa: F401
     BaseTreeSitterVisitor,
@@ -22,8 +23,6 @@ from bck_nd_hlpr.core.base_tree_sitter import (  # noqa: F401
     read_source_bytes,
     walk_source_files,
 )
-
-# ── Decorator helper ───────────────────────────────────────────────────────────
 
 _DECORATOR_NODE_TYPES = frozenset({"decorator", "decorator_declaration"})
 
@@ -40,7 +39,6 @@ def is_decorator_node(node) -> bool:
         return False
     if getattr(node, "type", None) in _DECORATOR_NODE_TYPES:
         return True
-    # Fallback: raw-text heuristic for grammars that don't have a dedicated type.
     try:
         raw = node.text  # bytes on some tree-sitter versions
         if isinstance(raw, (bytes, bytearray)):
@@ -50,8 +48,122 @@ def is_decorator_node(node) -> bool:
         return False
 
 
+def _node_text(node, source_bytes: Optional[bytes] = None) -> str:
+    """Extract raw text from a tree-sitter *node*."""
+    try:
+        if source_bytes is not None:
+            return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="ignore")
+        raw = getattr(node, "text", None)
+        if isinstance(raw, (bytes, bytearray)):
+            return raw.decode("utf-8", errors="ignore")
+        if isinstance(raw, str):
+            return raw
+    except Exception:
+        pass
+    return ""
+
+
+def extract_decorator_name(node) -> Optional[str]:
+    """Return the clean decorator identifier name (no ``@``, no call parens).
+
+    Handles the common Tree-sitter decorator shapes produced by
+    JavaScript/TypeScript grammars::
+
+        @Controller           →  "Controller"
+        @Controller('api')    →  "Controller"
+        @Entity()             →  "Entity"
+        @SomeNs.Decorator     →  "Decorator"
+
+    Returns ``None`` if *node* is not recognisable as a decorator.
+    """
+    if node is None:
+        return None
+    if not is_decorator_node(node):
+        return None
+
+    try:
+        call = None
+        for child in getattr(node, "children", []) or []:
+            if child.type == "call_expression":
+                call = child
+                break
+        if call is not None:
+            func = call.child_by_field_name("function")
+            if func is not None:
+                ident = None
+                for fchild in getattr(func, "children", []) or []:
+                    if fchild.type in ("identifier", "member_expression"):
+                        ident = fchild
+                        break
+                if ident is None:
+                    ident = func
+                if ident is not None:
+                    name = _node_text(ident)
+                    if "." in name:
+                        name = name.rsplit(".", 1)[-1]
+                    return name if name else None
+        for child in getattr(node, "children", []) or []:
+            if child.type == "identifier":
+                name = _node_text(child)
+                return name if name else None
+        raw = _node_text(node).lstrip()
+        if raw.startswith("@"):
+            body = raw[1:].strip()
+            if "(" in body:
+                body = body.split("(", 1)[0].strip()
+            if "." in body:
+                body = body.rsplit(".", 1)[-1]
+            return body or None
+    except Exception:
+        pass
+    return None
+
+
+def extract_decorator_args(node) -> List[str]:
+    """Return the stringified arguments passed to a decorator call.
+
+    Each argument is captured as its raw source text.  For string literals the
+    surrounding quotes are stripped so callers receive clean values::
+
+        @Controller('users')            →  ["users"]
+        @Entity({ name: "posts" })      →  ['{ name: "posts" }']
+        @JoinColumn()                   →  []
+        @Injectable                     →  []
+    """
+    result: List[str] = []
+    if node is None or not is_decorator_node(node):
+        return result
+
+    try:
+        call = None
+        for child in getattr(node, "children", []) or []:
+            if child.type == "call_expression":
+                call = child
+                break
+        if call is None:
+            return result
+        args_node = call.child_by_field_name("arguments")
+        if args_node is None:
+            return result
+        children = getattr(args_node, "children", []) or []
+        for child in children:
+            if child.type in ("(", ")", "[", "]", "{", "}", ",", ";"):
+                continue
+            raw = _node_text(child).strip()
+            if not raw:
+                continue
+            if len(raw) >= 2 and raw[0] in ("'", '"', "`") and raw[-1] == raw[0]:
+                raw = raw[1:-1]
+            result.append(raw)
+    except Exception:
+        pass
+    return result
+
+
 __all__ = [
     "BaseTreeSitterVisitor",
+    "extract_decorator_args",
+    "extract_decorator_name",
     "find_all_descendants",
     "find_child_by_type",
     "find_children_by_type",

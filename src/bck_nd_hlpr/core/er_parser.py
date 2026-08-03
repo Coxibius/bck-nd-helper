@@ -20,9 +20,6 @@ class EREntity:
         self.columns: List[tuple[str, str]] = []  # (name, type)
         self.relationships: List[tuple[str, str, str]] = [] # (target_entity, relation_type, label)
 
-# TODO(audit): Extend AST visitor to handle Python 3.10-3.12 syntax throughout: PEP 695 `type` alias statements
-# TODO(audit): (ast.TypeAlias), structural pattern matching blocks (ast.Match / match_case), and comprehensive
-# TODO(audit): SQLAlchemy 2.0 declarative Mapped[<type>] annotation resolution with nested generic unwrapping.
 class ERExtractor(ast.NodeVisitor):
     """
     Analiza AST para encontrar modelos de base de datos.
@@ -34,14 +31,15 @@ class ERExtractor(ast.NodeVisitor):
         self.is_model_file = is_model_file
 
     def _extract_type_from_annotation(self, node: ast.AST) -> str:
-        # TODO(audit): Handle SQLAlchemy 2.0 nested Mapped[Optional[Mapped[X]]], Mapped[list[Mapped[Y]]],
-        # TODO(audit): and stringified forward-reference PEP 604 union types ('X | None') inside Mapped[...] annotations.
         try:
             if isinstance(node, ast.Name):
                 return node.id
             if isinstance(node, (ast.Constant, ast.Str)):
                 val = getattr(node, 'value', getattr(node, 's', ''))
-                return str(val)
+                val_str = str(val)
+                if val_str and val_str[0] in ("'", '"') and len(val_str) >= 2 and val_str[-1] == val_str[0]:
+                    val_str = val_str[1:-1]
+                return val_str.strip("'\"")
             if isinstance(node, ast.Attribute):
                 return node.attr
             if isinstance(node, ast.Subscript):
@@ -50,27 +48,111 @@ class ERExtractor(ast.NodeVisitor):
                 if isinstance(slice_node, ast.Index):
                     slice_node = slice_node.value
                 inner = self._extract_type_from_annotation(slice_node)
-                # SQLAlchemy 2.0: Mapped[T] → T; also unwrap Optional[T] and Union[T, None]
                 if container in ('Mapped', 'Optional'):
-                    return inner
-                # Union[T, None] — return the non-None part
+                    unwrapped = inner
+                    for _ in range(8):
+                        re_unwrapped = self._unwrap_mapped_optional(unwrapped)
+                        if re_unwrapped == unwrapped:
+                            break
+                        unwrapped = re_unwrapped
+                    return unwrapped
                 if container == 'Union':
                     if isinstance(slice_node, ast.Tuple):
                         parts = [self._extract_type_from_annotation(e) for e in slice_node.elts]
                         non_none = [p for p in parts if p not in ('None', 'NoneType', '')]
                         if non_none:
-                            return non_none[0]
+                            candidate = non_none[0]
+                            for _ in range(8):
+                                re_unwrapped = self._unwrap_mapped_optional(candidate)
+                                if re_unwrapped == candidate:
+                                    break
+                                candidate = re_unwrapped
+                            return candidate
                 return f"{container}[{inner}]"
-            # PEP 604: X | None  (ast.BinOp with ast.BitOr)
             if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
                 left = self._extract_type_from_annotation(node.left)
                 right = self._extract_type_from_annotation(node.right)
                 non_none = [p for p in (left, right) if p not in ('None', 'NoneType', '')]
                 if non_none:
-                    return non_none[0]
+                    candidate = non_none[0]
+                    for _ in range(8):
+                        re_unwrapped = self._unwrap_mapped_optional(candidate)
+                        if re_unwrapped == candidate:
+                            break
+                        candidate = re_unwrapped
+                    return candidate
         except Exception:
             pass
         return ""
+
+    def _unwrap_mapped_optional(self, typ_str: str) -> str:
+        """Recursively unwrap nested SQLAlchemy 2.0 ``Mapped[Optional[Mapped[T]]]``
+        style generic annotations into the innermost concrete type *T*.
+
+        The helper strips one layer of ``Mapped[...]``, ``Optional[...]``, or
+        ``Union[..., None]`` / ``X | None`` per call; callers are expected to
+        loop until the string stabilizes.  Non-generic strings are returned
+        unchanged, and string-quoted forward references retain their quotes
+        to preserve round-trip semantics with :meth:`_extract_type_from_annotation`.
+        """
+        if not typ_str:
+            return typ_str
+        s = typ_str.strip()
+        if len(s) >= 2 and s[0] in ("'", '"') and s[-1] == s[0]:
+            return s
+        if s.startswith("Mapped[") and s.endswith("]"):
+            inner = s[7:-1].strip()
+            return inner if inner else s
+        if s.startswith("Optional[") and s.endswith("]"):
+            inner = s[9:-1].strip()
+            return inner if inner else s
+        if s.startswith("Union[") and s.endswith("]"):
+            inner = s[6:-1].strip()
+            depth = 0
+            current = []
+            parts: List[str] = []
+            for ch in inner:
+                if ch in ("[", "<"):
+                    depth += 1
+                    current.append(ch)
+                elif ch in ("]", ">"):
+                    depth -= 1
+                    current.append(ch)
+                elif ch == "," and depth == 0:
+                    parts.append("".join(current).strip())
+                    current = []
+                else:
+                    current.append(ch)
+            tail = "".join(current).strip()
+            if tail:
+                parts.append(tail)
+            non_none = [p for p in parts if p not in ("None", "NoneType", "")]
+            if non_none:
+                return non_none[0]
+            return s
+        if "|" in s:
+            depth = 0
+            current = []
+            parts: List[str] = []
+            for ch in s:
+                if ch in ("[", "<"):
+                    depth += 1
+                    current.append(ch)
+                elif ch in ("]", ">"):
+                    depth -= 1
+                    current.append(ch)
+                elif ch == "|" and depth == 0:
+                    parts.append("".join(current).strip())
+                    current = []
+                else:
+                    current.append(ch)
+            tail = "".join(current).strip()
+            if tail:
+                parts.append(tail)
+            non_none = [p for p in parts if p not in ("None", "NoneType", "")]
+            if non_none:
+                return non_none[0]
+        return s
 
 
     def _clean_target_type(self, typ_str: str) -> tuple[str, str]:
@@ -123,14 +205,21 @@ class ERExtractor(ast.NodeVisitor):
             pass
         return False
 
-    # TODO(audit): Implement visit_TypeAlias (Python 3.12 PEP 695) and visit_Match (Python 3.10 pattern matching)
-    # TODO(audit): visitor methods to gracefully skip over / record new AST node types without AttributeError crashes.
     def visit_TypeAlias(self, node: ast.AST) -> None:
         """Gracefully ignore Python 3.12 PEP 695 ``type`` alias statements.
 
         ``ast.TypeAlias`` nodes are produced by ``type X = ...`` syntax.
         This stub prevents :class:`ast.NodeVisitor` from raising an
         ``AttributeError`` and simply continues traversal of child nodes.
+        """
+        self.generic_visit(node)
+
+    def visit_Match(self, node: ast.AST) -> None:
+        """Gracefully process Python 3.10+ ``match / case`` statements.
+
+        :class:`ast.Match` nodes are produced by ``match expr: case ...`` syntax.
+        This stub calls :meth:`generic_visit` so sub-nodes (e.g., class definitions
+        inside case branches) are still visited without raising ``AttributeError``.
         """
         self.generic_visit(node)
 

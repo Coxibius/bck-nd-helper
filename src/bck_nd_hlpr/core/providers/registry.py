@@ -5,11 +5,6 @@ Providers are registered at import time (see ``__init__.py``) and the
 registry is queried by ``ArchitectureDetector`` to delegate framework
 detection to the appropriate provider.
 """
-# TODO(audit): Prepare registry hooks for future framework expansion candidates
-# TODO(audit): (Go Gin/GORM, Rust Actix/Diesel, Ruby on Rails, Java Quarkus).
-# TODO(audit): Add an auto-discovery mechanism (entry_points via setuptools or
-# TODO(audit): importlib.metadata entry points) so new provider modules can be
-# TODO(audit): loaded without modifying the core providers/__init__.py registrar.
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Type
 
@@ -18,9 +13,6 @@ from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider
 
 # ── Built-in fallback provider ──────────────────────────────────────────────
 
-# TODO(audit): When implementing future providers, assign each a deterministic priority/order
-# TODO(audit): in the ProviderRegistry._providers list to avoid ambiguous detection for polyglot repos:
-# TODO(audit): e.g. go_gin_gorm, rust_actix_diesel, ruby_on_rails, java_quarkus all require distinct ranking.
 class GenericProvider(BaseArchitectureProvider):
     """Fallback provider that matches any project with generic metadata."""
 
@@ -115,6 +107,29 @@ class ProviderRegistry:
         return matched
 
     # -- Introspection --------------------------------------------------------
+
+    def get_provider_by_name(self, name: str) -> Optional[BaseArchitectureProvider]:
+        """Return a provider instance whose ``name`` matches *name* (case-insensitive).
+
+        Iterates the registered provider classes, instantiates each one (defensive
+        against misbehaving constructors), and compares ``provider.name`` using a
+        case-insensitive match.  Returns the first matching instance or *None* if
+        no provider has the requested name.
+        """
+        target = (name or "").strip().lower()
+        if not target:
+            return None
+        for provider_cls in self._providers:
+            try:
+                provider = provider_cls()
+            except Exception:
+                continue
+            try:
+                if provider.name.strip().lower() == target:
+                    return provider
+            except Exception:
+                continue
+        return None
 
     def get_registered_names(self) -> List[str]:
         """Return the ``name`` property values of all registered providers."""

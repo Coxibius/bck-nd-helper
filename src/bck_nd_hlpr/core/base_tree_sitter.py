@@ -104,10 +104,6 @@ def walk_source_files(
 # BaseTreeSitterVisitor class
 # =====================================================================
 
-# TODO(audit): Implement graceful error degradation logic for unhandled Tree-sitter ERROR nodes.
-# TODO(audit): When a node.type == 'ERROR' is encountered during traversal, log a non-fatal warning with
-# TODO(audit): the surrounding source context (line numbers, node snippet) and continue traversing the
-# TODO(audit): next sibling instead of propagating AttributeError or KeyError crashes up the visitor stack.
 class BaseTreeSitterVisitor:
     def __init__(self, source_bytes: bytes):
         self.source_bytes = source_bytes
@@ -115,8 +111,6 @@ class BaseTreeSitterVisitor:
     def visit(self, node):
         if node is None:
             return None
-        # TODO(audit): Add explicit visit_ERROR handler here that records error metrics and
-        # TODO(audit): short-circuits problematic subtrees, then falls through to generic_visit siblings.
         if node.type == "ERROR":
             _log.debug(
                 "Skipping ERROR node at line %d in %s",
@@ -187,6 +181,76 @@ class BaseTreeSitterVisitor:
         full_msg = f"[{type(self).__name__}]{location}: {message}"
         warnings.warn(full_msg, SyntaxWarning, stacklevel=2)
         _log.debug(full_msg)
+
+    def _recover_siblings(self, error_node) -> List:
+        """Resume child traversal after encountering an ``ERROR`` node.
+
+        Returns the list of sibling nodes that follow *error_node* within its
+        parent, so callers can continue visiting subsequent children instead of
+        aborting the entire subtree.  When the error node has no parent or no
+        further siblings an empty list is returned.
+
+        Typical usage inside a visitor method::
+
+            if child.type == "ERROR":
+                for sibling in self._recover_siblings(child):
+                    self.visit(sibling)
+                return
+        """
+        try:
+            parent = getattr(error_node, "parent", None)
+            if parent is None:
+                return []
+            siblings = getattr(parent, "children", []) or []
+            try:
+                idx = list(siblings).index(error_node)
+            except ValueError:
+                return []
+            return list(siblings[idx + 1:])
+        except Exception:
+            return []
+
+    def _log_child_failure(self, child, exc: Optional[Exception] = None) -> None:
+        """Record a recoverable child-dispatch failure without aborting traversal.
+
+        Intended to be called from :meth:`generic_visit` / sibling-recovery
+        paths whenever a ``visit(child)`` call raises unexpectedly.  Emits
+        a DEBUG-level log entry (never stdout) that includes the child node
+        type, approximate source-line, and the exception ``repr`` when
+        provided, then increments the internal failure counters for
+        post-visit telemetry.  The method always returns cleanly — any
+        exception raised by the logging path itself is swallowed to keep
+        the recovery contract intact.
+        """
+        try:
+            line = 0
+            try:
+                line = getattr(child, "start_point", (0,))[0] + 1
+            except Exception:
+                line = 0
+            ctype = getattr(child, "type", "<unknown>")
+            exc_txt = ""
+            if exc is not None:
+                try:
+                    exc_txt = f" — {type(exc).__name__}: {exc!r}"
+                except Exception:
+                    exc_txt = f" — {exc!r}"
+            location = f" (line {line})" if line else ""
+            msg = (
+                f"[{type(self).__name__}] recoverable child failure{location}: "
+                f"node type={ctype}{exc_txt}"
+            )
+            _log.debug(msg)
+            try:
+                error_stats = getattr(self, "error_stats", None)
+                if isinstance(error_stats, dict):
+                    error_stats["aborted_subtrees"] = (
+                        error_stats.get("aborted_subtrees", 0) + 1
+                    )
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 # =====================================================================

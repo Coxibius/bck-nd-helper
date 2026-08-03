@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider
+from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider, find_files_by_glob
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 
@@ -107,17 +107,12 @@ class DjangoProvider(BaseArchitectureProvider):
     def find_model_files(self, root_path: Path) -> List[Path]:
         root = Path(root_path)
         results: List[Path] = []
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith(".")]
-            if "models.py" in files:
-                results.append(Path(root_dir) / "models.py")
-            # Django apps may use a models/ package
-            if "models" in dirs:
-                models_dir = Path(root_dir) / "models"
-                for py in models_dir.glob("*.py"):
-                    if py.name != "__init__.py":
-                        results.append(py)
-        return sorted(results)
+        for p in find_files_by_glob(root, "models.py"):
+            results.append(p)
+        for p in find_files_by_glob(root, "**/models/*.py"):
+            if p.name != "__init__.py":
+                results.append(p)
+        return sorted(set(results))
 
     def find_route_files(self, root_path: Path) -> List[Path]:
         root = Path(root_path)

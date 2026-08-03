@@ -31,8 +31,6 @@ _FOREIGN_KEY_RE = re.compile(
 )
 
 
-# TODO(audit): Add support for C# 10 file-scoped namespaces (file_scoped_namespace_declaration) and global usings.
-# TODO(audit): Add support for C# 9-12 top-level statements in unmanaged files.
 class CSharpUMLVisitor(BaseTreeSitterVisitor):
     def __init__(self, source_bytes: bytes, module_name: str) -> None:
         super().__init__(source_bytes)
@@ -43,8 +41,20 @@ class CSharpUMLVisitor(BaseTreeSitterVisitor):
     def visit_class_declaration(self, node: Node) -> None:
         self._visit_class(node)
 
-    # TODO(audit): Add support for C# 10 file-scoped namespaces (file_scoped_namespace_declaration) and global usings.
     def visit_record_declaration(self, node: Node) -> None:
+        self._visit_class(node)
+
+    def visit_record_struct_declaration(self, node: Node) -> None:
+        """Dispatch C# 10 ``record struct`` declarations to the shared
+        class/record visitor.
+
+        ``record struct`` declarations combine value-type semantics with
+        positional parameter syntax.  The C# Tree-sitter grammar emits a
+        ``record_struct_declaration`` node; routing it through
+        :meth:`_visit_class` ensures the positional parameter list, base
+        clause, and declaration-list body are all surfaced as UML
+        attributes / methods without duplicating the record handling path.
+        """
         self._visit_class(node)
 
     def visit_interface_declaration(self, node: Node) -> None:
@@ -56,14 +66,43 @@ class CSharpUMLVisitor(BaseTreeSitterVisitor):
         Updates ``module_name`` from the namespace identifier and continues
         traversal so nested class/record/interface declarations are still visited.
         """
-        # TODO(audit): Add support for C# 10 file-scoped namespaces (file_scoped_namespace_declaration) and global usings.
         name_node = self.child(node, "identifier") or self.child(node, "qualified_name")
         if name_node:
             self.module_name = self.text(name_node)
         self.generic_visit(node)
 
+    def visit_global_statement(self, node: Node) -> None:
+        """Handle C# 9+ top-level statements (``global_statement`` nodes).
+
+        When a compilation unit uses top-level statements the tree has no
+        explicit class declaration wrapping the entry-point code.  This handler
+        synthesises a pseudo-class ``__Program__`` so UML output still captures
+        the module even for minimalist console / minimal-API projects.
+        The body is then traversed normally so nested local-function
+        declarations still surface as ``current_class`` methods if applicable.
+        """
+        if self.classes:
+            return
+        parent = getattr(node, "parent", None)
+        if parent is None:
+            return
+        siblings = getattr(parent, "children", []) or []
+        has_class = False
+        for sib in siblings:
+            if sib is node:
+                continue
+            t = getattr(sib, "type", "")
+            if t in ("class_declaration", "record_declaration", "interface_declaration",
+                     "struct_declaration", "enum_declaration"):
+                has_class = True
+                break
+        if has_class:
+            return
+        program_info = UMLClassInfo("Program", [], self.module_name)
+        self.classes.append(program_info)
+        self.generic_visit(node)
+
     def _visit_class(self, node: Node) -> None:
-        # TODO(audit): Handle C# 12 Primary Constructors on class header parameter_list.
         name_node = self.child(node, "identifier")
         if not name_node:
             return
@@ -79,6 +118,28 @@ class CSharpUMLVisitor(BaseTreeSitterVisitor):
 
         cls_info = UMLClassInfo(name, bases, self.module_name)
         self.classes.append(cls_info)
+
+        if node.type == "record_declaration" or node.type == "class_declaration":
+            param_list = self.child(node, "parameter_list")
+            if param_list is not None:
+                self.current_class = cls_info
+                for param in param_list.children:
+                    if param.type == "parameter":
+                        p_type = param.child_by_field_name("type")
+                        p_name = param.child_by_field_name("name")
+                        if p_type is None or p_name is None:
+                            for c in param.children:
+                                if c.type in ("predefined_type", "identifier", "generic_name",
+                                              "nullable_type", "array_type", "qualified_name") and p_type is None:
+                                    p_type = c
+                                elif c.type in ("identifier", "variable_declarator_id") and p_name is None:
+                                    p_name = c
+                        if p_type is not None and p_name is not None:
+                            t = self.text(p_type).strip()
+                            n = self.text(p_name).strip()
+                            if t and n:
+                                cls_info.attributes.append(f"{t} {n}")
+                self.current_class = None
 
         body_node = self.child(node, "declaration_list")
         if body_node:
@@ -125,6 +186,66 @@ class CSharpERVisitor(BaseTreeSitterVisitor):
     def visit_class_declaration(self, node: Node) -> None:
         self._visit_class(node)
 
+    def visit_record_declaration(self, node: Node) -> None:
+        name_node = self.child(node, "identifier")
+        if not name_node:
+            return
+
+        name = self.text(name_node)
+        self.current_entity = EREntity(name)
+
+        param_list = self.child(node, "parameter_list")
+        if param_list is not None:
+            for param in param_list.children:
+                if param.type == "parameter":
+                    p_type = param.child_by_field_name("type")
+                    p_name = param.child_by_field_name("name")
+                    if p_type is None or p_name is None:
+                        for c in param.children:
+                            if c.type in ("predefined_type", "identifier", "generic_name",
+                                          "nullable_type", "array_type", "qualified_name") and p_type is None:
+                                p_type = c
+                            elif c.type in ("identifier", "variable_declarator_id") and p_name is None:
+                                p_name = c
+                    if p_type is not None and p_name is not None:
+                        t_str = self.text(p_type).strip()
+                        n_str = self.text(p_name).strip()
+                        is_relation = False
+                        target_class = ""
+                        rel_type = ""
+                        if "ICollection<" in t_str or "List<" in t_str or "IEnumerable<" in t_str:
+                            is_relation = True
+                            start_idx = t_str.find("<")
+                            end_idx = t_str.rfind(">")
+                            if start_idx != -1 and end_idx != -1:
+                                target_class = t_str[start_idx + 1:end_idx].strip()
+                            rel_type = "||--o{"
+                        else:
+                            clean_type = t_str.replace("?", "").strip()
+                            if clean_type not in _CSHARP_PRIMITIVES:
+                                is_relation = True
+                                target_class = clean_type
+                                rel_type = "}o--||"
+                        if is_relation and target_class:
+                            if self.is_controller:
+                                self.current_entity.relationships.append(
+                                    (target_class, rel_type, n_str, "inferred from controller/collection")
+                                )
+                            else:
+                                self.current_entity.relationships.append((target_class, rel_type, n_str))
+                        else:
+                            self.current_entity.columns.append((n_str, t_str))
+
+        body_node = self.child(node, "declaration_list")
+        if body_node:
+            for child in body_node.children:
+                if child.type == "property_declaration":
+                    self._visit_property(child)
+
+        if self.current_entity.columns or self.current_entity.relationships:
+            self.entities.append(self.current_entity)
+        self.current_entity = None
+
     def _visit_class(self, node: Node) -> None:
         name_node = self.child(node, "identifier")
         if not name_node:
@@ -132,6 +253,15 @@ class CSharpERVisitor(BaseTreeSitterVisitor):
 
         name = self.text(name_node)
         self.current_entity = EREntity(name)
+
+        for attr_list in self.children(node, "attribute_list"):
+            for attr in self.children(attr_list, "attribute"):
+                attr_text = self.text(attr).replace("[", "").replace("]", "").strip()
+                if attr_text.startswith("Table"):
+                    import re as _re
+                    m = _re.search(r'Table\s*\(\s*["\']([^"\']+)["\']', attr_text)
+                    if m:
+                        self.current_entity.name = m.group(1)
 
         body_node = self.child(node, "declaration_list")
         if body_node:

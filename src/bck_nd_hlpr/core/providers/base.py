@@ -5,16 +5,69 @@ Each provider encapsulates detection logic and metadata for a single
 framework/language ecosystem, enabling a plugin-style architecture
 where new frameworks can be added without modifying the core detector.
 """
-# TODO(audit): Document and implement support for future framework expansion candidates:
-# TODO(audit):   - Go: Gin (web router) + GORM (ORM) provider with go.mod detection
-# TODO(audit):   - Rust: Actix-web (framework) + Diesel ORM with Cargo.toml detection
-# TODO(audit):   - Ruby on Rails: ActiveRecord ORM with Gemfile + app/models/ detection
-# TODO(audit):   - Java Quarkus: RESTEasy Reactive + Panache ORM with pom.xml/gradle.build detection
-# TODO(audit): Each new provider subclass should follow the BaseArchitectureProvider ABC contract below
-# TODO(audit): and register itself via the ProviderRegistry plugin mechanism.
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+
+import os
+
+from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+
+
+def find_files_by_glob(root_path: Path, pattern: str) -> List[Path]:
+    """Return files matching *pattern* anywhere below *root_path*.
+
+    Walks the directory tree respecting ``GLOBAL_IGNORE_DIRS`` and matches each
+    file name against the glob *pattern* (e.g. ``"models.py"`` or ``"*.py"``).
+    Relative files are returned under the ``models/`` package style directories
+    (all ``*.py`` except ``__init__.py``).  Results are sorted for deterministic
+    ordering.  Any I/O or permission errors are silently skipped so callers do
+    not need to wrap this helper in additional ``try/except`` blocks.
+
+    Typical usage::
+
+        from bck_nd_hlpr.core.providers.base import find_files_by_glob
+
+        models = find_files_by_glob(Path("."), "models.py")
+        py_models = find_files_by_glob(Path("."), "**/models/*.py")
+    """
+    root = Path(root_path)
+    results: List[Path] = []
+    try:
+        if "**" in pattern:
+            try:
+                matched = list(root.glob(pattern))
+                for p in matched:
+                    if not p.is_file():
+                        continue
+                    parts = set(p.relative_to(root).parts) if p.is_absolute() else set(p.parts)
+                    if parts & GLOBAL_IGNORE_DIRS:
+                        continue
+                    results.append(p)
+                return sorted(results)
+            except Exception:
+                pass
+        for dirpath, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith(".")]
+            d = Path(dirpath)
+            for fname in files:
+                if _match_glob(fname, pattern) or _match_glob(str(d / fname), pattern):
+                    fp = d / fname
+                    if fp.is_file():
+                        results.append(fp)
+    except Exception:
+        pass
+    return sorted(results)
+
+
+def _match_glob(name: str, pattern: str) -> bool:
+    """Tiny glob matcher supporting ``*`` and ``**`` on top of :mod:`fnmatch`."""
+    import fnmatch
+    import os.path
+    base_pattern = pattern.split("/")[-1] if "/" in pattern else pattern
+    if base_pattern == pattern:
+        return fnmatch.fnmatch(name, pattern)
+    return fnmatch.fnmatch(os.path.basename(name), base_pattern)
 
 
 class BaseArchitectureProvider(ABC):
@@ -70,13 +123,6 @@ class BaseArchitectureProvider(ABC):
 
             provider.get_supported_extensions()  # ['.java'] for a Spring Boot provider
         """
-        # TODO(audit): Document and implement support for future framework expansion candidates:
-        # TODO(audit):   - Go: Gin (web router) + GORM (ORM) provider with go.mod detection
-        # TODO(audit):   - Rust: Actix-web (framework) + Diesel ORM with Cargo.toml detection
-        # TODO(audit):   - Ruby on Rails: ActiveRecord ORM with Gemfile + app/models/ detection
-        # TODO(audit):   - Java Quarkus: RESTEasy Reactive + Panache ORM with pom.xml/gradle.build detection
-        # TODO(audit): Each new provider subclass should follow the BaseArchitectureProvider ABC contract below
-        # TODO(audit): and register itself via the ProviderRegistry plugin mechanism.
         _language_extension_map: dict[str, List[str]] = {
             "python":     [".py"],
             "php":        [".php"],

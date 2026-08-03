@@ -2,11 +2,37 @@
 ASP.NET Core / Entity Framework Core architecture provider.
 """
 import os
+import re
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
-from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider
+from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider, find_files_by_glob
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+
+
+_DBCONTEXT_CLASS_RE = re.compile(
+    r"\bclass\s+\w+\s*:\s*[^\{]*?\bDbContext\b",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def find_dbcontext_files(root_path: Path) -> List[Path]:
+    """Locate C# source files whose contents declare a class inheriting from ``DbContext``.
+
+    Walks ``*.cs`` files below *root_path* (respecting ``GLOBAL_IGNORE_DIRS``) and
+    returns those whose content matches ``class X : ...DbContext`` patterns.
+    Useful for EF Core architecture detection and targeted schema extraction.
+    """
+    root = Path(root_path)
+    matched: List[Path] = []
+    for cs_file in find_files_by_glob(root, "**/*.cs"):
+        try:
+            text = cs_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        if _DBCONTEXT_CLASS_RE.search(text):
+            matched.append(cs_file)
+    return sorted(matched)
 
 
 class DotNetEFProvider(BaseArchitectureProvider):
