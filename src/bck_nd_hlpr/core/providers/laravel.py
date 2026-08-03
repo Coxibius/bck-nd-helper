@@ -3,7 +3,7 @@ Laravel architecture provider.
 """
 import json
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider
 
@@ -99,3 +99,14 @@ class LaravelProvider(BaseArchitectureProvider):
             if route_file.exists():
                 routes.append(route_file)
         return routes
+
+    def find_artisan_file(self, root_path: Path) -> Optional[Path]:
+        """Return the path to the Laravel ``artisan`` CLI file, or *None*.
+
+        The ``artisan`` file at the project root is the canonical signal for a
+        Laravel project.  This helper exposes the check as a reusable method so
+        callers (e.g. CI generators, route scanners) can locate it without
+        duplicating the root-level file probe.
+        """
+        artisan = Path(root_path) / "artisan"
+        return artisan if artisan.exists() else None

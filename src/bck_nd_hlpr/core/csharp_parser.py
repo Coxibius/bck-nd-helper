@@ -43,9 +43,24 @@ class CSharpUMLVisitor(BaseTreeSitterVisitor):
     def visit_class_declaration(self, node: Node) -> None:
         self._visit_class(node)
 
-    # TODO(audit): Add visit_record_declaration and visit_record_struct_declaration for C# 9-12 records.
+    # TODO(audit): Add support for C# 10 file-scoped namespaces (file_scoped_namespace_declaration) and global usings.
+    def visit_record_declaration(self, node: Node) -> None:
+        self._visit_class(node)
+
     def visit_interface_declaration(self, node: Node) -> None:
         self._visit_class(node)
+
+    def visit_file_scoped_namespace_declaration(self, node: Node) -> None:
+        """Handle C# 10 file-scoped namespace declarations (``namespace Foo.Bar;``).
+
+        Updates ``module_name`` from the namespace identifier and continues
+        traversal so nested class/record/interface declarations are still visited.
+        """
+        # TODO(audit): Add support for C# 10 file-scoped namespaces (file_scoped_namespace_declaration) and global usings.
+        name_node = self.child(node, "identifier") or self.child(node, "qualified_name")
+        if name_node:
+            self.module_name = self.text(name_node)
+        self.generic_visit(node)
 
     def _visit_class(self, node: Node) -> None:
         # TODO(audit): Handle C# 12 Primary Constructors on class header parameter_list.

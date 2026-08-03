@@ -50,12 +50,28 @@ class ERExtractor(ast.NodeVisitor):
                 if isinstance(slice_node, ast.Index):
                     slice_node = slice_node.value
                 inner = self._extract_type_from_annotation(slice_node)
-                if container == 'Mapped':
+                # SQLAlchemy 2.0: Mapped[T] → T; also unwrap Optional[T] and Union[T, None]
+                if container in ('Mapped', 'Optional'):
                     return inner
+                # Union[T, None] — return the non-None part
+                if container == 'Union':
+                    if isinstance(slice_node, ast.Tuple):
+                        parts = [self._extract_type_from_annotation(e) for e in slice_node.elts]
+                        non_none = [p for p in parts if p not in ('None', 'NoneType', '')]
+                        if non_none:
+                            return non_none[0]
                 return f"{container}[{inner}]"
+            # PEP 604: X | None  (ast.BinOp with ast.BitOr)
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+                left = self._extract_type_from_annotation(node.left)
+                right = self._extract_type_from_annotation(node.right)
+                non_none = [p for p in (left, right) if p not in ('None', 'NoneType', '')]
+                if non_none:
+                    return non_none[0]
         except Exception:
             pass
         return ""
+
 
     def _clean_target_type(self, typ_str: str) -> tuple[str, str]:
         typ_str = typ_str.strip()
@@ -109,6 +125,15 @@ class ERExtractor(ast.NodeVisitor):
 
     # TODO(audit): Implement visit_TypeAlias (Python 3.12 PEP 695) and visit_Match (Python 3.10 pattern matching)
     # TODO(audit): visitor methods to gracefully skip over / record new AST node types without AttributeError crashes.
+    def visit_TypeAlias(self, node: ast.AST) -> None:
+        """Gracefully ignore Python 3.12 PEP 695 ``type`` alias statements.
+
+        ``ast.TypeAlias`` nodes are produced by ``type X = ...`` syntax.
+        This stub prevents :class:`ast.NodeVisitor` from raising an
+        ``AttributeError`` and simply continues traversal of child nodes.
+        """
+        self.generic_visit(node)
+
     def visit_ClassDef(self, node: ast.ClassDef):
         try:
             if self._is_model(node.bases) or self.is_model_file:

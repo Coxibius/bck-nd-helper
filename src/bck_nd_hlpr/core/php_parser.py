@@ -76,7 +76,7 @@ class PHPUMLVisitor:
     def visit(self, node: tree_sitter.Node):
         # TODO(audit): Dispatch enum_declaration nodes (PHP 8.1 backed enums with int/string backing types)
         # TODO(audit): alongside class/interface declarations to capture enum cases and value mappings.
-        if node.type in ['class_declaration', 'interface_declaration']:
+        if node.type in ['class_declaration', 'interface_declaration', 'enum_declaration']:
             self._visit_class(node)
         elif node.type == 'namespace_definition':
             # We could extract namespace to use as module_name
@@ -92,8 +92,24 @@ class PHPUMLVisitor:
         # TODO(audit): and propagate readonly semantics to all declared properties and UML attribute stereotypes.
         name_node = node.child_by_field_name('name')
         if not name_node: return
-        
+
         name = get_node_text(name_node, self.source_bytes)
+
+        # Check for PHP 8.2 `readonly` class modifier
+        is_readonly = False
+        modifier_node = node.child_by_field_name('modifier')
+        if modifier_node is None:
+            # Some grammars expose modifiers as unnamed children before the class keyword
+            for child in node.children:
+                if child.type in ('readonly', 'modifier') or get_node_text(child, self.source_bytes).strip() == 'readonly':
+                    is_readonly = True
+                    break
+        else:
+            if get_node_text(modifier_node, self.source_bytes).strip() == 'readonly':
+                is_readonly = True
+        if is_readonly:
+            name = f"\u00abreadonly\u00bb {name}"
+
         bases = []
         
         extends = find_child_by_type(node, 'base_clause')
@@ -159,7 +175,7 @@ class PHPERVisitor:
     def _visit_class(self, node: tree_sitter.Node):
         name_node = node.child_by_field_name('name')
         if not name_node: return
-        
+
         # Check if extends Model
         is_model = False
         # TODO(audit): Check class-level attribute_lists for #[Model] or #[ORM\Entity] style PHP 8 attributes
@@ -170,7 +186,20 @@ class PHPERVisitor:
                 if child.type == 'name':
                     if "Model" in get_node_text(child, self.source_bytes) or "Authenticatable" in get_node_text(child, self.source_bytes):
                         is_model = True
-        
+
+        # PHP 8 #[...] attribute list inspection for ORM markers
+        if not is_model:
+            _orm_markers = {'Entity', 'Model', 'ORM\\Entity', 'ORM\\Model'}
+            for attr_list in find_all_descendants(node, 'attribute_list'):
+                for attr in find_all_descendants(attr_list, 'attribute'):
+                    attr_text = get_node_text(attr, self.source_bytes).strip('#[] \t')
+                    for marker in _orm_markers:
+                        if attr_text.endswith(marker):
+                            is_model = True
+                            break
+                if is_model:
+                    break
+
         if not is_model: return
 
         name = get_node_text(name_node, self.source_bytes)

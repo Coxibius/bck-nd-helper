@@ -6,11 +6,15 @@ and module-level utility functions used by all language-specific parsers.
 """
 from __future__ import annotations
 
+import logging
+import warnings
 import os
 from pathlib import Path
 from typing import List, Optional, Tuple, Generator
 
 import tree_sitter
+
+_log = logging.getLogger(__name__)
 
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
@@ -113,6 +117,13 @@ class BaseTreeSitterVisitor:
             return None
         # TODO(audit): Add explicit visit_ERROR handler here that records error metrics and
         # TODO(audit): short-circuits problematic subtrees, then falls through to generic_visit siblings.
+        if node.type == "ERROR":
+            _log.debug(
+                "Skipping ERROR node at line %d in %s",
+                getattr(node, "start_point", (0,))[0] + 1,
+                type(self).__name__,
+            )
+            return None
         method_name = f"visit_{node.type}"
         visitor = getattr(self, method_name, self.generic_visit)
         return visitor(node)
@@ -155,6 +166,27 @@ class BaseTreeSitterVisitor:
         if node is not None:
             _walk(node)
         return matches
+
+    def _log_syntax_warning(self, node, message: str) -> None:
+        """Emit a non-fatal parse warning using :func:`warnings.warn`.
+
+        Reports *message* as a :class:`SyntaxWarning` with the node's start-line
+        so callers can filter or suppress it via the standard :mod:`warnings` API.
+        Also logs at ``DEBUG`` level for structured log consumers.
+
+        Example usage inside a visitor::
+
+            self._log_syntax_warning(node, "unexpected nullable column type")
+        """
+        line = 0
+        try:
+            line = getattr(node, "start_point", (0,))[0] + 1
+        except Exception:
+            pass
+        location = f" (line {line})" if line else ""
+        full_msg = f"[{type(self).__name__}]{location}: {message}"
+        warnings.warn(full_msg, SyntaxWarning, stacklevel=2)
+        _log.debug(full_msg)
 
 
 # =====================================================================

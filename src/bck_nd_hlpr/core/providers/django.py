@@ -3,7 +3,7 @@ Django architecture provider.
 """
 import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
@@ -129,3 +129,29 @@ class DjangoProvider(BaseArchitectureProvider):
             if "views.py" in files:
                 results.append(Path(root_dir) / "views.py")
         return sorted(results)
+
+    def find_settings_file(self, root_path: Path) -> Optional[Path]:
+        """Locate ``settings.py`` or ``manage.py`` within *root_path*.
+
+        Searches up to 3 directory levels deep and returns the path of the
+        first ``settings.py`` found, falling back to ``manage.py`` at the
+        project root, or *None* if neither is present.
+        """
+        root = Path(root_path)
+        # Fast check: manage.py at project root
+        manage = root / "manage.py"
+        if manage.exists():
+            return manage
+        # Walk up to 3 levels for settings.py
+        for root_dir, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith(".")]
+            try:
+                depth = len(Path(root_dir).relative_to(root).parts)
+            except ValueError:
+                depth = 0
+            if depth > 3:
+                dirs.clear()
+                continue
+            if "settings.py" in files:
+                return Path(root_dir) / "settings.py"
+        return None

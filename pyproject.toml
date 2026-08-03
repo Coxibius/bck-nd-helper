@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bck-nd-hlpr"
 
-version = "2.1.0"
+version = "2.1.1"
 
 description = "The Backend Helper - Your CLI Context help for AI and Humans"
 

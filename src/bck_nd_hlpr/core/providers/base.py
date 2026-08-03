@@ -58,3 +58,38 @@ class BaseArchitectureProvider(ABC):
     def find_route_files(self, root_path: Path) -> List[Path]:
         """Override to return paths to API / HTTP controllers or routers."""
         return []
+
+    def get_supported_extensions(self) -> List[str]:
+        """Return default source file extensions for this provider's language.
+
+        The base implementation derives a sensible default from the ``language``
+        property so callers always receive a non-empty list.  Subclasses may
+        override to return a precise set of extensions.
+
+        Example::
+
+            provider.get_supported_extensions()  # ['.java'] for a Spring Boot provider
+        """
+        # TODO(audit): Document and implement support for future framework expansion candidates:
+        # TODO(audit):   - Go: Gin (web router) + GORM (ORM) provider with go.mod detection
+        # TODO(audit):   - Rust: Actix-web (framework) + Diesel ORM with Cargo.toml detection
+        # TODO(audit):   - Ruby on Rails: ActiveRecord ORM with Gemfile + app/models/ detection
+        # TODO(audit):   - Java Quarkus: RESTEasy Reactive + Panache ORM with pom.xml/gradle.build detection
+        # TODO(audit): Each new provider subclass should follow the BaseArchitectureProvider ABC contract below
+        # TODO(audit): and register itself via the ProviderRegistry plugin mechanism.
+        _language_extension_map: dict[str, List[str]] = {
+            "python":     [".py"],
+            "php":        [".php"],
+            "java":       [".java"],
+            "csharp":     [".cs"],
+            "javascript": [".js", ".jsx"],
+            "typescript": [".ts", ".tsx"],
+            "go":         [".go"],
+            "rust":       [".rs"],
+            "ruby":       [".rb"],
+        }
+        try:
+            lang = self.language.lower()
+        except Exception:
+            lang = ""
+        return _language_extension_map.get(lang, [])

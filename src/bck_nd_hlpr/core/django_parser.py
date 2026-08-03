@@ -32,6 +32,19 @@ class DjangoERExtractor(ERExtractor):
                 return True
         return False
 
+    def visit_Match(self, node: ast.AST) -> None:
+        """Gracefully process Python 3.10+ ``match / case`` statements.
+
+        :class:`ast.Match` nodes are produced by ``match expr: case ...`` syntax.
+        This stub calls :meth:`generic_visit` so sub-nodes (e.g., class definitions
+        inside case branches) are still visited without raising ``AttributeError``.
+        """
+        # TODO(audit): Add support for Python 3.10-3.12 syntax features: ast.TypeAlias (PEP 695 `type` statements),
+        # TODO(audit): ast.Match structural pattern matching (match/case), and robust SQLAlchemy 2.0 Mapped[...] type
+        # TODO(audit): annotation parsing with declarative-style mapped_column() declarations.
+        self.generic_visit(node)
+
+
 def parse_project_for_django_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
     all_classes = []
     root = Path(root_path)

@@ -127,6 +127,7 @@ class JSERVisitor(BaseTreeSitterVisitor):
     def __init__(self, source_bytes: bytes) -> None:
         super().__init__(source_bytes)
         self.entities: List[EREntity] = []
+        self._pending_entity_name: Optional[str] = None
 
     # -- dispatch handlers ------------------------------------------------
 
@@ -136,6 +137,50 @@ class JSERVisitor(BaseTreeSitterVisitor):
         # Look for mongoose.model('Name', schema) or sequelize.define('Name', schema)
         self._check_model_definition(node)
         return True  # continue traversal: nested calls may exist
+
+    def visit_decorator(self, node: Node) -> None:
+        """Detect TypeORM ``@Entity()`` decorators on TypeScript classes."""
+        # TODO(audit): Extend model detection to parse NestJS @Entity() decorators + TypeORM Repository<T>
+        # TODO(audit): generic injection patterns for ER entity extraction alongside mongoose/sequelize calls.
+        call = self.child(node, "call_expression")
+        if call is None:
+            # Plain @Entity without parens
+            ident = self.child(node, "identifier")
+            if ident and self.text(ident) == "Entity":
+                self._pending_entity_name = "_entity_pending_"
+            return
+        func = call.child_by_field_name("function")
+        if func and self.text(func) == "Entity":
+            self._pending_entity_name = "_entity_pending_"
+
+    def visit_class_declaration(self, node: Node) -> None:
+        """If a preceding ``@Entity()`` decorator was found, emit an EREntity.
+
+        Also inspects DTO-named classes for typed public field definitions.
+        """
+        if self._pending_entity_name is not None:
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                name = self.text(name_node)
+                entity = EREntity(name)
+                self.entities.append(entity)
+            self._pending_entity_name = None
+        else:
+            # Parse generic type annotations in DTO classes (MappedType<User>, etc.)
+            # TODO(audit): Add support for parsing generic schema type definitions (z.object<T>, TypeBox.Type.Object<T>,
+            # TODO(audit): NestJS DTOs with class-validator decorators) to extract strongly-typed column definitions.
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                class_name = self.text(name_node)
+                _dto_suffixes = ("Dto", "DTO", "Response", "Request")
+                if any(class_name.endswith(s) for s in _dto_suffixes):
+                    entity = EREntity(class_name)
+                    self._parse_generic_dto_class(node, entity)
+                    if entity.columns:
+                        self.entities.append(entity)
+        # Continue into the class body so nested call_expressions are visited.
+        self.generic_visit(node)
+
 
     # -- extraction ---------------------------------------------------------
 
@@ -192,6 +237,28 @@ class JSERVisitor(BaseTreeSitterVisitor):
             if key:
                 # Usually depth is important to avoid nested objects, but this is a heuristic
                 entity.columns.append((self.text(key), "Field"))
+
+    def _parse_generic_dto_class(self, node: Node, entity: EREntity) -> None:
+        """Extract typed public fields from TypeScript DTO class bodies.
+
+        Handles generic type annotations such as ``MappedType<User>`` by
+        capturing the raw type text of ``public_field_definition`` nodes.
+        This supports DTO classes decorated or named with Dto/DTO/Response/Request
+        suffixes that carry strong TypeScript type information.
+        """
+        # TODO(audit): Add support for parsing generic schema type definitions (z.object<T>, TypeBox.Type.Object<T>,
+        # TODO(audit): NestJS DTOs with class-validator decorators) to extract strongly-typed column definitions.
+        body = node.child_by_field_name("body")
+        if body is None:
+            return
+        for child in body.children:
+            if child.type == "public_field_definition":
+                name_node = child.child_by_field_name("name")
+                type_node = child.child_by_field_name("type")
+                if name_node:
+                    field_name = self.text(name_node)
+                    field_type = self.text(type_node).lstrip(": ").strip() if type_node else "any"
+                    entity.columns.append((field_name, field_type))
 
 
 def parse_project_for_js_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:

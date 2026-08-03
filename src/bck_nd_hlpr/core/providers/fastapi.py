@@ -3,7 +3,7 @@ FastAPI architecture provider.
 """
 import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
@@ -129,3 +129,37 @@ class FastApiProvider(BaseArchitectureProvider):
                     if "route" in name_lower or "router" in name_lower or "endpoint" in name_lower:
                         results.append(Path(root_dir) / f)
         return sorted(results)
+
+    def find_main_app_file(self, root_path: Path) -> Optional[Path]:
+        """Locate ``main.py`` or a Python file instantiating ``FastAPI()``.
+
+        Checks for ``main.py`` at the project root first (most common FastAPI
+        convention), then does a bounded depth-3 walk scanning files for a
+        ``FastAPI()`` constructor call.  Returns the first match or *None*.
+        """
+        root = Path(root_path)
+        # Fast path: main.py at project root
+        main_py = root / "main.py"
+        if main_py.exists():
+            return main_py
+        # Walk up to depth 3 looking for FastAPI() instantiation
+        for root_dir, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith(".")]
+            try:
+                depth = len(Path(root_dir).relative_to(root).parts)
+            except ValueError:
+                depth = 0
+            if depth > 3:
+                dirs.clear()
+                continue
+            for f in files:
+                if not f.endswith(".py"):
+                    continue
+                fpath = Path(root_dir) / f
+                try:
+                    content = fpath.read_text(encoding="utf-8", errors="ignore")
+                    if "FastAPI()" in content or "FastAPI(" in content:
+                        return fpath
+                except Exception:
+                    continue
+        return None

@@ -44,7 +44,7 @@ class JavaUMLVisitor:
     def visit(self, node: tree_sitter.Node):
         # TODO(audit): Extend dispatch to handle record_declaration (Java 14+) and sealed_class_declaration (Java 17+)
         # TODO(audit): node types alongside existing class/interface/enum declarations.
-        if node.type in ['class_declaration', 'interface_declaration', 'enum_declaration']:
+        if node.type in ['class_declaration', 'interface_declaration', 'enum_declaration', 'record_declaration']:
             self._visit_class(node)
         else:
             for child in node.children:
@@ -131,7 +131,9 @@ class JavaERVisitor:
                         name_text = get_node_text(ann_name, self.source_bytes)
                         # TODO(audit): Also check for fully-qualified jakarta.persistence.Entity / jakarta.persistence.Table
                         # TODO(audit): annotation references in addition to the short-form names.
-                        if name_text in ['Entity', 'Table', 'Document']: # Includes Mongo Document
+                        _jakarta_aliases = {'jakarta.persistence.Entity', 'jakarta.persistence.Table'}
+                        _javax_aliases  = {'javax.persistence.Entity',   'javax.persistence.Table'}
+                        if name_text in ['Entity', 'Table', 'Document'] or name_text in _jakarta_aliases | _javax_aliases: # Includes Mongo Document
                             is_entity = True
         
         if not is_entity:

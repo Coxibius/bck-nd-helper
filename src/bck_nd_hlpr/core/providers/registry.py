@@ -113,3 +113,19 @@ class ProviderRegistry:
         if not matched:
             matched.append(GenericProvider())
         return matched
+
+    # -- Introspection --------------------------------------------------------
+
+    def get_registered_names(self) -> List[str]:
+        """Return the ``name`` property values of all registered providers."""
+        names = []
+        for provider_cls in self._providers:
+            try:
+                names.append(provider_cls().name)
+            except Exception:
+                pass
+        return names
+
+    def is_registered(self, name: str) -> bool:
+        """Return *True* if a provider with the given *name* is registered."""
+        return name in self.get_registered_names()
