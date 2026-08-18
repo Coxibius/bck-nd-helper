@@ -6,7 +6,11 @@ import json
 import pytest
 from pathlib import Path
 
-from bck_nd_hlpr.cli.mcp_server import get_asg_graph, get_architecture_summary
+from bck_nd_hlpr.cli.mcp_server import (
+    get_architecture_summary,
+    get_asg_graph,
+    get_requirements_summary,
+)
 from bck_nd_hlpr.cli.formatters import format_asg_json
 from bck_nd_hlpr.core.asg import ASGGraph, ASGNode, NodeKind, ASGEdge, EdgeKind
 
@@ -55,3 +59,43 @@ class TestMCPTools:
         # None input fallback
         empty_out = format_asg_json(None)
         assert json.loads(empty_out) == {"nodes": [], "edges": []}
+
+    def test_get_requirements_summary_with_specs(self, tmp_path):
+        req_dir = tmp_path / ".bck-nd" / "requirements"
+        req_dir.mkdir(parents=True)
+
+        hu01_content = {
+            "story": {
+                "id": "HU01",
+                "title": "Registrar cliente",
+                "role": "Agente de campo",
+                "want": "Registrar un nuevo cliente",
+                "benefit": "Contar con información centralizada",
+                "status": "TODO",
+            },
+            "business_rules": [
+                {"id": "BR01", "description": "El documento debe ser único."},
+            ],
+            "acceptance_criteria": [
+                {
+                    "id": "AC01",
+                    "given": "datos válidos",
+                    "when": "submit",
+                    "then": "cliente registrado",
+                }
+            ],
+        }
+        (req_dir / "HU01.json").write_text(json.dumps(hu01_content), encoding="utf-8")
+
+        result = get_requirements_summary(project_path=str(tmp_path))
+        assert "Requirements Summary" in result
+        assert "HU01" in result
+        assert "Registrar cliente" in result
+        assert "Agente de campo" in result
+        assert "BR01" in result
+        assert "AC01" in result
+
+    def test_get_requirements_summary_empty(self, tmp_path):
+        result = get_requirements_summary(project_path=str(tmp_path))
+        assert "No requirements found under .bck-nd/requirements/" in result
+

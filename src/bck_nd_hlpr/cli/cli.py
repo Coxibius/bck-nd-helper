@@ -47,6 +47,8 @@ Key commands:
 - bck-nd scan . --er       ER only
 - bck-nd scan . --routes   Routes only
 - bck-nd prompt .          AI-ready context dump
+- bck-nd req list .        List user stories & requirements
+- bck-nd req discover HU01 Discovery interview guide
 - bck-nd flow "A -> B"     Quick ASCII flow
 - bck-nd docs .            Static HTML docs
 - bck-nd chat .            Interactive AI chat
@@ -902,6 +904,241 @@ def prompt_cmd(
     )
 
 
+# ──────────────────────────────────────────────
+# SUBCOMANDOS DE REQUERIMIENTOS (bck-nd req)
+# ──────────────────────────────────────────────
+
+req_app = typer.Typer(
+    name="req",
+    help="Manage, list, and discover User Stories and Requirements specifications.",
+    no_args_is_help=True,
+)
+app.add_typer(req_app, name="req")
+
+
+@req_app.command("list")
+def req_list(
+    project_path: str = typer.Argument(".", help="Path to the project root directory."),
+):
+    """
+    List all User Stories and specifications found under .bck-nd/requirements/.
+    """
+    from bck_nd_hlpr.core.requirements import RequirementsParser
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich import box
+
+    console = Console()
+    specs = RequirementsParser.load_from_directory(project_path)
+
+    if not specs:
+        console.print(
+            Panel(
+                f"[yellow]No requirements found in [bold]{project_path}/.bck-nd/requirements/[/bold][/yellow]\n\n"
+                "[dim]Create JSON specifications under .bck-nd/requirements/ (e.g. HU01.json) to define User Stories.[/dim]",
+                title="[bold yellow]Requirements Not Found[/bold yellow]",
+                border_style="yellow",
+                box=box.ASCII2,
+            )
+        )
+        return
+
+    table = Table(
+        title=f"Project Requirements & User Stories ({len(specs)} found)",
+        box=box.ROUNDED,
+        header_style="bold cyan",
+    )
+    table.add_column("Story ID", style="cyan bold", justify="center")
+    table.add_column("Status", justify="center")
+    table.add_column("Title", style="bold")
+    table.add_column("Role", style="dim")
+    table.add_column("Criteria", justify="right", style="green")
+    table.add_column("Rules", justify="right", style="magenta")
+
+    status_styles = {
+        "TODO": "[bold yellow]TODO[/bold yellow]",
+        "IN_PROGRESS": "[bold blue]IN_PROGRESS[/bold blue]",
+        "TESTING": "[bold magenta]TESTING[/bold magenta]",
+        "DONE": "[bold green]DONE[/bold green]",
+    }
+
+    for spec in specs:
+        story = spec.story
+        raw_status = story.status.upper() if story.status else "TODO"
+        status_display = status_styles.get(raw_status, f"[white]{raw_status}[/white]")
+
+        table.add_row(
+            story.id or "N/A",
+            status_display,
+            story.title or "Untitled",
+            story.role or "-",
+            str(len(spec.acceptance_criteria)),
+            str(len(spec.business_rules)),
+        )
+
+    console.print()
+    console.print(table)
+    console.print(
+        f"[dim]Tip: Run [bold cyan]bck-nd req discover <story_id>[/bold cyan] for discovery guides.[/dim]\n"
+    )
+
+
+@req_app.command("discover")
+def req_discover(
+    story_id: Optional[str] = typer.Argument(
+        None, help="User Story ID to discover (e.g. HU01), or omit to list available stories."
+    ),
+    project_path: str = typer.Argument(
+        ".", help="Path to project root directory."
+    ),
+):
+    """
+    Generate a Stakeholder Interview & Discovery Guide for a User Story.
+    """
+    from bck_nd_hlpr.core.requirements import RequirementsParser
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich import box
+
+    console = Console()
+
+    # Handle case where user runs `bck-nd req discover .`
+    if story_id and (story_id == "." or (Path(story_id).is_dir() and not story_id.upper().startswith("HU"))):
+        project_path = story_id
+        story_id = None
+
+    specs = RequirementsParser.load_from_directory(project_path)
+
+    if not specs:
+        console.print(
+            Panel(
+                f"[yellow]No requirements found in [bold]{project_path}/.bck-nd/requirements/[/bold][/yellow]\n\n"
+                "[dim]Create JSON specifications under .bck-nd/requirements/ (e.g. HU01.json).[/dim]",
+                title="[bold yellow]Requirements Not Found[/bold yellow]",
+                border_style="yellow",
+                box=box.ASCII2,
+            )
+        )
+        return
+
+    # If no story_id is provided, list available stories
+    if not story_id:
+        console.print(
+            Panel(
+                "[bold cyan]Available User Stories for Discovery:[/bold cyan]\n\n"
+                + "\n".join(
+                    f"  • [cyan bold]{spec.story.id}[/cyan bold] [{spec.story.status}] - {spec.story.title}"
+                    for spec in specs
+                )
+                + "\n\n[dim]Usage: [bold]bck-nd req discover <story_id>[/bold][/dim]",
+                title="[bold cyan]Requirements Discovery[/bold cyan]",
+                border_style="cyan",
+                box=box.ASCII2,
+            )
+        )
+        return
+
+    # Find matching story
+    target_spec = None
+    for spec in specs:
+        if spec.story.id.upper() == story_id.upper():
+            target_spec = spec
+            break
+
+    if not target_spec:
+        avail = ", ".join(s.story.id for s in specs if s.story.id) or "None"
+        console.print(
+            f"[bold red]Error:[/bold red] Story ID '[bold]{story_id}[/bold]' not found. Available stories: {avail}"
+        )
+        raise typer.Exit(code=1)
+
+    story = target_spec.story
+
+    # Build Structured Discovery Guide
+    lines = []
+    lines.append("[bold white on blue] DISCOVERY & STAKEHOLDER INTERVIEW GUIDE [/bold white on blue]\n")
+    lines.append(f"[bold cyan]User Story:[/bold cyan] [bold]{story.id}[/bold] [{story.status}] - {story.title}")
+    if story.role:
+        lines.append(f"  [bold]As a:[/bold] {story.role}")
+    if story.want:
+        lines.append(f"  [bold]I want:[/bold] {story.want}")
+    if story.benefit:
+        lines.append(f"  [bold]So that:[/bold] {story.benefit}")
+    lines.append("")
+
+    # 1. Mandatory Data Questions
+    lines.append("[bold green]1. Mandatory Data & Field Specifications:[/bold green]")
+    lines.append("  • What fields are strictly required vs optional?")
+    lines.append("  • What are the allowed data types, formats, character limits, or regex patterns?")
+    lines.append("  • Are there default values or auto-generated fields (e.g. UUID, timestamps)?")
+    if target_spec.required_data:
+        lines.append("  [dim]Existing Required Data Fields:[/dim]")
+        for item in target_spec.required_data:
+            lines.append(f"    - {item}")
+    else:
+        lines.append("  [dim]Existing Required Data: (None defined yet)[/dim]")
+    lines.append("")
+
+    # 2. Business Rules & Validation Questions
+    lines.append("[bold magenta]2. Business Rules & Domain Validations:[/bold magenta]")
+    lines.append("  • What domain constraints must be enforced before saving (e.g. uniqueness, age limits)?")
+    lines.append("  • Who has permissions / authorization roles to execute this action?")
+    lines.append("  • Are there state transitions or dependent records affected?")
+    if target_spec.business_rules:
+        lines.append("  [dim]Existing Business Rules:[/dim]")
+        for br in target_spec.business_rules:
+            lines.append(f"    - [magenta]{br.id}[/magenta]: {br.description}")
+    else:
+        lines.append("  [dim]Existing Business Rules: (None defined yet)[/dim]")
+    if target_spec.validations:
+        lines.append("  [dim]Existing Validations:[/dim]")
+        for val in target_spec.validations:
+            lines.append(f"    - {val}")
+    lines.append("")
+
+    # 3. Exception Handling Questions
+    lines.append("[bold red]3. Exception Handling & Edge Cases:[/bold red]")
+    lines.append("  • What should happen if invalid or duplicate data is submitted?")
+    lines.append("  • What error codes and localized error messages must be returned to the client?")
+    lines.append("  • How should network timeouts or external service failures be handled?")
+    if target_spec.exceptions:
+        lines.append("  [dim]Existing Exceptions:[/dim]")
+        for exc in target_spec.exceptions:
+            lines.append(f"    - {exc}")
+    else:
+        lines.append("  [dim]Existing Exceptions: (None defined yet)[/dim]")
+    lines.append("")
+
+    # 4. Acceptance Criteria Verification Questions
+    lines.append("[bold yellow]4. Acceptance Criteria Verification Scenarios:[/bold yellow]")
+    lines.append("  • What exact scenarios demonstrate that this story is DONE and verified?")
+    lines.append("  • Given-When-Then criteria:")
+    if target_spec.acceptance_criteria:
+        for ac in target_spec.acceptance_criteria:
+            lines.append(f"    - [yellow]{ac.id}[/yellow]: Given {ac.given} When {ac.when} Then {ac.then}")
+    else:
+        lines.append("    (No acceptance criteria defined yet)")
+    lines.append("")
+
+    # 5. Open Questions
+    if target_spec.open_questions:
+        lines.append("[bold cyan]5. Open Stakeholder Questions:[/bold cyan]")
+        for q in target_spec.open_questions:
+            lines.append(f"  • {q}")
+        lines.append("")
+
+    console.print(
+        Panel(
+            "\n".join(lines),
+            title=f"[bold cyan]Discovery Guide — {story.id}[/bold cyan]",
+            border_style="cyan",
+            box=box.ASCII2,
+        )
+    )
+
+
 if __name__ == "__main__":
     app()
+
 

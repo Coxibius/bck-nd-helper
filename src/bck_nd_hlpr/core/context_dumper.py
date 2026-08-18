@@ -373,7 +373,72 @@ class ContextDumper:
             return None
 
     # ──────────────────────────────────────────
-    # 4. FOCUSED BUILD (--uml / --er / --tree)
+    # 4. REQUERIMIENTOS / HISTORIAS DE USUARIO
+    # ──────────────────────────────────────────
+
+    def get_requirements_context(self) -> Optional[str]:
+        """
+        Lee y formatea las especificaciones de requerimientos e historias de usuario
+        desde .bck-nd/requirements/ si existen.
+        """
+        try:
+            from bck_nd_hlpr.core.requirements import RequirementsParser
+            specs = RequirementsParser.load_from_directory(self.root)
+            if not specs:
+                return None
+
+            lines = ["<!-- User Stories & Acceptance Criteria -->"]
+            for spec in specs:
+                story = spec.story
+                status_str = f" [{story.status}]" if story.status else ""
+                title_str = f" - {story.title}" if story.title else ""
+                lines.append(f"{story.id}{status_str}{title_str}")
+                if story.role:
+                    lines.append(f"  As a: {story.role}")
+                if story.want:
+                    lines.append(f"  I want: {story.want}")
+                if story.benefit:
+                    lines.append(f"  So that: {story.benefit}")
+
+                if spec.business_rules:
+                    lines.append("  Business Rules:")
+                    for br in spec.business_rules:
+                        lines.append(f"    - {br.id}: {br.description}")
+
+                if spec.acceptance_criteria:
+                    lines.append("  Acceptance Criteria:")
+                    for ac in spec.acceptance_criteria:
+                        lines.append(f"    - {ac.id}: Given {ac.given} When {ac.when} Then {ac.then}")
+
+                if spec.required_data:
+                    lines.append("  Required Data:")
+                    for item in spec.required_data:
+                        lines.append(f"    - {item}")
+
+                if spec.validations:
+                    lines.append("  Validations:")
+                    for val in spec.validations:
+                        lines.append(f"    - {val}")
+
+                if spec.exceptions:
+                    lines.append("  Exceptions:")
+                    for exc in spec.exceptions:
+                        lines.append(f"    - {exc}")
+
+                if spec.open_questions:
+                    lines.append("  Open Questions:")
+                    for q in spec.open_questions:
+                        lines.append(f"    - {q}")
+
+                lines.append("")
+
+            return "\n".join(lines).rstrip()
+        except Exception as e:
+            print(f"[ContextDumper] Warning: Requirements parsing failed: {e}", file=sys.stderr)
+            return None
+
+    # ──────────────────────────────────────────
+    # 5. FOCUSED BUILD (--uml / --er / --tree / --req)
     # ──────────────────────────────────────────
 
     def build_focused(
@@ -381,10 +446,11 @@ class ContextDumper:
         include_tree: bool = False,
         include_uml: bool = False,
         include_er: bool = False,
+        include_requirements: bool = False,
     ) -> str:
         """
         Build a lightweight context file containing only the requested sections.
-        At least one of the three flags must be True.
+        At least one of the flags must be True.
         Returns the XML-tagged string ready to write to disk.
         """
         sections: List[str] = []
@@ -401,6 +467,8 @@ class ContextDumper:
             parts.append("UML")
         if include_er:
             parts.append("ER")
+        if include_requirements:
+            parts.append("Requirements")
         focus_label = " + ".join(parts)
 
         sections.append(
@@ -440,10 +508,20 @@ class ContextDumper:
                 sections.append("<!-- No database models detected in this project. -->")
             sections.append("</architecture_er>\n")
 
+        # ── Requirements ──────────────────────────────────────────────────
+        if include_requirements:
+            sections.append("<requirements_context>")
+            req_ctx = self.get_requirements_context()
+            if req_ctx:
+                sections.append(req_ctx)
+            else:
+                sections.append("<!-- No requirements detected in .bck-nd/requirements/. -->")
+            sections.append("</requirements_context>\n")
+
         return "\n".join(sections)
 
     # ──────────────────────────────────────────
-    # 5. ENSAMBLADO FINAL DEL CONTEXTO (FULL)
+    # 6. ENSAMBLADO FINAL DEL CONTEXTO (FULL)
     # ──────────────────────────────────────────
 
     def build(self) -> str:
@@ -490,7 +568,14 @@ class ContextDumper:
             sections.append("<!-- No database models detected in this project. -->")
         sections.append("</architecture_er>\n")
 
-        # ── 4. Core Files ─────────────────────────────────────────────────
+        # ── 4. Requirements Context ───────────────────────────────────────
+        req_ctx = self.get_requirements_context()
+        if req_ctx:
+            sections.append("<requirements_context>")
+            sections.append(req_ctx)
+            sections.append("</requirements_context>\n")
+
+        # ── 5. Core Files ─────────────────────────────────────────────────
         sections.append("<core_files>")
         core_files = self.get_core_files()
         if core_files:

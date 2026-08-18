@@ -70,6 +70,7 @@ ROUTING GUIDE — call the right tool for the right question:
 - "AI review / architectural audit?"            → explain_architecture_with_ai
 - "trace endpoints / route to database / data flow?" → get_traceability_diagram
 - "project structure / file tree / directory layout?" → get_project_tree
+- "requirements / user stories / acceptance criteria / business rules?" → get_requirements_summary
 - "setup CI / GitHub Actions / auto-documentation workflow?" → init_ci
 
 Default path is always "." (current directory) unless the user specifies a different path.
@@ -1008,9 +1009,88 @@ def get_architecture_summary(root_path: str = ".", depth: int = 3) -> str:
         return f"Error getting architecture summary: {str(e)}\n{traceback.format_exc()}"
 
 
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_requirements_summary(project_path: str = ".") -> str:
+    """Scan and summarize User Stories, Acceptance Criteria, and Business Rules from .bck-nd/requirements/.
+
+    Use this tool when:
+    - The user asks about "requirements", "user stories", "acceptance criteria", "business rules", or "specs".
+    - The user asks "what features are planned / in progress / done?" or "show me the user stories".
+    - You need to align implementation or tests with functional requirements and business rules.
+
+    Args:
+        project_path: Path to the project root containing .bck-nd/requirements/. Default ".".
+    """
+    try:
+        from bck_nd_hlpr.core.requirements import RequirementsParser
+        specs = RequirementsParser.load_from_directory(project_path)
+
+        if not specs:
+            return "No requirements found under .bck-nd/requirements/. Create JSON specifications under .bck-nd/requirements/ to define User Stories."
+
+        status_counts = {"TODO": 0, "IN_PROGRESS": 0, "TESTING": 0, "DONE": 0}
+        for spec in specs:
+            status = spec.story.status.upper() if spec.story.status else "TODO"
+            if status in status_counts:
+                status_counts[status] += 1
+            else:
+                status_counts[status] = 1
+
+        summary = [
+            "# Requirements Summary\n",
+            f"**Total Stories**: {len(specs)} (TODO: {status_counts.get('TODO', 0)}, "
+            f"IN_PROGRESS: {status_counts.get('IN_PROGRESS', 0)}, "
+            f"TESTING: {status_counts.get('TESTING', 0)}, "
+            f"DONE: {status_counts.get('DONE', 0)})\n",
+        ]
+
+        for spec in specs:
+            story = spec.story
+            status_tag = f"[{story.status}]" if story.status else "[TODO]"
+            summary.append(f"### {story.id} {status_tag} - {story.title}")
+            if story.role:
+                summary.append(f"- **As a**: {story.role}")
+            if story.want:
+                summary.append(f"- **I want**: {story.want}")
+            if story.benefit:
+                summary.append(f"- **So that**: {story.benefit}")
+
+            if spec.business_rules:
+                summary.append(f"- **Business Rules** ({len(spec.business_rules)}):")
+                for br in spec.business_rules:
+                    summary.append(f"  - `{br.id}`: {br.description}")
+
+            if spec.acceptance_criteria:
+                summary.append(f"- **Acceptance Criteria** ({len(spec.acceptance_criteria)}):")
+                for ac in spec.acceptance_criteria:
+                    summary.append(f"  - `{ac.id}`: **Given** {ac.given} **When** {ac.when} **Then** {ac.then}")
+
+            if spec.required_data:
+                summary.append(f"- **Required Data**: {spec.required_data}")
+
+            if spec.validations:
+                summary.append(f"- **Validations**: {spec.validations}")
+
+            if spec.exceptions:
+                summary.append(f"- **Exceptions**: {spec.exceptions}")
+
+            if spec.open_questions:
+                summary.append(f"- **Open Questions** ({len(spec.open_questions)}):")
+                for q in spec.open_questions:
+                    summary.append(f"  - {q}")
+
+            summary.append("")
+
+        return "\n".join(summary).rstrip()
+    except Exception as e:
+        return f"Error getting requirements summary: {str(e)}\n{traceback.format_exc()}"
+
+
 
 def main():
     mcp.run(transport="stdio")
 
 if __name__ == "__main__":
     main()
+
