@@ -55,7 +55,7 @@ class ContextDumper:
     optimizado para LLMs (ChatGPT, Claude, Gemini, etc.)
     """
 
-    def __init__(self, path: str = ".", depth: int = 4, output_file: str = DEFAULT_OUTPUT_FILE, max_core_files: Optional[int] = None):
+    def __init__(self, path: str = ".", depth: Optional[int] = None, output_file: str = DEFAULT_OUTPUT_FILE, max_core_files: Optional[int] = None):
         self.root = Path(path).resolve()
         self.depth = depth
         self.output_file = output_file
@@ -262,7 +262,7 @@ class ContextDumper:
 
             rel_root = Path(root_dir).relative_to(self.root)
             depth = len(rel_root.parts)
-            if depth > self.depth:
+            if self.depth is not None and depth > self.depth:
                 continue
 
             for file_name in files:

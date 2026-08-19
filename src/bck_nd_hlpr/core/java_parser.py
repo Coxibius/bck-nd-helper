@@ -73,12 +73,15 @@ class JavaUMLVisitor:
 
         modifiers = node.child_by_field_name('modifiers')
         is_sealed = False
+        is_non_sealed = False
         permits_list: List[str] = []
         if modifiers is not None:
             for mod in modifiers.children:
                 mod_text = get_node_text(mod, self.source_bytes).strip()
                 if mod_text == 'sealed':
                     is_sealed = True
+                elif mod_text == 'non-sealed':
+                    is_non_sealed = True
                 elif mod.type == 'permits' or mod_text.startswith('permits'):
                     for child in getattr(mod, 'children', []) or []:
                         if child.type in ('identifier', 'type_identifier', 'scoped_identifier', 'name'):
@@ -408,7 +411,7 @@ class JavaERVisitor:
                         col_type += " PK"
                     self.current_entity.columns.append((n_str, col_type))
 
-def parse_project_for_java_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
+def parse_project_for_java_uml(root_path: str, max_depth: Optional[int] = 4) -> List[UMLClassInfo]:
     if not PARSER:
          print("⚠️ Could not load Tree-Sitter parser (tree-sitter-java).")
          return []
@@ -420,7 +423,7 @@ def parse_project_for_java_uml(root_path: str, max_depth: int = 4) -> List[UMLCl
         dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
-        if current_depth > max_depth: continue
+        if max_depth is not None and current_depth > max_depth: continue
 
         for file in files:
             if file.endswith(".java"):
@@ -440,7 +443,7 @@ def parse_project_for_java_uml(root_path: str, max_depth: int = 4) -> List[UMLCl
                     continue
     return all_classes
 
-def parse_project_for_java_er(root_path: str, max_depth: int = 4) -> List[EREntity]:
+def parse_project_for_java_er(root_path: str, max_depth: Optional[int] = 4) -> List[EREntity]:
     if not PARSER:
          return []
 
@@ -451,7 +454,7 @@ def parse_project_for_java_er(root_path: str, max_depth: int = 4) -> List[EREnti
         dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
-        if current_depth > max_depth: continue
+        if max_depth is not None and current_depth > max_depth: continue
 
         for file in files:
             if file.endswith(".java"):

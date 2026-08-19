@@ -5,7 +5,8 @@ __pycache__, .git, etc.).
 
 Uso independiente:
     from bck_nd_hlpr.core.tree_generator import generate_project_tree
-    print(generate_project_tree("/path/to/project", depth=4))
+    print(generate_project_tree("/path/to/project"))        # unlimited depth
+    print(generate_project_tree("/path/to/project", depth=4))  # capped at 4
 
 Parte del ecosistema bck-nd-hlpr.
 """
@@ -19,7 +20,7 @@ from bck_nd_hlpr.core.utils.gitignore_parser import parse_gitignore, matches_git
 
 def generate_project_tree(
     root_path: str,
-    depth: int = 4,
+    depth: Optional[int] = None,
     output_file: Optional[str] = None,
     extra_ignores: Optional[List[str]] = None,
 ) -> str:
@@ -29,6 +30,7 @@ def generate_project_tree(
     Args:
         root_path: Ruta absoluta o relativa al directorio raíz del proyecto.
         depth: Profundidad máxima de escaneo (niveles de subdirectorios).
+               None (default) = unlimited recursive traversal.
         output_file: Nombre del archivo de salida a excluir del tree (ej: ai_context.txt).
         extra_ignores: Lista adicional de nombres de archivo/directorio a ignorar.
 
@@ -53,7 +55,7 @@ def generate_project_tree(
     lines: List[str] = [root.name + "/"]
     _walk_tree(
         root, root,
-        prefix="", depth=0, max_depth=depth,
+        prefix="", current_depth=0, max_depth=depth,
         lines=lines,
         gitignore_patterns=gitignore_patterns,
         output_file=resolved_output,
@@ -66,15 +68,15 @@ def _walk_tree(
     current: Path,
     root: Path,
     prefix: str,
-    depth: int,
-    max_depth: int,
+    current_depth: int,
+    max_depth: Optional[int],
     lines: List[str],
     gitignore_patterns: List[str],
     output_file: str,
     extra_ignores: set,
 ) -> None:
     """Recorre recursivamente el árbol de directorios."""
-    if depth >= max_depth:
+    if max_depth is not None and current_depth >= max_depth:
         return
 
     try:
@@ -100,7 +102,7 @@ def _walk_tree(
             lines.append(f"{prefix}{connector}{child.name}/")
             _walk_tree(
                 child, root,
-                prefix + extension, depth + 1, max_depth,
+                prefix + extension, current_depth + 1, max_depth,
                 lines,
                 gitignore_patterns, output_file, extra_ignores,
             )

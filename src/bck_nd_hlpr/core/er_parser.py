@@ -833,7 +833,7 @@ class ORMParserStub:
     """Protocolo base para los stubs de parsers ORM."""
     name: str = "base"
 
-    def _walk_files(self, root_path: str, extensions: tuple, name_hints: list = None, max_depth: int = 3):
+    def _walk_files(self, root_path: str, extensions: tuple, name_hints: list = None, max_depth: Optional[int] = 3):
         """Helper: yield (file_path, content) for matching files."""
         root = Path(root_path)
         for root_dir, dirs, files in os.walk(root):
@@ -842,7 +842,7 @@ class ORMParserStub:
                 depth = len(Path(root_dir).relative_to(root).parts)
             except ValueError:
                 depth = 0
-            if depth > max_depth:
+            if max_depth is not None and depth > max_depth:
                 continue
             for f in files:
                 if not f.endswith(extensions):
@@ -1398,7 +1398,7 @@ def run_orm_parsers(root_path: str) -> List[EREntity]:
     return all_entities
 
 
-def parse_project_for_er(root_path: str, max_depth: int = 3) -> List[EREntity]:
+def parse_project_for_er(root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
     all_entities = []
     root = Path(root_path)
 
@@ -1429,7 +1429,7 @@ def parse_project_for_er(root_path: str, max_depth: int = 3) -> List[EREntity]:
         except ValueError:
             current_depth = 0
             
-        if current_depth > max_depth:
+        if max_depth is not None and current_depth > max_depth:
             continue
             
         for file in files:
@@ -1654,7 +1654,7 @@ def generate_mermaid_er(entities: List[EREntity]) -> str:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def export_entities_as_dict(root_path: str, format: str = "json", max_depth: int = 3) -> str:
+def export_entities_as_dict(root_path: str, format: str = "json", max_depth: Optional[int] = 3) -> str:
     """Exporta las entidades ER detectadas como Data Dictionary.
 
     Args:
@@ -1716,7 +1716,7 @@ def export_entities_as_dict(root_path: str, format: str = "json", max_depth: int
     return json.dumps(tables, indent=2, ensure_ascii=False)
 
 
-def get_entities_for_contract_map(root_path: str, max_depth: int = 3) -> dict:
+def get_entities_for_contract_map(root_path: str, max_depth: Optional[int] = 3) -> dict:
     """Retorna entidades indexadas por nombre para cruce con rutas API.
 
     El diccionario resultante tiene la forma::

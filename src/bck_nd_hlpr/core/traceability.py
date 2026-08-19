@@ -1,7 +1,7 @@
 import ast
 import os
 from pathlib import Path
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set, Tuple, Optional
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 class TraceNode:
@@ -95,7 +95,7 @@ class TraceabilityScanner(ast.NodeVisitor):
                     
         self.generic_visit(node)
 
-def parse_project_traceability(root_path: str, max_depth: int = 3) -> List[TraceNode]:
+def parse_project_traceability(root_path: str, max_depth: Optional[int] = 3) -> List[TraceNode]:
     all_traces = []
     root = Path(root_path)
     
@@ -106,7 +106,7 @@ def parse_project_traceability(root_path: str, max_depth: int = 3) -> List[Trace
         except ValueError:
             current_depth = 0
             
-        if current_depth > max_depth:
+        if max_depth is not None and current_depth > max_depth:
             continue
             
         for file in files:
@@ -169,7 +169,7 @@ def generate_mermaid_traceability(traces: List[TraceNode]) -> str:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_impact_aware_traceability(root_path: str, max_depth: int = 3) -> list:
+def generate_impact_aware_traceability(root_path: str, max_depth: Optional[int] = 3) -> list:
     """[STUB] Genera trazabilidad ruta→servicio→modelo con riesgo de impacto por nodo.
     
     Diseño futuro:

@@ -81,7 +81,7 @@ class FileSystemIndexer:
     a categorized FileIndex.
     """
 
-    def __init__(self, root_path: str, max_depth: int = 10):
+    def __init__(self, root_path: str, max_depth: Optional[int] = 10):
         """
         Args:
             root_path: Root directory of the project to index.
@@ -115,7 +115,7 @@ class FileSystemIndexer:
             except ValueError:
                 continue
 
-            if depth > self.max_depth:
+            if self.max_depth is not None and depth > self.max_depth:
                 del dirs[:]
                 continue
 

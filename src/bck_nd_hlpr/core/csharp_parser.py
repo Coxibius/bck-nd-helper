@@ -336,7 +336,7 @@ class CSharpERVisitor(BaseTreeSitterVisitor):
                 self.current_entity.columns.append((n_str, col_type))
 
 
-def parse_project_for_csharp_uml(root_path: str, max_depth: int = 3) -> List[UMLClassInfo]:
+def parse_project_for_csharp_uml(root_path: str, max_depth: Optional[int] = 3) -> List[UMLClassInfo]:
     if not PARSER:
         print("⚠️ Could not load Tree-Sitter parser.")
         return []
@@ -355,7 +355,7 @@ def parse_project_for_csharp_uml(root_path: str, max_depth: int = 3) -> List[UML
     return all_classes
 
 
-def parse_project_for_csharp_er(root_path: str, max_depth: int = 3) -> List[EREntity]:
+def parse_project_for_csharp_er(root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
     if not PARSER:
         print("⚠️ Could not load Tree-Sitter parser.")
         return []

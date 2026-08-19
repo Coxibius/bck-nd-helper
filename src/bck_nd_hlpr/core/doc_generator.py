@@ -443,7 +443,7 @@ class DocGenerator:
         is_laravel = framework in ['Laravel', 'PHP']
         
         # 0. Project Tree
-        project_tree = generate_project_tree(root_path, depth=4)
+        project_tree = generate_project_tree(root_path)
         if not project_tree:
             project_tree = "No project structure detected."
 

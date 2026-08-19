@@ -175,7 +175,7 @@ def parse_nextjs_routes(root_path: Path) -> List[RouteInfo]:
                         
     return routes
 
-def parse_project_routes(root_path: str, max_depth: int = 3) -> List[RouteInfo]:
+def parse_project_routes(root_path: str, max_depth: Optional[int] = 3) -> List[RouteInfo]:
     all_routes = []
     root = Path(root_path)
     
@@ -192,7 +192,7 @@ def parse_project_routes(root_path: str, max_depth: int = 3) -> List[RouteInfo]:
         except ValueError:
             current_depth = 0
             
-        if current_depth > max_depth:
+        if max_depth is not None and current_depth > max_depth:
             continue
             
         for file in files:
@@ -258,7 +258,7 @@ def generate_mermaid_sequence(all_routes: List[RouteInfo]) -> str:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_api_contract_map(root_path: str, max_depth: int = 3) -> list:
+def generate_api_contract_map(root_path: str, max_depth: Optional[int] = 3) -> list:
     from bck_nd_hlpr.core.er_parser import get_entities_for_contract_map
     
     routes = parse_project_routes(root_path, max_depth)
@@ -310,7 +310,7 @@ def generate_api_contract_map(root_path: str, max_depth: int = 3) -> list:
     return contract_map
 
 
-def get_routes_affected_by_file(root_path: str, changed_file: str, max_depth: int = 3) -> dict:
+def get_routes_affected_by_file(root_path: str, changed_file: str, max_depth: Optional[int] = 3) -> dict:
     from bck_nd_hlpr.core.dependency_tracker import DependencyTracker
     tracker = DependencyTracker(root_path)
     impact_data = tracker.calculate_impact_radius(changed_file)

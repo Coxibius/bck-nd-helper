@@ -77,7 +77,7 @@ def walk_source_files(
     root_path: str,
     extensions: Tuple[str, ...],
     *,
-    max_depth: int = 4,
+    max_depth: Optional[int] = 4,
 ) -> Generator[Tuple[Path, Path], None, None]:
     """
     Walk *root_path* yielding ``(absolute_path, relative_path)`` for every
@@ -91,7 +91,7 @@ def walk_source_files(
             current_depth = len(Path(dirpath).relative_to(root).parts)
         except ValueError:
             current_depth = 0
-        if current_depth > max_depth:
+        if max_depth is not None and current_depth > max_depth:
             continue
         for fname in files:
             if fname.endswith(extensions):

@@ -93,7 +93,7 @@ class ProjectScanner:
         return analyzer.run(ctx)
 
 
-    def scan(self, root_path: str, max_depth: int = 5) -> str:
+    def scan(self, root_path: str, max_depth: Optional[int] = 5) -> str:
         """Genera la topología (Grafo)."""
         root = Path(root_path).resolve()
         if not root.exists(): return "Error -> Path_Not_Found"
@@ -115,7 +115,7 @@ class ProjectScanner:
             depth_level = len(rel_path.parts)
             if str(rel_path) == ".": depth_level = 0
 
-            if depth_level > max_depth:
+            if max_depth is not None and depth_level > max_depth:
                 del dirs[:] 
                 continue
             
@@ -131,7 +131,7 @@ class ProjectScanner:
             depth_level = len(rel_path.parts)
             if str(rel_path) == ".": depth_level = 0
 
-            if depth_level > max_depth:
+            if max_depth is not None and depth_level > max_depth:
                 del dirs[:]
                 continue
             
@@ -233,7 +233,7 @@ class ProjectScanner:
             return " ; ".join(connections)
         return ""
 
-    def scan_uml(self, root_path: str, max_depth: int = 5) -> str:
+    def scan_uml(self, root_path: str, max_depth: Optional[int] = 5) -> str:
         """Genera un diagrama de clases UML (Mermaid) multi-lenguaje."""
         root = Path(root_path).resolve()
         if not root.exists(): return "Error -> Path_Not_Found"
@@ -246,7 +246,7 @@ class ProjectScanner:
             depth_level = len(rel_path.parts)
             if str(rel_path) == ".": depth_level = 0
 
-            if depth_level > max_depth:
+            if max_depth is not None and depth_level > max_depth:
                 del dirs[:] 
                 continue
             
@@ -328,7 +328,7 @@ class ProjectScanner:
     # FUTURE METHODS — Cimientos para features planificadas
     # ═══════════════════════════════════════════════════════════════════
 
-    def calculate_health_score(self, root_path: str, max_depth: int = 5) -> dict:
+    def calculate_health_score(self, root_path: str, max_depth: Optional[int] = 5) -> dict:
         """Calcula un Project Health Score consolidado."""
         try:
             from bck_nd_hlpr.core.todo_hunter import scan_for_todos
@@ -447,7 +447,7 @@ class ProjectScanner:
         
         return result
 
-    def scan_notebooks(self, root_path: str, max_depth: int = 3) -> str:
+    def scan_notebooks(self, root_path: str, max_depth: Optional[int] = 3) -> str:
         """Generates a Mermaid graph LR representing the data lineage from Jupyter Notebooks."""
         root = Path(root_path).resolve()
         if not root.exists(): return ""
@@ -458,7 +458,7 @@ class ProjectScanner:
             rel_path = Path(root_dir).relative_to(root)
             depth_level = len(rel_path.parts) if str(rel_path) != "." else 0
 
-            if depth_level > max_depth:
+            if max_depth is not None and depth_level > max_depth:
                 del dirs[:] 
                 continue
             

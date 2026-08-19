@@ -2,7 +2,7 @@
 import os
 import pytest
 from pathlib import Path
-from bck_nd_hlpr.detector import ArchitectureDetector
+from bck_nd_hlpr.core.detector import ArchitectureDetector
 
 def test_custom_config_detection(tmp_path):
     # Setup custom directories
@@ -54,3 +54,24 @@ def test_cli_version():
     assert "bck-nd-hlpr" in result_short.stdout
     assert "2.4.0" in result_short.stdout
 
+def test_cli_version_flag():
+    """Test 200: Verify bck-nd --version outputs version and exits cleanly."""
+    from typer.testing import CliRunner
+    from bck_nd_hlpr.cli.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "bck-nd-hlpr" in result.output
+    assert "2.4.0" in result.output
+
+
+def test_cli_version_short_flag():
+    """Test 201: Verify bck-nd -v outputs version and exits cleanly."""
+    from typer.testing import CliRunner
+    from bck_nd_hlpr.cli.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["-v"])
+    assert result.exit_code == 0
+    assert "2.4.0" in result.output

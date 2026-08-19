@@ -1,6 +1,7 @@
 import os
 import sys
 import traceback
+from pathlib import Path
 from typing import Optional
 from functools import wraps
 from mcp.server.fastmcp import FastMCP
@@ -1087,8 +1088,211 @@ def get_requirements_summary(project_path: str = ".") -> str:
         return f"Error getting requirements summary: {str(e)}\n{traceback.format_exc()}"
 
 
+# ──────────────────────────────────────────────
+# Claude Desktop & Cursor / AntiGravity Auto-Installer
+# ──────────────────────────────────────────────
+
+def _get_claude_config_path() -> Path:
+    """Return the platform-specific path to claude_desktop_config.json."""
+    if sys.platform.startswith("win"):
+        base = Path(os.environ.get("APPDATA", ""))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path.home() / ".config"
+    return base / "Claude" / "claude_desktop_config.json"
+
+
+def _get_cursor_config_paths() -> list[Path]:
+    """Return candidate platform-specific paths for Cursor / AntiGravity IDE / Trae mcp.json."""
+    candidates: list[Path] = []
+
+    # Standard User home .cursor/mcp.json across Windows, macOS, Linux
+    candidates.append(Path.home() / ".cursor" / "mcp.json")
+
+    # Platform-specific Cursor globalStorage paths
+    if sys.platform.startswith("win"):
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            candidates.append(Path(appdata) / "Cursor" / "User" / "globalStorage" / "mcp.json")
+    elif sys.platform == "darwin":
+        candidates.append(Path.home() / "Library" / "Application Support" / "Cursor" / "User" / "globalStorage" / "mcp.json")
+    else:
+        candidates.append(Path.home() / ".config" / "Cursor" / "User" / "globalStorage" / "mcp.json")
+
+    return candidates
+
+
+def _update_mcp_config_file(target: Path) -> None:
+    """
+    Safely inject or update the 'bck-nd-mcp' entry in an MCP JSON config file.
+    Preserves existing servers and cleans up legacy server entries.
+    """
+    import json
+
+    config: dict = {}
+    if target.is_file():
+        try:
+            config = json.loads(target.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            config = {}
+
+    if not isinstance(config, dict):
+        config = {}
+
+    servers = config.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        servers = {}
+        config["mcpServers"] = servers
+
+    # Automatically clean up legacy server entries
+    for legacy_key in ("backend-helper", "bck_nd_hlpr"):
+        servers.pop(legacy_key, None)
+
+    servers["bck-nd-mcp"] = {"command": "bck-nd-mcp"}
+
+    # Ensure parent directory exists
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    target.write_text(
+        json.dumps(config, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _generate_manual_ide_settings_box() -> str:
+    """Render a styled Rich box showing exact fields for manual IDE settings."""
+    try:
+        import io
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich import box
+
+        string_io = io.StringIO()
+        console = Console(file=string_io, force_terminal=False, highlight=False, width=80)
+
+        content = (
+            "[bold]Manual IDE Settings (Cursor / AntiGravity IDE / Trae / Windsurf)[/bold]\n\n"
+            "  • [cyan]Server Name[/cyan] : [bold green]bck-nd-mcp[/bold green]\n"
+            "  • [cyan]Command[/cyan]     : [bold green]bck-nd-mcp[/bold green]\n"
+            "  • [cyan]Transport[/cyan]   : [yellow]stdio[/yellow]\n\n"
+            "[dim]JSON snippet for mcpServers:[/dim]\n"
+            '{\n'
+            '  "mcpServers": {\n'
+            '    "bck-nd-mcp": {\n'
+            '      "command": "bck-nd-mcp"\n'
+            '    }\n'
+            '  }\n'
+            '}'
+        )
+
+        panel = Panel(
+            content,
+            title="[bold cyan]🛠️  Manual IDE Configuration[/bold cyan]",
+            border_style="bright_blue",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+        console.print(panel)
+        return string_io.getvalue().rstrip()
+    except ImportError:
+        return (
+            "--------------------------------------------------\n"
+            "Manual IDE Settings (Cursor / AntiGravity IDE / Trae):\n"
+            "  • Server Name: bck-nd-mcp\n"
+            "  • Command:     bck-nd-mcp\n"
+            "  • Transport:   stdio\n"
+            "--------------------------------------------------"
+        )
+
+
+def _install_claude_desktop(
+    config_path: Optional["Path"] = None,
+    cursor_config_path: Optional["Path"] = None,
+) -> str:
+    """
+    Write or update claude_desktop_config.json and Cursor/AntiGravity mcp.json to register bck-nd-mcp.
+
+    Args:
+        config_path: Override the default Claude Desktop path (useful for testing).
+        cursor_config_path: Override the default Cursor path (useful for testing).
+
+    Returns:
+        A human-readable status message with configuration details and manual IDE setup box.
+    """
+    messages = []
+
+    # 1. Claude Desktop configuration
+    claude_target = config_path if config_path is not None else _get_claude_config_path()
+    _update_mcp_config_file(claude_target)
+    messages.append(f"✅ Claude Desktop configured successfully.\n   Config written to: {claude_target}")
+
+    # 2. Cursor / AntiGravity IDE / Trae configuration
+    if cursor_config_path is not None:
+        _update_mcp_config_file(cursor_config_path)
+        messages.append(f"✅ Cursor / AntiGravity IDE configured successfully.\n   Config written to: {cursor_config_path}")
+    elif config_path is None:
+        # Auto-detect Cursor / AntiGravity paths on the host system
+        cursor_candidates = _get_cursor_config_paths()
+        installed_cursor_paths = []
+        for candidate in cursor_candidates:
+            if candidate.is_file() or candidate.parent.is_dir():
+                _update_mcp_config_file(candidate)
+                installed_cursor_paths.append(candidate)
+
+        if installed_cursor_paths:
+            for p in installed_cursor_paths:
+                messages.append(f"✅ Cursor / AntiGravity IDE configured successfully.\n   Config written to: {p}")
+        else:
+            messages.append("ℹ️  Cursor / AntiGravity IDE config directory not found (manual setup available below).")
+
+    # 3. Rich box for manual IDE configuration
+    messages.append("\n" + _generate_manual_ide_settings_box())
+
+    return "\n".join(messages)
+
+
+# ──────────────────────────────────────────────
+# Entry point
+# ──────────────────────────────────────────────
 
 def main():
+    # Handle --install flag
+    if "--install" in sys.argv:
+        msg = _install_claude_desktop()
+        print(msg)
+        return
+
+    # Interactive TTY helper: if a human runs `bck-nd-mcp` directly in a
+    # terminal without piping, show a friendly explanation instead of silently
+    # blocking on stdio.
+    if sys.stdin.isatty():
+        try:
+            from rich.console import Console
+            from rich.panel import Panel
+            from rich import box
+
+            console = Console(stderr=True)
+            console.print(Panel(
+                "[bold cyan]Backend Helper MCP Server[/bold cyan] is running in [yellow]stdio[/yellow] mode.\n\n"
+                "This process communicates over stdin/stdout using the MCP protocol.\n"
+                "It is meant to be launched by an MCP-compatible client (e.g. Claude Desktop, Cursor, AntiGravity IDE).\n\n"
+                "[dim]To auto-register with Claude Desktop & Cursor, run:[/dim]\n"
+                "  [bold green]bck-nd-mcp --install[/bold green]\n\n"
+                "[dim]To exit, press[/dim] [bold red]Ctrl+C[/bold red].",
+                title="🔌 MCP Server",
+                box=box.ROUNDED,
+                border_style="bright_blue",
+                padding=(1, 2),
+            ))
+        except ImportError:
+            print(
+                "Backend Helper MCP Server is running in stdio mode.\n"
+                "To auto-register with Claude Desktop / Cursor, run: bck-nd-mcp --install\n"
+                "To exit, press Ctrl+C.",
+                file=sys.stderr,
+            )
+
     mcp.run(transport="stdio")
 
 if __name__ == "__main__":

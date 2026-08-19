@@ -491,3 +491,120 @@ def test_cli_req_discover_not_found(tmp_path: Path):
     assert "Story ID 'HU99' not found" in result.stdout
 
 
+def test_parse_markdown_story_full():
+    md_content = """# HU01 [IN_PROGRESS] - Registrar cliente
+
+- **Role**: Agente de campo
+- **Want**: Registrar un nuevo cliente en el sistema
+- **Benefit**: Centralizar la información del cliente
+- **Status**: IN_PROGRESS
+
+## Business Rules
+- BR01: El documento de identidad debe ser único y obligatorio.
+- BR02: La edad mínima del cliente debe ser 18 años.
+
+## Acceptance Criteria
+- AC01: Given datos válidos When presiona Guardar Then el cliente queda registrado en estado activo
+- AC02: Given un documento duplicado When se intenta registrar Then retorna error de validación 409
+
+## Required Data
+- `dni`: string (8 dígitos)
+- `nombre`: string
+
+## Validations
+- `dni`: 8_digits_numeric
+- `email`: valid_email_format
+
+## Exceptions
+- `ERR_DUPLICATE`: Documento ya registrado
+- `ERR_AGE`: Cliente menor de edad
+
+## Open Questions
+- ¿Se permite registro con pasaporte extranjero?
+"""
+    spec = RequirementsParser.parse_markdown(md_content, default_id="HU01")
+    assert spec is not None
+    assert spec.story.id == "HU01"
+    assert spec.story.title == "Registrar cliente"
+    assert spec.story.role == "Agente de campo"
+    assert spec.story.want == "Registrar un nuevo cliente en el sistema"
+    assert spec.story.benefit == "Centralizar la información del cliente"
+    assert spec.story.status == "IN_PROGRESS"
+
+    assert len(spec.business_rules) == 2
+    assert spec.business_rules[0].id == "BR01"
+    assert "único y obligatorio" in spec.business_rules[0].description
+    assert spec.business_rules[1].id == "BR02"
+
+    assert len(spec.acceptance_criteria) == 2
+    assert spec.acceptance_criteria[0].id == "AC01"
+    assert spec.acceptance_criteria[0].given == "datos válidos"
+    assert spec.acceptance_criteria[0].when == "presiona Guardar"
+    assert spec.acceptance_criteria[0].then == "el cliente queda registrado en estado activo"
+
+    assert spec.acceptance_criteria[1].id == "AC02"
+    assert spec.acceptance_criteria[1].given == "un documento duplicado"
+    assert spec.acceptance_criteria[1].when == "se intenta registrar"
+    assert "409" in spec.acceptance_criteria[1].then
+
+    assert len(spec.required_data) == 2
+    assert len(spec.validations) == 2
+    assert len(spec.exceptions) == 2
+    assert spec.open_questions == ["¿Se permite registro con pasaporte extranjero?"]
+
+
+def test_parse_markdown_story_minimal():
+    md_content = """# HU05 - Autenticación
+
+- **As a**: Usuario registrado
+- **I want**: Iniciar sesión con email y contraseña
+- **So that**: Acceder a mi panel de control
+"""
+    spec = RequirementsParser.parse_markdown(md_content, default_id="HU05")
+    assert spec is not None
+    assert spec.story.id == "HU05"
+    assert spec.story.title == "Autenticación"
+    assert spec.story.role == "Usuario registrado"
+    assert spec.story.want == "Iniciar sesión con email y contraseña"
+    assert spec.story.benefit == "Acceder a mi panel de control"
+    assert spec.story.status == "TODO"
+
+
+def test_requirements_parser_load_from_directory_mixed(tmp_path: Path):
+    req_dir = tmp_path / ".bck-nd" / "requirements"
+    req_dir.mkdir(parents=True)
+
+    # JSON story
+    hu01_json = {
+        "story": {
+            "id": "HU01",
+            "title": "Registrar cliente",
+            "role": "Agente",
+            "want": "Registrar",
+            "benefit": "Centralizar",
+            "status": "TODO",
+        }
+    }
+    (req_dir / "HU01.json").write_text(json.dumps(hu01_json), encoding="utf-8")
+
+    # Markdown story
+    hu02_md = """# HU02 - Consultar cliente
+
+- **Role**: Supervisor
+- **Want**: Ver datos del cliente
+- **Benefit**: Supervisar operaciones
+
+## Business Rules
+- BR01: Solo clientes activos son visibles
+"""
+    (req_dir / "HU02.md").write_text(hu02_md, encoding="utf-8")
+
+    specs = RequirementsParser.load_from_directory(tmp_path)
+    assert len(specs) == 2
+    assert specs[0].story.id == "HU01"
+    assert specs[1].story.id == "HU02"
+    assert specs[1].story.role == "Supervisor"
+    assert len(specs[1].business_rules) == 1
+
+
+

@@ -692,7 +692,7 @@ class PHPERVisitor:
                         entity.relationships.append((target, "}o--||", p_name))
                         existing_rels.add(target)
 
-def parse_project_for_php_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
+def parse_project_for_php_uml(root_path: str, max_depth: Optional[int] = 4) -> List[UMLClassInfo]:
     if not PARSER:
          print("⚠️ Could not load Tree-Sitter parser (tree-sitter-php).")
          return []
@@ -704,7 +704,7 @@ def parse_project_for_php_uml(root_path: str, max_depth: int = 4) -> List[UMLCla
         dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
-        if current_depth > max_depth: continue
+        if max_depth is not None and current_depth > max_depth: continue
 
         for file in files:
             if file.endswith(".php"):
@@ -724,7 +724,7 @@ def parse_project_for_php_uml(root_path: str, max_depth: int = 4) -> List[UMLCla
                     continue
     return all_classes
 
-def parse_project_for_php_er(root_path: str, max_depth: int = 4) -> List[EREntity]:
+def parse_project_for_php_er(root_path: str, max_depth: Optional[int] = 4) -> List[EREntity]:
     if not PARSER:
          return []
 
@@ -735,7 +735,7 @@ def parse_project_for_php_er(root_path: str, max_depth: int = 4) -> List[EREntit
         dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
-        if current_depth > max_depth: continue
+        if max_depth is not None and current_depth > max_depth: continue
 
         for file in files:
             if file.endswith(".php"):

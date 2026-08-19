@@ -732,7 +732,7 @@ def init_ci(
 def prompt_cmd(
     path: str = typer.Argument(".", help="Path to the project to analyze. Use '.' for current directory or provide an absolute/relative path. Example: bck-nd prompt /home/user/my-api"),
     output: str = typer.Option("ai_context.txt", "--output", "-o", help="Output file path/name for the context dump (default adapts to flags). Example: bck-nd prompt . -o context.txt"),
-    depth: int = typer.Option(4, "--depth", "-d", help="Directory scan depth (default: 4). Increase for deep project structures. Example: bck-nd prompt . --depth 6"),
+    depth: Optional[int] = typer.Option(None, "--depth", "-d", help="Directory scan depth (default: unlimited). Set a value to cap recursion. Example: bck-nd prompt . --depth 6"),
     max_core_files: Optional[int] = typer.Option(None, "--max-core-files", help="Maximum number of core files to include in the context dump (default: 8 for mobile, 5 for backend)."),
     uml: bool = typer.Option(False, "--uml", help="Generate a focused UML-only context file (default output: ai_context_uml.txt)."),
     er: bool = typer.Option(False, "--er", help="Generate a focused ER-only context file (default output: ai_context_er.txt)."),

@@ -44,7 +44,7 @@ TYPE_COLORS = {
 }
 
 
-def scan_for_todos(root_path: str, max_depth: int = 10, file_list: Optional[List] = None) -> List[Dict]:
+def scan_for_todos(root_path: str, max_depth: Optional[int] = 10, file_list: Optional[List] = None) -> List[Dict]:
     """
     Recursively scans project for technical debt markers.
     
@@ -77,7 +77,7 @@ def scan_for_todos(root_path: str, max_depth: int = 10, file_list: Optional[List
     
     def scan_directory(directory: Path, current_depth: int = 0):
         """Recursively scan directory for code files."""
-        if current_depth > max_depth:
+        if max_depth is not None and current_depth > max_depth:
             return
         
         try:
@@ -164,7 +164,7 @@ def parse_file_for_todos(file_path: str) -> List[Dict]:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def get_todo_score_breakdown(root_path: str, max_depth: int = 10) -> dict:
+def get_todo_score_breakdown(root_path: str, max_depth: Optional[int] = 10) -> dict:
     """[STUB] Retorna métricas de deuda técnica normalizadas para el Health Score.
     
     Diseño futuro:

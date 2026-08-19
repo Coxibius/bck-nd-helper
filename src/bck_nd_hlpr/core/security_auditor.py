@@ -139,7 +139,7 @@ def scan_sensitive_exposures(root_path: str, entities: List, file_list: Optional
     return risks
 
 
-def scan_security_risks(root_path: str, max_depth: int = 10, file_list: Optional[List] = None) -> List[Dict]:
+def scan_security_risks(root_path: str, max_depth: Optional[int] = 10, file_list: Optional[List] = None) -> List[Dict]:
     """
     Scans project for security risks.
 
@@ -277,7 +277,7 @@ def scan_security_risks(root_path: str, max_depth: int = 10, file_list: Optional
             if str(rel_root) == ".": depth_val = 0
             else: depth_val = len(rel_root.parts)
             
-            if depth_val > max_depth:
+            if max_depth is not None and depth_val > max_depth:
                 del dirs[:]
                 continue
                 
@@ -307,7 +307,7 @@ def scan_security_risks(root_path: str, max_depth: int = 10, file_list: Optional
 # FUTURE FUNCTIONS — Foundations for planned features
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def get_security_score_breakdown(root_path: str, max_depth: int = 10) -> dict:
+def get_security_score_breakdown(root_path: str, max_depth: Optional[int] = 10) -> dict:
     """[STUB] Returns normalized security metrics for the Health Score.
     
     Future design:

@@ -66,7 +66,7 @@ _JAVA_FRAMEWORKS = ("Spring Boot", "Java (Maven)", "Java (Gradle)")
 _PHP_FRAMEWORKS = ("Laravel", "PHP")
 
 
-def build_uml_diagram(path: str, depth: int, arch_info: Dict[str, Any]) -> Optional[str]:
+def build_uml_diagram(path: str, depth: Optional[int], arch_info: Dict[str, Any]) -> Optional[str]:
     """Route to the correct language parser and return Mermaid UML (or None)."""
     framework = str(arch_info.get("framework", ""))
 
@@ -99,7 +99,7 @@ def build_uml_diagram(path: str, depth: int, arch_info: Dict[str, Any]) -> Optio
     return None
 
 
-def build_er_diagram(path: str, depth: int, arch_info: Dict[str, Any]) -> Optional[str]:
+def build_er_diagram(path: str, depth: Optional[int], arch_info: Dict[str, Any]) -> Optional[str]:
     """Route to the correct language parser and return Mermaid ER (or None)."""
     framework = str(arch_info.get("framework", ""))
 

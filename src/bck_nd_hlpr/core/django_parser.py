@@ -5,7 +5,7 @@ Extrae UML y ER especializados.
 import ast
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from bck_nd_hlpr.core.uml_parser import UMLClassInfo, UMLExtractor
 from bck_nd_hlpr.core.er_parser import EREntity
@@ -105,7 +105,7 @@ class DjangoERExtractor(ERExtractor):
                 self.current_entity = None
 
 
-def parse_project_for_django_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
+def parse_project_for_django_uml(root_path: str, max_depth: Optional[int] = 4) -> List[UMLClassInfo]:
     all_classes = []
     root = Path(root_path)
 
@@ -113,7 +113,7 @@ def parse_project_for_django_uml(root_path: str, max_depth: int = 4) -> List[UML
         dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
-        if current_depth > max_depth: continue
+        if max_depth is not None and current_depth > max_depth: continue
 
         for file in files:
             if file.endswith(".py"):
@@ -131,7 +131,7 @@ def parse_project_for_django_uml(root_path: str, max_depth: int = 4) -> List[UML
                     continue
     return all_classes
 
-def parse_project_for_django_er(root_path: str, max_depth: int = 4) -> List[EREntity]:
+def parse_project_for_django_er(root_path: str, max_depth: Optional[int] = 4) -> List[EREntity]:
     all_entities = []
     root = Path(root_path)
 
@@ -139,7 +139,7 @@ def parse_project_for_django_er(root_path: str, max_depth: int = 4) -> List[EREn
         dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
         try: current_depth = len(Path(root_dir).relative_to(root).parts)
         except ValueError: current_depth = 0
-        if current_depth > max_depth: continue
+        if max_depth is not None and current_depth > max_depth: continue
 
         for file in files:
             if file.endswith(".py"):

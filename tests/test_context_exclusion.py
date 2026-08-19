@@ -13,9 +13,9 @@ import os
 import pytest
 from pathlib import Path
 
-from bck_nd_hlpr.tree_generator import generate_project_tree
-from bck_nd_hlpr.context_dumper import ContextDumper
-from bck_nd_hlpr.utils.gitignore_parser import parse_gitignore, matches_gitignore
+from bck_nd_hlpr.core.tree_generator import generate_project_tree
+from bck_nd_hlpr.core.context_dumper import ContextDumper
+from bck_nd_hlpr.core.utils.gitignore_parser import parse_gitignore, matches_gitignore
 
 
 # ═══════════════════════════════════════════════════════════
@@ -392,3 +392,19 @@ class TestContextDumperGitignoreIntegration:
         tree = dumper.get_project_tree()
         assert "private" not in tree
         assert "app.py" in tree
+
+    def test_context_dumper_none_depth_no_type_error(self, tmp_path):
+        """Verify ContextDumper with depth=None executes UML and ER parsing without TypeError."""
+        _create_project(tmp_path, {
+            "models.py": "class User:\n    id: int\n    name: str\n",
+            "views.py": "class UserView:\n    pass\n",
+            "main.py": "print('running')\n",
+        })
+        dumper = ContextDumper(path=str(tmp_path), depth=None)
+        uml = dumper.get_uml_diagram()
+        er = dumper.get_er_diagram()
+        content = dumper.build()
+        assert "<project_tree>" in content
+        assert "<architecture_uml>" in content
+        assert "<architecture_er>" in content
+        assert "<core_files>" in content

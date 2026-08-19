@@ -195,6 +195,19 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
     def visit_class_declaration(self, node: Node) -> None:
         self._visit_class(node)
 
+    def visit_interface_declaration(self, node: Node) -> None:
+        self._visit_interface(node)
+
+    def visit_type_alias_declaration(self, node: Node) -> None:
+        self._visit_type_alias(node)
+
+    def visit_export_statement(self, node: Node) -> None:
+        decl = node.child_by_field_name("declaration") if hasattr(node, "child_by_field_name") else None
+        if decl is not None:
+            self.visit(decl)
+        else:
+            self.generic_visit(node)
+
     def visit_function_declaration(self, node: Node) -> None:
         name_node = node.child_by_field_name("name")
         if not name_node:
@@ -354,6 +367,192 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
                         p_text = self._render_method_params_with_decorators(params) if params else "()"
                         self.current_class.methods.append(f"{label}{p_text}")
             self.current_class = None
+
+    def _visit_interface(self, node: Node) -> None:
+        name_node = node.child_by_field_name("name") if hasattr(node, "child_by_field_name") else None
+        if not name_node:
+            for child in (getattr(node, "children", []) or []):
+                if child.type in ("type_identifier", "identifier"):
+                    name_node = child
+                    break
+        if not name_node:
+            return
+
+        name = self.text(name_node)
+        if not name:
+            return
+
+        bases: List[str] = []
+        for child in (getattr(node, "children", []) or []):
+            if child.type in ("extends_type_clause", "extends_clause", "class_heritage", "heritage_clause"):
+                for sub in self.descendants(child, "type_identifier") + self.descendants(child, "identifier"):
+                    bname = self.text(sub)
+                    if bname and bname not in bases and bname != "extends":
+                        bases.append(bname)
+
+        cls_info = UMLClassInfo(name, bases, self.module_name)
+        cls_info.stereotypes = getattr(cls_info, "stereotypes", []) or []
+        cls_info.stereotypes.append("interface")
+
+        body_node = node.child_by_field_name("body") if hasattr(node, "child_by_field_name") else None
+        if body_node is None:
+            for child in (getattr(node, "children", []) or []):
+                if child.type in ("interface_body", "object_type", "statement_block"):
+                    body_node = child
+                    break
+
+        if body_node:
+            for child in (getattr(body_node, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct in ("property_signature", "public_field_definition", "field_definition", "pair"):
+                    pname_node = child.child_by_field_name("name") or child.child_by_field_name("key") or self.child(child, "property_identifier") or self.child(child, "identifier")
+                    ptype_node = child.child_by_field_name("type") or child.child_by_field_name("value") or self.child(child, "type_annotation")
+                    if pname_node:
+                        pname = self.text(pname_node).strip()
+                        ptype = self.text(ptype_node).lstrip(": ").strip() if ptype_node else "any"
+                        if ptype and ptype != "any":
+                            cls_info.attributes.append(f"{ptype} {pname}")
+                        else:
+                            cls_info.attributes.append(pname)
+                elif ct in ("method_signature", "method_definition", "call_signature"):
+                    mname_node = child.child_by_field_name("name") or self.child(child, "property_identifier") or self.child(child, "identifier")
+                    params_node = child.child_by_field_name("parameters") or self.child(child, "formal_parameters")
+                    if mname_node:
+                        mname = self.text(mname_node).strip()
+                        p_text = self.text(params_node) if params_node else "()"
+                        cls_info.methods.append(f"{mname}{p_text}")
+
+        self.classes.append(cls_info)
+
+    def _visit_type_alias(self, node: Node) -> None:
+        name_node = node.child_by_field_name("name") if hasattr(node, "child_by_field_name") else None
+        if not name_node:
+            for child in (getattr(node, "children", []) or []):
+                if child.type in ("type_identifier", "identifier"):
+                    name_node = child
+                    break
+        if not name_node:
+            return
+
+        name = self.text(name_node)
+        if not name:
+            return
+
+        cls_info = UMLClassInfo(name, [], self.module_name)
+        cls_info.stereotypes = getattr(cls_info, "stereotypes", []) or []
+        cls_info.stereotypes.append("type")
+
+        value_node = node.child_by_field_name("value") if hasattr(node, "child_by_field_name") else None
+        if value_node is None:
+            for child in (getattr(node, "children", []) or []):
+                if child.type in ("object_type", "type_literal", "object"):
+                    value_node = child
+                    break
+
+        if value_node:
+            for child in (getattr(value_node, "children", []) or []):
+                ct = getattr(child, "type", "")
+                if ct in ("property_signature", "public_field_definition", "pair", "field_definition"):
+                    pname_node = child.child_by_field_name("name") or child.child_by_field_name("key") or self.child(child, "property_identifier") or self.child(child, "identifier")
+                    ptype_node = child.child_by_field_name("type") or child.child_by_field_name("value") or self.child(child, "type_annotation")
+                    if pname_node:
+                        pname = self.text(pname_node).strip()
+                        ptype = self.text(ptype_node).lstrip(": ").strip() if ptype_node else "any"
+                        if ptype and ptype != "any":
+                            cls_info.attributes.append(f"{ptype} {pname}")
+                        else:
+                            cls_info.attributes.append(pname)
+
+        self.classes.append(cls_info)
+
+    def _extract_ts_interfaces_and_types_from_source(self) -> None:
+        """Extract TypeScript interfaces and type aliases from source bytes when tree-sitter AST misses them."""
+        import re
+
+        try:
+            source_text = self.source_bytes.decode("utf-8", errors="ignore")
+        except Exception:
+            return
+
+        existing_names = {c.name for c in self.classes}
+
+        # 1. Interface regex: (export\s+)?interface Name (extends Base1, Base2)? { body }
+        interface_pattern = re.compile(
+            r'(?:^|\n)\s*(?:export\s+)?interface\s+([A-Za-z0-9_$]+)(?:\s+extends\s+([^{]+))?\s*\{([^}]*)\}',
+            re.MULTILINE
+        )
+        for match in interface_pattern.finditer(source_text):
+            iface_name = match.group(1).strip()
+            if not iface_name or iface_name in existing_names:
+                continue
+
+            bases_str = match.group(2)
+            bases: List[str] = []
+            if bases_str:
+                for b in bases_str.split(","):
+                    b_clean = b.strip()
+                    if b_clean and b_clean not in bases:
+                        bases.append(b_clean)
+
+            body_str = match.group(3)
+            cls_info = UMLClassInfo(iface_name, bases, self.module_name)
+            cls_info.stereotypes = getattr(cls_info, "stereotypes", []) or []
+            cls_info.stereotypes.append("interface")
+
+            for line in body_str.split(";"):
+                for subline in line.split("\n"):
+                    trimmed = subline.strip().rstrip(",")
+                    if not trimmed or trimmed.startswith("//") or trimmed.startswith("/*"):
+                        continue
+                    method_match = re.match(r'^([A-Za-z0-9_$]+)\s*\(([^)]*)\)(?:\s*:\s*([^;,\n]+))?', trimmed)
+                    if method_match:
+                        mname = method_match.group(1)
+                        margs = method_match.group(2)
+                        cls_info.methods.append(f"{mname}({margs})")
+                        continue
+                    prop_match = re.match(r'^([A-Za-z0-9_$]+)\s*\??\s*:\s*(.+)$', trimmed)
+                    if prop_match:
+                        pname = prop_match.group(1)
+                        ptype = prop_match.group(2).strip()
+                        if ptype:
+                            cls_info.attributes.append(f"{ptype} {pname}")
+                        else:
+                            cls_info.attributes.append(pname)
+
+            self.classes.append(cls_info)
+            existing_names.add(iface_name)
+
+        # 2. Type alias regex: (export\s+)?type Name = { body }
+        type_pattern = re.compile(
+            r'(?:^|\n)\s*(?:export\s+)?type\s+([A-Za-z0-9_$]+)\s*=\s*\{([^}]*)\}',
+            re.MULTILINE
+        )
+        for match in type_pattern.finditer(source_text):
+            type_name = match.group(1).strip()
+            if not type_name or type_name in existing_names:
+                continue
+
+            body_str = match.group(2)
+            cls_info = UMLClassInfo(type_name, [], self.module_name)
+            cls_info.stereotypes = getattr(cls_info, "stereotypes", []) or []
+            cls_info.stereotypes.append("type")
+
+            for line in body_str.split(";"):
+                for subline in line.split("\n"):
+                    trimmed = subline.strip().rstrip(",")
+                    if not trimmed or trimmed.startswith("//") or trimmed.startswith("/*"):
+                        continue
+                    prop_match = re.match(r'^([A-Za-z0-9_$]+)\s*\??\s*:\s*(.+)$', trimmed)
+                    if prop_match:
+                        pname = prop_match.group(1)
+                        ptype = prop_match.group(2).strip()
+                        if ptype:
+                            cls_info.attributes.append(f"{ptype} {pname}")
+                        else:
+                            cls_info.attributes.append(pname)
+
+            self.classes.append(cls_info)
+            existing_names.add(type_name)
 
     def _render_method_params_with_decorators(self, params_node) -> str:
         """Render a method parameter list including TypeScript 5 parameter decorators.
@@ -622,7 +821,7 @@ class JSERVisitor(BaseTreeSitterVisitor):
                     entity.columns.append((field_name, field_type))
 
 
-def parse_project_for_js_uml(root_path: str, max_depth: int = 4) -> List[UMLClassInfo]:
+def parse_project_for_js_uml(root_path: str, max_depth: Optional[int] = 4) -> List[UMLClassInfo]:
     if not PARSER:
         print("⚠️ Could not load Tree-Sitter parser (tree-sitter-javascript).")
         return []
@@ -637,13 +836,14 @@ def parse_project_for_js_uml(root_path: str, max_depth: int = 4) -> List[UMLClas
 
             visitor = JSUMLVisitor(source_bytes, module_name_for(rel_path))
             visitor.visit(tree.root_node)
+            visitor._extract_ts_interfaces_and_types_from_source()
             all_classes.extend(visitor.classes)
         except Exception:
             continue
     return all_classes
 
 
-def parse_project_for_js_er(root_path: str, max_depth: int = 4) -> List[EREntity]:
+def parse_project_for_js_er(root_path: str, max_depth: Optional[int] = 4) -> List[EREntity]:
     if not PARSER:
         return []
 
