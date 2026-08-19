@@ -37,3 +37,20 @@ def test_default_config_detection(tmp_path):
     results = detector.detect(str(tmp_path))
     
     assert results['architecture'] == 'MVC Pattern'
+
+
+def test_cli_version():
+    from typer.testing import CliRunner
+    from bck_nd_hlpr.cli.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "bck-nd-hlpr" in result.stdout
+    assert "2.4.0" in result.stdout
+
+    result_short = runner.invoke(app, ["-v"])
+    assert result_short.exit_code == 0
+    assert "bck-nd-hlpr" in result_short.stdout
+    assert "2.4.0" in result_short.stdout
+

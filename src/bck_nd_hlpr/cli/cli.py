@@ -55,8 +55,33 @@ Key commands:
 
 Tip: Run any command with --help for detailed usage.
 """
-
 )
+
+VERSION = "2.4.0"
+
+
+def version_callback(value: bool):
+    if value:
+        from rich.console import Console
+        console = Console()
+        console.print(f"[bold cyan]bck-nd-hlpr[/bold cyan] [green]{VERSION}[/green]")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-v",
+        callback=version_callback,
+        is_eager=True,
+        help="Show the application version and exit.",
+    ),
+):
+    """Backend Helper (bck-nd) — Lightweight Architecture CLI."""
+    pass
+
 
 def save_or_print(content: str, output_path: Optional[str], title: str = "OUTPUT"):
     """Helper to handle output persistence."""

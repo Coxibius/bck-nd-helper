@@ -1,5 +1,7 @@
 # bck-nd-hlpr package init
 import sys
+
+__version__ = "2.4.0"
 from bck_nd_hlpr.core import (
     ai_providers,
     analysis,
