@@ -39,6 +39,7 @@ dependencies = [
     "tree-sitter",
     "tree-sitter-c-sharp",
     "tree-sitter-javascript",
+    "tree-sitter-typescript",
     "tree-sitter-java",
     "tree-sitter-php",
     "mcp",

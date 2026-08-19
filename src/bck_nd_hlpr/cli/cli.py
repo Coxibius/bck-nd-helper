@@ -57,7 +57,7 @@ Tip: Run any command with --help for detailed usage.
 """
 )
 
-VERSION = "2.4.1"
+from bck_nd_hlpr.core.constants import VERSION
 
 
 def version_callback(value: bool):

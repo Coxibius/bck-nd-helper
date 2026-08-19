@@ -26,6 +26,42 @@ from bck_nd_hlpr.core.er_parser import EREntity
 
 PARSER = load_grammar("tree_sitter_javascript")
 
+
+def _load_ts_grammar(func_name: str):
+    """Load a TypeScript grammar by calling a specific language function.
+
+    The ``tree_sitter_typescript`` package exposes ``language_typescript()``
+    and ``language_tsx()`` rather than a single ``language()`` entrypoint,
+    so :func:`load_grammar` (which picks the first ``language*`` match) may
+    return the wrong variant.  This helper loads the exact function needed.
+    """
+    try:
+        import importlib
+        import tree_sitter
+        mod = importlib.import_module("tree_sitter_typescript")
+        lang_fn = getattr(mod, func_name, None)
+        if lang_fn is None:
+            return None
+        language = tree_sitter.Language(lang_fn())
+        return tree_sitter.Parser(language)
+    except Exception:
+        return None
+
+
+TS_PARSER = _load_ts_grammar("language_typescript")
+TSX_PARSER = _load_ts_grammar("language_tsx")
+
+
+def _parser_for_file(file_path) -> "tree_sitter.Parser | None":
+    """Return the best available Tree-sitter parser for *file_path*."""
+    ext = str(file_path).rsplit(".", 1)[-1].lower() if "." in str(file_path) else ""
+    if ext == "tsx":
+        return TSX_PARSER or TS_PARSER or PARSER
+    if ext == "ts":
+        return TS_PARSER or PARSER
+    # .js / .jsx — the JavaScript grammar already handles JSX
+    return PARSER
+
 _HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
 
 _ZOD_TYPE_KEYS = frozenset({
@@ -831,8 +867,11 @@ def parse_project_for_js_uml(root_path: str, max_depth: Optional[int] = 4) -> Li
         root_path, (".js", ".ts", ".jsx", ".tsx"), max_depth=max_depth
     ):
         try:
+            parser = _parser_for_file(file_path)
+            if parser is None:
+                continue
             source_bytes = read_source_bytes(file_path)
-            tree = PARSER.parse(source_bytes)
+            tree = parser.parse(source_bytes)
 
             visitor = JSUMLVisitor(source_bytes, module_name_for(rel_path))
             visitor.visit(tree.root_node)
@@ -848,10 +887,13 @@ def parse_project_for_js_er(root_path: str, max_depth: Optional[int] = 4) -> Lis
         return []
 
     all_entities: List[EREntity] = []
-    for file_path, _rel_path in walk_source_files(root_path, (".js", ".ts"), max_depth=max_depth):
+    for file_path, _rel_path in walk_source_files(root_path, (".js", ".ts", ".jsx", ".tsx"), max_depth=max_depth):
         try:
+            parser = _parser_for_file(file_path)
+            if parser is None:
+                continue
             source_bytes = read_source_bytes(file_path)
-            tree = PARSER.parse(source_bytes)
+            tree = parser.parse(source_bytes)
 
             visitor = JSERVisitor(source_bytes)
             visitor.visit(tree.root_node)
