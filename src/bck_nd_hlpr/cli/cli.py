@@ -57,7 +57,7 @@ Tip: Run any command with --help for detailed usage.
 """
 )
 
-VERSION = "2.4.0"
+VERSION = "2.4.1"
 
 
 def version_callback(value: bool):
@@ -582,7 +582,7 @@ def explore():
     Requires: textual (pip install textual)
     """
     try:
-        from bck_nd_hlpr.core.tui_app import ArchitectureExplorer
+        from bck_nd_hlpr.cli.tui_app import ArchitectureExplorer
         explorer_app = ArchitectureExplorer()
         explorer_app.run()
     except ImportError as e:

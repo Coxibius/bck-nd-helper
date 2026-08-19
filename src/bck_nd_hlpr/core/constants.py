@@ -26,6 +26,8 @@ GLOBAL_IGNORE_DIRS = {
 
     # Go / Rust / Ruby
     "pkg", ".bundle"
+
+    
 }
 
 # Nuevas constantes para el modulo que genera el context dump (bck-nd prompt)
@@ -38,3 +40,5 @@ ENTRY_POINTS = {"App.js", "main.py", "Program.cs", "index.js", "app.py"}
 # Nombre por defecto del archivo de salida del context dump
 DEFAULT_OUTPUT_FILE = "ai_context.txt"
 
+# Versión actual de la aplicación
+VERSION = "2.4.1"
