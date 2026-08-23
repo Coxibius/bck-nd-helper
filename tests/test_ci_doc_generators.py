@@ -21,6 +21,12 @@ def test_generate_ci_workflow(tmp_path):
     assert "bck-nd docs ." in content
     assert "documentation.yml" not in content
 
+    gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    assert "!.bck-nd/" in gitignore
+    assert ".bck-nd/cache/" in gitignore
+    assert "!.bck-nd/requirements/" in gitignore
+    assert "!.bck-nd/requirements/**" in gitignore
+
 def test_doc_generator_basic(tmp_path):
     # Set up a dummy project structure under tmp_path
     project_dir = tmp_path / "my_project"

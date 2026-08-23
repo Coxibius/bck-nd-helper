@@ -169,16 +169,30 @@ class NodeJsProvider(BaseArchitectureProvider):
         if prisma_schema.exists():
             results.append(prisma_schema)
 
-        # TypeORM / Sequelize entities
-        src = root / "src"
-        if src.is_dir():
+        # TypeORM / Sequelize / TypeScript models, types, schemas, entities, DTOs
+        candidate_dirs = [root / d for d in ("src", "lib", "types", "models", "entities", "schemas", "app") if (root / d).is_dir()]
+        if not candidate_dirs:
+            candidate_dirs = [root]
+
+        MODEL_HINTS = (
+            "models", "model", "entities", "entity",
+            "schemas", "schema", "types", "type",
+            "interfaces", "interface", "dto", "dtos",
+        )
+
+        seen = set()
+        for d in candidate_dirs:
             for ext in ("*.ts", "*.js"):
-                for p in src.rglob(ext):
+                for p in d.rglob(ext):
+                    if p in seen:
+                        continue
                     parent_lower = p.parent.name.lower()
-                    if parent_lower in (
-                        "models", "model", "entities", "entity",
-                        "schemas", "schema",
+                    stem_lower = p.stem.lower()
+                    if (
+                        any(h in parent_lower for h in MODEL_HINTS)
+                        or any(h in stem_lower for h in MODEL_HINTS)
                     ):
+                        seen.add(p)
                         results.append(p)
         return sorted(results)
 

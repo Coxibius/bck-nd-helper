@@ -192,3 +192,21 @@ def generate_mermaid_class_diagram(all_classes: List[UMLClassInfo]) -> str:
                     drawn_associations.add(factory_key)
 
     return "\n".join(lines)
+
+
+def is_empty_mermaid_class_diagram(diagram: Any) -> bool:
+    """Return whether *diagram* is one of the known empty UML placeholders.
+
+    A substring check such as ``"class Empty"`` also matches valid class
+    names including ``EmptyState``. Comparing the complete normalized diagram
+    keeps those declarations while remaining compatible with both historical
+    placeholders.
+    """
+    if not isinstance(diagram, str) or not diagram.strip():
+        return True
+
+    normalized = " ".join(diagram.split())
+    return normalized in {
+        'classDiagram note "No classes found in scanned directories."',
+        "classDiagram class Empty { +No data detected }",
+    }

@@ -131,12 +131,28 @@ def generate_ci_workflow(root_path: str = "."):
     """
     Generates the GitHub Action workflow file for auto-documentation.
     """
-    workflows_dir = Path(root_path) / ".github" / "workflows"
+    root = Path(root_path)
+    workflows_dir = root / ".github" / "workflows"
     workflow_file = workflows_dir / "bck-nd-docs.yml"
 
     workflows_dir.mkdir(parents=True, exist_ok=True)
 
     with open(workflow_file, "w", encoding="utf-8") as f:
         f.write(GITHUB_ACTION_YAML)
+
+    gitignore_file = root / ".gitignore"
+    existing = gitignore_file.read_text(encoding="utf-8") if gitignore_file.exists() else ""
+    required_rules = [
+        "!.bck-nd/",
+        ".bck-nd/cache/",
+        "!.bck-nd/requirements/",
+        "!.bck-nd/requirements/**",
+    ]
+    missing_rules = [rule for rule in required_rules if rule not in existing.splitlines()]
+    if missing_rules:
+        separator = "" if not existing or existing.endswith("\n") else "\n"
+        block = "# bck-nd generated cache (requirements remain versioned)\n"
+        block += "\n".join(missing_rules) + "\n"
+        gitignore_file.write_text(existing + separator + block, encoding="utf-8")
 
     return workflow_file

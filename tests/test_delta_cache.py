@@ -92,7 +92,7 @@ class TestDeltaCacheManager:
         cache.update_file(f1, extra_data={"parsed": True})
         assert cache.save_cache() is True
 
-        cache_file = temp_project / ".bck-nd-cache"
+        cache_file = temp_project / ".bck-nd" / "cache" / "delta.json"
         assert cache_file.exists()
 
         new_cache = DeltaCacheManager(temp_project)
@@ -104,11 +104,19 @@ class TestDeltaCacheManager:
         f1 = temp_project / "app.py"
         cache.update_file(f1)
         cache.save_cache()
-        assert (temp_project / ".bck-nd-cache").exists()
+        cache_file = temp_project / ".bck-nd" / "cache" / "delta.json"
+        assert cache_file.exists()
 
         cache.clear()
-        assert not (temp_project / ".bck-nd-cache").exists()
+        assert not cache_file.exists()
+        assert cache_file.parent.is_dir()
         assert len(cache.signatures) == 0
+
+    def test_cache_directory_is_created_on_initialization(self, temp_project):
+        cache = DeltaCacheManager(temp_project)
+
+        assert cache.cache_path == temp_project / ".bck-nd" / "cache" / "delta.json"
+        assert cache.cache_path.parent.is_dir()
 
 
 class TestOrchestratorCacheIntegration:
@@ -119,7 +127,7 @@ class TestOrchestratorCacheIntegration:
         result = ScannerOrchestrator.run(config)
 
         assert result.delta_cache is not None
-        cache_file = tmp_path / ".bck-nd-cache"
+        cache_file = tmp_path / ".bck-nd" / "cache" / "delta.json"
         assert cache_file.exists()
 
     def test_orchestrator_bypasses_cache_when_disabled(self, tmp_path):
@@ -129,26 +137,41 @@ class TestOrchestratorCacheIntegration:
         result = ScannerOrchestrator.run(config)
 
         assert result.delta_cache is None
-        cache_file = tmp_path / ".bck-nd-cache"
+        cache_file = tmp_path / ".bck-nd" / "cache" / "delta.json"
         assert not cache_file.exists()
 
 
 class TestCacheExclusions:
     def test_cache_excluded_from_tree(self, tmp_path):
         (tmp_path / "main.py").write_text("print('test')", encoding="utf-8")
+        req_dir = tmp_path / ".bck-nd" / "requirements"
+        req_dir.mkdir(parents=True)
+        (req_dir / "US-001.md").write_text("# US-001 - Test", encoding="utf-8")
         cache = DeltaCacheManager(tmp_path)
         cache.update_file(tmp_path / "main.py")
         cache.save_cache()
 
         tree_str = generate_project_tree(str(tmp_path))
-        assert ".bck-nd-cache" not in tree_str
+        assert ".bck-nd/" in tree_str
+        assert "requirements/" in tree_str
+        assert "US-001.md" in tree_str
+        assert "cache/" not in tree_str
+        assert "delta.json" not in tree_str
 
     def test_cache_excluded_from_context_dumper(self, tmp_path):
         (tmp_path / "main.py").write_text("print('test')", encoding="utf-8")
+        req_dir = tmp_path / ".bck-nd" / "requirements"
+        req_dir.mkdir(parents=True)
+        (req_dir / "US-001.md").write_text(
+            "# US-001 - Test\n\n- **Role**: User\n- **Want**: Test\n- **Benefit**: Confidence\n",
+            encoding="utf-8",
+        )
         cache = DeltaCacheManager(tmp_path)
         cache.update_file(tmp_path / "main.py")
         cache.save_cache()
 
         dumper = ContextDumper(path=str(tmp_path))
         dump_output = dumper.build()
-        assert ".bck-nd-cache" not in dump_output
+        assert "delta.json" not in dump_output
+        assert ".bck-nd/cache" not in dump_output
+        assert "US-001" in dump_output

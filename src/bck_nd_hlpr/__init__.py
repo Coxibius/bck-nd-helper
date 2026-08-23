@@ -1,8 +1,7 @@
 # bck-nd-hlpr package init
 import sys
 
-from bck_nd_hlpr.core.constants import VERSION
-__version__ = VERSION
+__version__ = "2.4.2"
 from bck_nd_hlpr.core import (
     ai_providers,
     analysis,

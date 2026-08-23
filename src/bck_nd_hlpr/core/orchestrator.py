@@ -49,6 +49,7 @@ class OrchestratorConfig:
     provider: Optional[str] = None     # Force specific AI provider
     plain: bool = True                 # Return raw unformatted text (strips ANSI internally if requested)
     use_cache: bool = True             # Enable incremental delta cache engine
+    requirements: bool = False         # Flag to request Project Requirements summary
 
 
 @dataclass
@@ -78,6 +79,7 @@ class OrchestratorResult:
     onboarding_path: Optional[List[Dict[str, Any]]] = None  # step details: file, tier, role, hint, in_degree, out_degree
     health_score: Optional[Dict[str, Any]] = None         # keys: score, grade, breakdown (critical_risks, etc.)
     data_dictionary: Optional[Any] = None                 # raw structures / list of entities for exporter
+    requirements: Optional[List[Any]] = None              # parsed RequirementSpecification objects
     
     # AI Explanation & Narration
     ai_narrative: Optional[str] = None
@@ -243,6 +245,12 @@ class ScannerOrchestrator:
                 topology_text = scanner.scan(config.path, max_depth=config.depth)
                 return narrator.explain(topology_text, use_ai=True, style=config.style)
             tasks.append(("ai_narrative", _task_ai, "AI Narrative Error", None))
+
+        if config.requirements:
+            def _task_req():
+                from bck_nd_hlpr.core.requirements import RequirementsParser
+                return RequirementsParser.load_from_directory(config.path)
+            tasks.append(("requirements", _task_req, "Requirements Loading Error", []))
 
         # ── Concurrency Execution Block ──
         def _execute_task(attr_name, func, error_prefix, default_value):

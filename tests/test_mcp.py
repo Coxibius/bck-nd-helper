@@ -102,6 +102,51 @@ class TestMCPTools:
         assert "No requirements found under .bck-nd/requirements/" in result
 
 
+class TestClipboardIntegration:
+    def test_windows_clipboard_helper_uses_native_clip(self, monkeypatch):
+        import bck_nd_hlpr.cli.cli as cli_module
+
+        calls = []
+
+        def fake_run(command, *, input, check):
+            calls.append((command, input, check))
+
+        monkeypatch.setattr(cli_module.sys, "platform", "win32")
+        monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+
+        assert cli_module.copy_to_clipboard("hello á") is True
+        assert calls == [(["clip"], "hello á".encode("utf-8"), True)]
+
+    def test_prompt_copy_flag_copies_generated_context(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        import bck_nd_hlpr.cli.cli as cli_module
+
+        (tmp_path / "main.py").write_text("print('hello')", encoding="utf-8")
+        output_file = tmp_path / "context.txt"
+        copied = []
+        monkeypatch.setattr(
+            cli_module,
+            "copy_to_clipboard",
+            lambda text: copied.append(text) is None,
+        )
+
+        result = CliRunner().invoke(
+            cli_module.app,
+            [
+                "prompt",
+                str(tmp_path),
+                "--tree",
+                "--copy",
+                "--output",
+                str(output_file),
+            ],
+        )
+
+        assert result.exit_code == 0, result.exception
+        assert copied == [output_file.read_text(encoding="utf-8")]
+        assert "Context copied to clipboard" in result.stdout
+
+
 class TestMCPInstaller:
     """Tests for the --install auto-installer that writes claude_desktop_config.json."""
 

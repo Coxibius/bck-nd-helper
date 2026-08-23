@@ -5,7 +5,11 @@ from pathlib import Path
 from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
 from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence
 from bck_nd_hlpr.core.er_parser import parse_project_for_er, generate_mermaid_er
-from bck_nd_hlpr.core.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram
+from bck_nd_hlpr.core.uml_parser import (
+    generate_mermaid_class_diagram,
+    is_empty_mermaid_class_diagram,
+    parse_file_for_uml,
+)
 from bck_nd_hlpr.core.todo_hunter import scan_for_todos
 from bck_nd_hlpr.core.scanner import ProjectScanner
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
@@ -492,7 +496,7 @@ class DocGenerator:
                 uml_diagram = generate_mermaid_class_diagram(classes)
         else:
             uml_code = scanner.scan_uml(root_path)
-            if uml_code and "class Empty" not in uml_code:
+            if not is_empty_mermaid_class_diagram(uml_code):
                 uml_diagram = uml_code
         
         # 4. ER

@@ -88,7 +88,20 @@ class ContextDumper:
 
     def _should_ignore(self, path: Path) -> bool:
         """Determina si un archivo o directorio debe ser ignorado."""
+        from bck_nd_hlpr.core.constants import BCK_ND_CACHE_DIRECTORY, BCK_ND_DIRECTORY
+
         name = path.name
+
+        try:
+            rel_parts = path.relative_to(self.root).parts
+        except ValueError:
+            rel_parts = path.parts
+
+        if len(rel_parts) >= 2 and rel_parts[:2] == (
+            BCK_ND_DIRECTORY,
+            BCK_ND_CACHE_DIRECTORY,
+        ):
+            return True
 
         # ── 0. Excluir el propio archivo de output ──
         if not path.is_dir() and name == self.output_file:
@@ -98,13 +111,12 @@ class ContextDumper:
             if name in GLOBAL_IGNORE_DIRS or name in SKIP_DIRS:
                 return True
             try:
-                rel_parts = path.relative_to(self.root).parts
                 if any(p in GLOBAL_IGNORE_DIRS or p in SKIP_DIRS for p in rel_parts):
                     return True
             except ValueError:
                 if any(p in GLOBAL_IGNORE_DIRS or p in SKIP_DIRS for p in path.parts):
                     return True
-            if name.startswith(".") and path.is_dir():
+            if name.startswith(".") and name != BCK_ND_DIRECTORY and path.is_dir():
                 return True
             if name.endswith(".egg-info"):
                 return True
@@ -147,7 +159,7 @@ class ContextDumper:
                 if classes:
                     uml_diagram = generate_mermaid_class_diagram(classes)
 
-            elif framework in ("Express.js", "Next.js"):
+            elif framework in ("Express.js", "Next.js", "NestJS", "Fastify", "Koa", "Node.js", "React"):
                 from bck_nd_hlpr.core.js_parser import parse_project_for_js_uml
                 classes = parse_project_for_js_uml(str(self.root), max_depth=self.depth)
                 if classes:
@@ -174,7 +186,8 @@ class ContextDumper:
             else:
                 # Fallback: Python genérico vía scanner
                 uml_code = scanner.scan_uml(str(self.root), max_depth=self.depth)
-                if uml_code and "class Empty" not in uml_code and "No classes found" not in uml_code:
+                from bck_nd_hlpr.core.uml_parser import is_empty_mermaid_class_diagram
+                if not is_empty_mermaid_class_diagram(uml_code):
                     uml_diagram = uml_code
 
             return uml_diagram
@@ -201,7 +214,7 @@ class ContextDumper:
                 from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_er
                 entities = parse_project_for_csharp_er(str(self.root), max_depth=self.depth)
 
-            elif framework in ("Express.js", "Next.js"):
+            elif framework in ("Express.js", "Next.js", "NestJS", "Fastify", "Koa", "Node.js", "React"):
                 from bck_nd_hlpr.core.js_parser import parse_project_for_js_er
                 entities = parse_project_for_js_er(str(self.root), max_depth=self.depth)
 

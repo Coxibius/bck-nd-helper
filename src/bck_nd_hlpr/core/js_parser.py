@@ -7,6 +7,7 @@ which centralizes tree traversal and extraction helpers.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List, Optional
 
 from tree_sitter import Node
@@ -240,9 +241,35 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
     def visit_export_statement(self, node: Node) -> None:
         decl = node.child_by_field_name("declaration") if hasattr(node, "child_by_field_name") else None
         if decl is not None:
-            self.visit(decl)
-        else:
-            self.generic_visit(node)
+            dtype = getattr(decl, "type", "")
+            if dtype == "interface_declaration":
+                self.visit_interface_declaration(decl)
+            elif dtype == "type_alias_declaration":
+                self.visit_type_alias_declaration(decl)
+            elif dtype == "class_declaration":
+                self.visit_class_declaration(decl)
+            elif dtype == "function_declaration":
+                self.visit_function_declaration(decl)
+            elif dtype == "lexical_declaration":
+                self.visit_lexical_declaration(decl)
+            else:
+                self.visit(decl)
+            return
+
+        for child in (getattr(node, "children", []) or []):
+            ctype = getattr(child, "type", "")
+            if ctype == "interface_declaration":
+                self.visit_interface_declaration(child)
+            elif ctype == "type_alias_declaration":
+                self.visit_type_alias_declaration(child)
+            elif ctype == "class_declaration":
+                self.visit_class_declaration(child)
+            elif ctype == "function_declaration":
+                self.visit_function_declaration(child)
+            elif ctype == "lexical_declaration":
+                self.visit_lexical_declaration(child)
+            elif ctype not in ("export", "default", ";", "comment"):
+                self.visit(child)
 
     def visit_function_declaration(self, node: Node) -> None:
         name_node = node.child_by_field_name("name")
@@ -444,8 +471,9 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
                     pname_node = child.child_by_field_name("name") or child.child_by_field_name("key") or self.child(child, "property_identifier") or self.child(child, "identifier")
                     ptype_node = child.child_by_field_name("type") or child.child_by_field_name("value") or self.child(child, "type_annotation")
                     if pname_node:
-                        pname = self.text(pname_node).strip()
+                        pname = self.text(pname_node).strip().rstrip("?")
                         ptype = self.text(ptype_node).lstrip(": ").strip() if ptype_node else "any"
+                        ptype = ptype.replace("<", "~").replace(">", "~")
                         if ptype and ptype != "any":
                             cls_info.attributes.append(f"{ptype} {pname}")
                         else:
@@ -453,10 +481,17 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
                 elif ct in ("method_signature", "method_definition", "call_signature"):
                     mname_node = child.child_by_field_name("name") or self.child(child, "property_identifier") or self.child(child, "identifier")
                     params_node = child.child_by_field_name("parameters") or self.child(child, "formal_parameters")
+                    ret_node = child.child_by_field_name("return_type") or child.child_by_field_name("type") or self.child(child, "type_annotation")
                     if mname_node:
-                        mname = self.text(mname_node).strip()
+                        mname = self.text(mname_node).strip().rstrip("?")
                         p_text = self.text(params_node) if params_node else "()"
-                        cls_info.methods.append(f"{mname}{p_text}")
+                        p_text = p_text.replace("<", "~").replace(">", "~")
+                        ret_text = self.text(ret_node).lstrip(": ").strip() if ret_node else ""
+                        ret_text = ret_text.replace("<", "~").replace(">", "~")
+                        if ret_text:
+                            cls_info.methods.append(f"{mname}{p_text}: {ret_text}")
+                        else:
+                            cls_info.methods.append(f"{mname}{p_text}")
 
         self.classes.append(cls_info)
 
@@ -492,12 +527,27 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
                     pname_node = child.child_by_field_name("name") or child.child_by_field_name("key") or self.child(child, "property_identifier") or self.child(child, "identifier")
                     ptype_node = child.child_by_field_name("type") or child.child_by_field_name("value") or self.child(child, "type_annotation")
                     if pname_node:
-                        pname = self.text(pname_node).strip()
+                        pname = self.text(pname_node).strip().rstrip("?")
                         ptype = self.text(ptype_node).lstrip(": ").strip() if ptype_node else "any"
+                        ptype = ptype.replace("<", "~").replace(">", "~")
                         if ptype and ptype != "any":
                             cls_info.attributes.append(f"{ptype} {pname}")
                         else:
                             cls_info.attributes.append(pname)
+                elif ct in ("method_signature", "method_definition", "call_signature"):
+                    mname_node = child.child_by_field_name("name") or self.child(child, "property_identifier") or self.child(child, "identifier")
+                    params_node = child.child_by_field_name("parameters") or self.child(child, "formal_parameters")
+                    ret_node = child.child_by_field_name("return_type") or child.child_by_field_name("type") or self.child(child, "type_annotation")
+                    if mname_node:
+                        mname = self.text(mname_node).strip().rstrip("?")
+                        p_text = self.text(params_node) if params_node else "()"
+                        p_text = p_text.replace("<", "~").replace(">", "~")
+                        ret_text = self.text(ret_node).lstrip(": ").strip() if ret_node else ""
+                        ret_text = ret_text.replace("<", "~").replace(">", "~")
+                        if ret_text:
+                            cls_info.methods.append(f"{mname}{p_text}: {ret_text}")
+                        else:
+                            cls_info.methods.append(f"{mname}{p_text}")
 
         self.classes.append(cls_info)
 
@@ -512,9 +562,77 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
 
         existing_names = {c.name for c in self.classes}
 
-        # 1. Interface regex: (export\s+)?interface Name (extends Base1, Base2)? { body }
+        def _extract_balanced_body(text: str, start_idx: int) -> tuple[str, int]:
+            depth = 1
+            idx = start_idx
+            n = len(text)
+            while idx < n and depth > 0:
+                ch = text[idx]
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                idx += 1
+            if depth == 0:
+                return text[start_idx : idx - 1], idx
+            return text[start_idx:], idx
+
+        def _parse_body_members(body_str: str) -> tuple[List[str], List[str]]:
+            attributes: List[str] = []
+            methods: List[str] = []
+            lines = body_str.split("\n")
+            cleaned_statements: List[str] = []
+            accum: List[str] = []
+            b_depth = 0
+
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("//") or stripped.startswith("/*"):
+                    continue
+                if "//" in stripped:
+                    stripped = stripped.split("//")[0].strip()
+                accum.append(stripped)
+                b_depth += stripped.count("{") - stripped.count("}")
+                if b_depth <= 0:
+                    stmt = " ".join(accum).rstrip(";,").strip()
+                    if stmt:
+                        cleaned_statements.append(stmt)
+                    accum = []
+                    b_depth = 0
+            if accum:
+                cleaned_statements.append(" ".join(accum).rstrip(";,").strip())
+
+            for stmt in cleaned_statements:
+                # Check for method: name(params): return_type or name?(params): return_type
+                method_match = re.match(r'^([A-Za-z0-9_$]+)\s*\??\s*\(([^)]*)\)(?:\s*:\s*(.+))?$', stmt)
+                if method_match:
+                    mname = method_match.group(1).rstrip("?")
+                    margs = (method_match.group(2) or "").replace("<", "~").replace(">", "~")
+                    mret = method_match.group(3)
+                    if mret and mret.strip():
+                        mret_clean = mret.strip().replace("<", "~").replace(">", "~")
+                        methods.append(f"{mname}({margs}): {mret_clean}")
+                    else:
+                        methods.append(f"{mname}({margs})")
+                    continue
+                # Check for property: name?: type or name: type
+                prop_match = re.match(r'^([A-Za-z0-9_$]+)\s*\??\s*:\s*(.+)$', stmt)
+                if prop_match:
+                    pname = prop_match.group(1).rstrip("?")
+                    ptype = prop_match.group(2).strip().replace("<", "~").replace(">", "~")
+                    if ptype.startswith("{") and ptype.endswith("}"):
+                        ptype = "object"
+                    if ptype:
+                        attributes.append(f"{ptype} {pname}")
+                    else:
+                        attributes.append(pname)
+                    continue
+
+            return attributes, methods
+
+        # 1. Interface regex: (export\s+)?(default\s+)?interface Name(<...>)? (extends Base1, Base2)? {
         interface_pattern = re.compile(
-            r'(?:^|\n)\s*(?:export\s+)?interface\s+([A-Za-z0-9_$]+)(?:\s+extends\s+([^{]+))?\s*\{([^}]*)\}',
+            r'(?:^|\n)\s*(?:export\s+(?:default\s+)?)?interface\s+([A-Za-z0-9_$]+)(?:<[^>]*>)?(?:\s+extends\s+([^{]+))?\s*\{',
             re.MULTILINE
         )
         for match in interface_pattern.finditer(source_text):
@@ -526,41 +644,25 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
             bases: List[str] = []
             if bases_str:
                 for b in bases_str.split(","):
-                    b_clean = b.strip()
-                    if b_clean and b_clean not in bases:
+                    b_clean = b.strip().split("<")[0].strip()
+                    if b_clean and b_clean not in bases and b_clean != "extends":
                         bases.append(b_clean)
 
-            body_str = match.group(3)
+            body_str, _ = _extract_balanced_body(source_text, match.end())
+            attrs, methods = _parse_body_members(body_str)
+
             cls_info = UMLClassInfo(iface_name, bases, self.module_name)
             cls_info.stereotypes = getattr(cls_info, "stereotypes", []) or []
             cls_info.stereotypes.append("interface")
-
-            for line in body_str.split(";"):
-                for subline in line.split("\n"):
-                    trimmed = subline.strip().rstrip(",")
-                    if not trimmed or trimmed.startswith("//") or trimmed.startswith("/*"):
-                        continue
-                    method_match = re.match(r'^([A-Za-z0-9_$]+)\s*\(([^)]*)\)(?:\s*:\s*([^;,\n]+))?', trimmed)
-                    if method_match:
-                        mname = method_match.group(1)
-                        margs = method_match.group(2)
-                        cls_info.methods.append(f"{mname}({margs})")
-                        continue
-                    prop_match = re.match(r'^([A-Za-z0-9_$]+)\s*\??\s*:\s*(.+)$', trimmed)
-                    if prop_match:
-                        pname = prop_match.group(1)
-                        ptype = prop_match.group(2).strip()
-                        if ptype:
-                            cls_info.attributes.append(f"{ptype} {pname}")
-                        else:
-                            cls_info.attributes.append(pname)
+            cls_info.attributes.extend(attrs)
+            cls_info.methods.extend(methods)
 
             self.classes.append(cls_info)
             existing_names.add(iface_name)
 
-        # 2. Type alias regex: (export\s+)?type Name = { body }
+        # 2. Type alias regex: (export\s+)?(default\s+)?type Name(<...>)? = ({|... & {)
         type_pattern = re.compile(
-            r'(?:^|\n)\s*(?:export\s+)?type\s+([A-Za-z0-9_$]+)\s*=\s*\{([^}]*)\}',
+            r'(?:^|\n)\s*(?:export\s+(?:default\s+)?)?type\s+([A-Za-z0-9_$]+)(?:<[^>]*>)?\s*=\s*(?:[^{;=]*&)?\s*\{',
             re.MULTILINE
         )
         for match in type_pattern.finditer(source_text):
@@ -568,24 +670,14 @@ class JSUMLVisitor(BaseTreeSitterVisitor):
             if not type_name or type_name in existing_names:
                 continue
 
-            body_str = match.group(2)
+            body_str, _ = _extract_balanced_body(source_text, match.end())
+            attrs, methods = _parse_body_members(body_str)
+
             cls_info = UMLClassInfo(type_name, [], self.module_name)
             cls_info.stereotypes = getattr(cls_info, "stereotypes", []) or []
             cls_info.stereotypes.append("type")
-
-            for line in body_str.split(";"):
-                for subline in line.split("\n"):
-                    trimmed = subline.strip().rstrip(",")
-                    if not trimmed or trimmed.startswith("//") or trimmed.startswith("/*"):
-                        continue
-                    prop_match = re.match(r'^([A-Za-z0-9_$]+)\s*\??\s*:\s*(.+)$', trimmed)
-                    if prop_match:
-                        pname = prop_match.group(1)
-                        ptype = prop_match.group(2).strip()
-                        if ptype:
-                            cls_info.attributes.append(f"{ptype} {pname}")
-                        else:
-                            cls_info.attributes.append(pname)
+            cls_info.attributes.extend(attrs)
+            cls_info.methods.extend(methods)
 
             self.classes.append(cls_info)
             existing_names.add(type_name)
@@ -857,24 +949,46 @@ class JSERVisitor(BaseTreeSitterVisitor):
                     entity.columns.append((field_name, field_type))
 
 
-def parse_project_for_js_uml(root_path: str, max_depth: Optional[int] = 4) -> List[UMLClassInfo]:
-    if not PARSER:
-        print("⚠️ Could not load Tree-Sitter parser (tree-sitter-javascript).")
-        return []
+DEFAULT_JS_UML_NAME_HINTS = (
+    "type", "types", "interface", "interfaces",
+    "model", "models", "entity", "entities",
+    "schema", "schemas", "dto", "dtos",
+)
 
+
+def parse_project_for_js_uml(
+    root_path: str,
+    max_depth: Optional[int] = 4,
+    name_hints: Optional[List[str]] = None,
+) -> List[UMLClassInfo]:
+    """Parse JavaScript and TypeScript files in a project for UML class info.
+
+    Scans source files (including ``lib/types.ts``, ``src/types.ts``, ``types/*.ts``,
+    models, interfaces, entities, schemas, and components) and extracts classes,
+    exported interfaces, and type aliases into :class:`UMLClassInfo` objects.
+    """
     all_classes: List[UMLClassInfo] = []
+    hints = [h.lower() for h in name_hints] if name_hints else None
+
     for file_path, rel_path in walk_source_files(
-        root_path, (".js", ".ts", ".jsx", ".tsx"), max_depth=max_depth
+        root_path, (".js", ".jsx", ".ts", ".tsx", ".mjs"), max_depth=max_depth
     ):
         try:
-            parser = _parser_for_file(file_path)
-            if parser is None:
-                continue
-            source_bytes = read_source_bytes(file_path)
-            tree = parser.parse(source_bytes)
+            rel_str = str(rel_path).replace("\\", "/").lower()
+            fname_lower = file_path.name.lower()
+            if hints is not None:
+                if not any(h in rel_str or h in fname_lower for h in hints):
+                    continue
 
+            source_bytes = read_source_bytes(file_path)
             visitor = JSUMLVisitor(source_bytes, module_name_for(rel_path))
-            visitor.visit(tree.root_node)
+            parser = _parser_for_file(file_path)
+            if parser is not None:
+                try:
+                    tree = parser.parse(source_bytes)
+                    visitor.visit(tree.root_node)
+                except Exception:
+                    pass
             visitor._extract_ts_interfaces_and_types_from_source()
             all_classes.extend(visitor.classes)
         except Exception:
@@ -887,7 +1001,7 @@ def parse_project_for_js_er(root_path: str, max_depth: Optional[int] = 4) -> Lis
         return []
 
     all_entities: List[EREntity] = []
-    for file_path, _rel_path in walk_source_files(root_path, (".js", ".ts", ".jsx", ".tsx"), max_depth=max_depth):
+    for file_path, _rel_path in walk_source_files(root_path, (".js", ".jsx", ".ts", ".tsx", ".mjs"), max_depth=max_depth):
         try:
             parser = _parser_for_file(file_path)
             if parser is None:
@@ -900,4 +1014,44 @@ def parse_project_for_js_er(root_path: str, max_depth: Optional[int] = 4) -> Lis
             all_entities.extend(visitor.entities)
         except Exception:
             continue
-    return all_entities
+def parse_js_content(content: str, filename: str = "file.ts") -> List[UMLClassInfo]:
+    """Parse JavaScript/TypeScript source string directly into UMLClassInfo objects."""
+    source_bytes = content.encode("utf-8") if isinstance(content, str) else content
+    visitor = JSUMLVisitor(source_bytes, module_name_for(filename))
+    parser = _parser_for_file(filename)
+    if parser is not None:
+        try:
+            tree = parser.parse(source_bytes)
+            visitor.visit(tree.root_node)
+        except Exception:
+            pass
+    visitor._extract_ts_interfaces_and_types_from_source()
+    return visitor.classes
+
+
+def parse_file_for_js_uml(
+    file_path: Path | str,
+    root_path: Optional[Path | str] = None,
+) -> List[UMLClassInfo]:
+    """Parse a single JavaScript or TypeScript file for UML class and interface info."""
+    fp = Path(file_path).resolve()
+    if not fp.is_file():
+        return []
+    try:
+        rel_path = fp.relative_to(Path(root_path).resolve()) if root_path else Path(fp.name)
+    except ValueError:
+        rel_path = Path(fp.name)
+    source_bytes = read_source_bytes(fp)
+    visitor = JSUMLVisitor(source_bytes, module_name_for(rel_path))
+    parser = _parser_for_file(fp)
+    if parser is not None:
+        try:
+            tree = parser.parse(source_bytes)
+            visitor.visit(tree.root_node)
+        except Exception:
+            pass
+    visitor._extract_ts_interfaces_and_types_from_source()
+    return visitor.classes
+
+
+# TODO(audit): Optimize_walk_files name_hints in parse_project_for_js_uml to inspect Next.js lib/types.ts without cache bypass

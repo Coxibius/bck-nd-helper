@@ -16,19 +16,50 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewViewProvider(BackendHelperSidebarProvider.viewType, provider)
     );
 
-    // Keep the legacy command palette command active, binding it to the full architecture diagram
-    let disposable = vscode.commands.registerCommand('bck-nd.generateDiagram', async () => {
+    const getWorkspacePath = (): string | undefined => {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
             vscode.window.showErrorMessage('There is not a workspace open. Please open a folder to scan.');
-            return;
+            return undefined;
         }
-        const workspacePath = workspaceFolders[0].uri.fsPath;
-        // Delegate to the provider's diagram logic
-        provider.generateDiagramDirectly(workspacePath, 'arch');
-    });
+        return workspaceFolders[0].uri.fsPath;
+    };
 
-    context.subscriptions.push(disposable);
+    // Keep the legacy diagram command while exposing the Requirements layer in the Command Palette.
+    context.subscriptions.push(vscode.commands.registerCommand('bck-nd.generateDiagram', async () => {
+        const workspacePath = getWorkspacePath();
+        if (workspacePath) {
+            await provider.generateDiagramDirectly(workspacePath, 'arch');
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('bck-nd-hlpr.reqList', async () => {
+        const workspacePath = getWorkspacePath();
+        if (workspacePath) {
+            await provider.runCommandDirectly(workspacePath, 'reqList');
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('bck-nd-hlpr.reqInit', async () => {
+        const workspacePath = getWorkspacePath();
+        if (workspacePath) {
+            await provider.runCommandDirectly(workspacePath, 'reqInit');
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('bck-nd-hlpr.reqDiscover', async () => {
+        const workspacePath = getWorkspacePath();
+        if (workspacePath) {
+            await provider.runCommandDirectly(workspacePath, 'reqDiscover');
+        }
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('bck-nd-hlpr.copyContext', async () => {
+        const workspacePath = getWorkspacePath();
+        if (workspacePath) {
+            await provider.runCommandDirectly(workspacePath, 'copyContext');
+        }
+    }));
 }
 
 export function deactivate() { }
@@ -70,6 +101,18 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
                 case 'copyContext':
                     await this._handleCopyContext(workspacePath);
                     break;
+                case 'focusedContext':
+                    await this._handleFocusedContext(workspacePath, data.focus);
+                    break;
+                case 'reqList':
+                    await this._handleReqList(workspacePath);
+                    break;
+                case 'reqInit':
+                    await this._handleReqInit(workspacePath);
+                    break;
+                case 'reqDiscover':
+                    await this._handleReqDiscover(workspacePath);
+                    break;
                 case 'generateDiagram':
                     await this._handleGenerateDiagram(workspacePath, data.type);
                     break;
@@ -93,56 +136,186 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
     }
 
     // Public method to expose execution for command palette commands
-    public generateDiagramDirectly(workspacePath: string, type: string) {
-        this._handleGenerateDiagram(workspacePath, type);
+    public async generateDiagramDirectly(workspacePath: string, type: string): Promise<void> {
+        await this._handleGenerateDiagram(workspacePath, type);
+    }
+
+    public async runCommandDirectly(
+        workspacePath: string,
+        command: 'copyContext' | 'reqList' | 'reqInit' | 'reqDiscover'
+    ): Promise<void> {
+        const handlers = {
+            copyContext: () => this._handleCopyContext(workspacePath),
+            reqList: () => this._handleReqList(workspacePath),
+            reqInit: () => this._handleReqInit(workspacePath),
+            reqDiscover: () => this._handleReqDiscover(workspacePath)
+        };
+        await handlers[command]();
     }
 
     /**
-     * SECTION 1: IA Context copy
+     * SECTION 1: AI Context and Requirements Intelligence
      */
-    private async _handleCopyContext(workspacePath: string) {
-        const tmpFileName = '.ai_context_tmp.txt';
-        const tmpFilePath = path.join(workspacePath, tmpFileName);
-
-        vscode.window.withProgress({
+    private async _handleCopyContext(workspacePath: string): Promise<void> {
+        await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: "Generating AI context...",
             cancellable: false
         }, async () => {
-            return new Promise<void>((resolve) => {
-                const cmd = `bck-nd prompt . -o "${tmpFileName}"`;
+            try {
+                await this._runCli(['prompt', '.', '-c'], workspacePath);
+                vscode.window.showInformationMessage('$(clippy) AI Context copied to clipboard!');
+            } catch (error) {
+                this._handleCliFailure(error);
+            }
+        });
+    }
 
-                // Execute command
-                cp.exec(cmd, { cwd: workspacePath }, (error, stdout, stderr) => {
+    private async _handleFocusedContext(workspacePath: string, focus: unknown): Promise<void> {
+        const focusMap: Record<string, { label: string, flags: string[] }> = {
+            full: { label: 'Complete AI Context', flags: [] },
+            tree: { label: 'Focused Context: Project Tree', flags: ['--tree'] },
+            uml: { label: 'Focused Context: UML', flags: ['--uml'] },
+            er: { label: 'Focused Context: ER', flags: ['--er'] },
+            diagrams: { label: 'Focused Context: UML + ER', flags: ['--uml', '--er'] }
+        };
+        const config = focusMap[typeof focus === 'string' ? focus : 'full'] || focusMap.full;
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Generating ${config.label}...`,
+            cancellable: false
+        }, async () => {
+            try {
+                const { stdout } = await this._runCli(
+                    ['prompt', '.', '-o', '-', ...config.flags],
+                    workspacePath
+                );
+                const document = await vscode.workspace.openTextDocument({
+                    content: stripAnsi(stdout),
+                    language: 'markdown'
+                });
+                await vscode.window.showTextDocument(document, { preview: false });
+            } catch (error) {
+                this._handleCliFailure(error);
+            }
+        });
+    }
+
+    private async _handleReqList(workspacePath: string): Promise<void> {
+        this._outputChannel.clear();
+        this._outputChannel.show();
+        this._outputChannel.appendLine('>>> Running: bck-nd req list');
+        this._outputChannel.appendLine(`>>> Working directory: ${workspacePath}\n`);
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Listing project requirements...',
+            cancellable: false
+        }, async () => {
+            try {
+                const { stdout, stderr } = await this._runCli(['req', 'list'], workspacePath);
+                if (stdout) {
+                    this._outputChannel.append(stripAnsi(stdout));
+                }
+                if (stderr) {
+                    this._outputChannel.append(`\n--- WARNINGS ---\n${stripAnsi(stderr)}`);
+                }
+            } catch (error) {
+                this._handleCliFailure(error, true);
+            }
+        });
+    }
+
+    private async _handleReqInit(workspacePath: string): Promise<void> {
+        const storyId = await vscode.window.showInputBox({
+            prompt: 'Enter Story ID (e.g. US-001)',
+            placeHolder: 'US-001',
+            ignoreFocusOut: true,
+            validateInput: value => {
+                const candidate = value.trim();
+                return candidate && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(candidate)
+                    ? 'Use only letters, numbers, hyphens, and underscores.'
+                    : undefined;
+            }
+        });
+        if (!storyId) {
+            return;
+        }
+
+        const normalizedId = storyId.trim().toUpperCase();
+        try {
+            await this._runCli(['req', 'init', normalizedId], workspacePath);
+            const openAction = 'Open User Story';
+            const selection = await vscode.window.showInformationMessage(
+                `Requirement ${normalizedId} created successfully.`,
+                openAction
+            );
+            if (selection === openAction) {
+                const requirementUri = vscode.Uri.file(
+                    path.join(workspacePath, '.bck-nd', 'requirements', `${normalizedId}.md`)
+                );
+                const document = await vscode.workspace.openTextDocument(requirementUri);
+                await vscode.window.showTextDocument(document, { preview: false });
+            }
+        } catch (error) {
+            this._handleCliFailure(error);
+        }
+    }
+
+    private async _handleReqDiscover(workspacePath: string): Promise<void> {
+        const storyId = await vscode.window.showInputBox({
+            prompt: 'Enter Story ID (e.g. US-001)',
+            placeHolder: 'US-001',
+            ignoreFocusOut: true
+        });
+        if (!storyId) {
+            return;
+        }
+
+        try {
+            const { stdout } = await this._runCli(
+                ['req', 'discover', storyId.trim().toUpperCase()],
+                workspacePath
+            );
+            const document = await vscode.workspace.openTextDocument({
+                content: stripAnsi(stdout),
+                language: 'markdown'
+            });
+            await vscode.window.showTextDocument(document, { preview: false });
+        } catch (error) {
+            this._handleCliFailure(error);
+        }
+    }
+
+    private _runCli(
+        args: string[],
+        workspacePath: string
+    ): Promise<{ stdout: string, stderr: string }> {
+        return new Promise((resolve, reject) => {
+            cp.execFile(
+                'bck-nd',
+                args,
+                { cwd: workspacePath, maxBuffer: 20 * 1024 * 1024 },
+                (error, stdout, stderr) => {
                     if (error) {
-                        this._handleExecError(error, stderr);
-                        resolve();
+                        Object.assign(error, { stderr });
+                        reject(error);
                         return;
                     }
-
-                    // Read file strictly inside the success callback of child_process.exec
-                    fs.readFile(tmpFilePath, 'utf8', (readErr, content) => {
-                        if (readErr) {
-                            vscode.window.showErrorMessage(`Error reading context file: ${readErr.message}`);
-                            resolve();
-                            return;
-                        }
-
-                        vscode.env.clipboard.writeText(content).then(() => {
-                            vscode.window.showInformationMessage("🤖 Context copied!");
-
-                            // Delete the temporary file asynchronously after copying
-                            fs.unlink(tmpFilePath, (unlinkErr) => {
-                                if (unlinkErr) {
-                                    console.error('Error deleting temp context file:', unlinkErr);
-                                }
-                            });
-                            resolve();
-                        });
-                    });
-                });
-            });
+                    resolve({ stdout, stderr });
+                }
+            );
         });
+    }
+
+    private _handleCliFailure(error: unknown, appendToOutput = false): void {
+        const failure = error as Error & { stderr?: string };
+        const stderr = failure.stderr || '';
+        if (appendToOutput) {
+            this._outputChannel.appendLine(`\n>>> ERROR: ${stripAnsi(stderr || failure.message)}`);
+        }
+        this._handleExecError(failure, stderr);
     }
 
     /**
@@ -154,6 +327,8 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
             'tree': { title: 'Project Structure Tree', cmd: 'bck-nd scan . --tree' },
             'uml': { title: 'UML Class Diagram', cmd: 'bck-nd scan . --uml --format mermaid' },
             'er': { title: 'Entity-Relationship Diagram (ER)', cmd: 'bck-nd scan . --er --format mermaid' },
+            'routes': { title: 'Application Routes Diagram', cmd: 'bck-nd scan . --routes --format mermaid' },
+            'infra': { title: 'Docker Infrastructure Diagram', cmd: 'bck-nd scan . --infra --format mermaid' },
             'trace': { title: 'Route-to-DB Map', cmd: 'bck-nd scan . --trace --format mermaid' },
             'prompt': { title: 'Complete AI Context (Prompt)', cmd: 'bck-nd prompt . -o -' },
             'datascience': { title: 'Data Lineage Map', cmd: 'bck-nd scan . --datascience' }
@@ -454,16 +629,17 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Backend Helper</title>
+    <link rel="stylesheet" href="https://unpkg.com/@vscode/codicons@0.0.36/dist/codicon.css">
     <style>
         :root {
-            --bg-color: #0d0e12;
-            --card-bg: #151720;
-            --border-color: #252936;
-            --text-main: #e5e9f0;
-            --text-muted: #8e96a7;
-            --accent: #00f0ff; /* Electric Cyan */
-            --accent-green: #00ff66; /* Neon Cyber-Green */
-            --gradient: linear-gradient(to right, #00f0ff, #00ff66);
+            --bg-color: var(--vscode-sideBar-background);
+            --card-bg: var(--vscode-sideBarSectionHeader-background);
+            --border-color: var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border));
+            --text-main: var(--vscode-sideBar-foreground);
+            --text-muted: var(--vscode-descriptionForeground);
+            --accent: var(--vscode-focusBorder);
+            --button-bg: var(--vscode-button-secondaryBackground);
+            --button-hover: var(--vscode-button-secondaryHoverBackground);
         }
         body {
             padding: 12px 10px;
@@ -485,9 +661,7 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
             font-size: 1.15rem;
             font-weight: 600;
             color: var(--text-main);
-            background: var(--gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: var(--vscode-sideBarTitle-foreground, var(--text-main));
         }
         
         .header p {
@@ -560,7 +734,7 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
         }
 
         .btn {
-            background-color: transparent;
+            background-color: var(--button-bg);
             color: var(--text-main);
             border: 1px solid var(--border-color);
             padding: 8px 12px;
@@ -579,6 +753,7 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
         }
 
         .btn:hover {
+            background-color: var(--button-hover);
             border-color: var(--accent);
             color: var(--text-main);
             box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
@@ -597,136 +772,154 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
             line-height: 1.25;
             padding-left: 2px;
         }
+
+        .codicon {
+            flex: 0 0 16px;
+            color: var(--vscode-symbolIcon-functionForeground, var(--text-main));
+        }
+
+        .select-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+        }
+
+        select {
+            min-width: 0;
+            color: var(--vscode-dropdown-foreground);
+            background: var(--vscode-dropdown-background);
+            border: 1px solid var(--vscode-dropdown-border);
+            border-radius: 3px;
+            padding: 7px 8px;
+            font-family: inherit;
+        }
+
+        .select-row .btn {
+            width: auto;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h2>Backend Helper</h2>
-        <p>Architecture Control Panel</p>
+        <p>Four Pillars · Requirements Intelligence</p>
     </div>
 
-    <!-- GROUP 1: AI & Context Helpers -->
+    <!-- PILLAR 1: AI Context Provider -->
     <details open>
         <summary>
-            <span>🤖 AI & Context Helpers</span>
+            <span>🧠 AI Context Provider</span>
             <svg class="chevron" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </summary>
         <div class="section-content">
             <button class="btn" onclick="copyContext()">
-                <span>🤖</span> Copy Context to Clipboard
+                <span class="codicon codicon-copy"></span> Instant Copy
             </button>
-            <p class="btn-desc">Generates a complete context dump optimized for ChatGPT and Claude.</p>
+            <p class="btn-desc">Generate and copy the full AI-ready project context in one step.</p>
 
-            <button class="btn" onclick="generateDiagram('prompt')">
-                <span>📄</span> View AI Context in Editor
-            </button>
-            <p class="btn-desc">Generates the complete context dump and displays it in a tab for review and saving.</p>
+            <label for="context-focus" class="btn-desc">Focused Context</label>
+            <div class="select-row">
+                <select id="context-focus" aria-label="Focused context type">
+                    <option value="full">Complete project</option>
+                    <option value="tree">Project tree</option>
+                    <option value="uml">UML classes</option>
+                    <option value="er">ER models</option>
+                    <option value="diagrams">UML + ER diagrams</option>
+                </select>
+                <button class="btn" onclick="openFocusedContext()" title="Open focused context">
+                    <span class="codicon codicon-open-preview"></span> Open
+                </button>
+            </div>
         </div>
     </details>
 
-    <!-- GROUP 2: Architecture & Diagrams -->
+    <!-- PILLAR 2: Requirements Intelligence -->
     <details open>
         <summary>
-            <span>🗺️ Architecture & Diagrams</span>
+            <span>📋 Requirements Intelligence</span>
             <svg class="chevron" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </summary>
         <div class="section-content">
-            <button class="btn" onclick="generateDiagram('arch')">
-                <span>🏗️</span> Complete Architecture Diagram
+            <button class="btn" onclick="reqList()">
+                <span class="codicon codicon-list-unordered"></span> List Stories
             </button>
-            <p class="btn-desc">General structure of modules, dependencies, and folders.</p>
-            
-            <button class="btn" onclick="generateDiagram('tree')">
-                <span>🌳</span> Project Tree
+            <p class="btn-desc">Inspect specifications stored in .bck-nd/requirements/.</p>
+
+            <button class="btn" onclick="reqInit()">
+                <span class="codicon codicon-new-file"></span> New Story (+)
             </button>
-            <p class="btn-desc">Tree of folders and files.</p>
-            
+            <p class="btn-desc">Scaffold a standard Markdown requirement from a Story ID.</p>
+
+            <button class="btn" onclick="reqDiscover()">
+                <span class="codicon codicon-comment-discussion"></span> Discovery Guide
+            </button>
+            <p class="btn-desc">Open a stakeholder interview guide for an existing story.</p>
+        </div>
+    </details>
+
+    <!-- PILLAR 3: Visual Diagrams -->
+    <details open>
+        <summary>
+            <span>📊 Visual Diagrams</span>
+            <svg class="chevron" viewBox="0 0 24 24">
+                <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+        </summary>
+        <div class="section-content">
             <button class="btn" onclick="generateDiagram('uml')">
-                <span>🧬</span> UML Class Diagram
+                <span class="codicon codicon-type-hierarchy"></span> UML Classes
             </button>
-            <p class="btn-desc">Modeling of classes, inheritance, and main methods.</p>
-            
+            <p class="btn-desc">Python, TypeScript, TSX, and React class/interface support.</p>
+
             <button class="btn" onclick="generateDiagram('er')">
-                <span>🗄️</span> Entity-Relationship Diagram (ER)
+                <span class="codicon codicon-database"></span> Entity Relationships
             </button>
-            <p class="btn-desc">Logical mapping of tables, keys, and database schemas.</p>
+            <p class="btn-desc">Visualize ORM models, keys, and database relationships.</p>
+
+            <button class="btn" onclick="generateDiagram('routes')">
+                <span class="codicon codicon-route"></span> Application Routes
+            </button>
+            <p class="btn-desc">Map discovered HTTP endpoints and route structure.</p>
+
+            <button class="btn" onclick="generateDiagram('infra')">
+                <span class="codicon codicon-server-environment"></span> Docker Infrastructure
+            </button>
+            <p class="btn-desc">Render services and dependencies from docker-compose.</p>
         </div>
     </details>
 
-    <!-- GROUP 3: APIs & Data Flow -->
+    <!-- PILLAR 4: DevSecOps & Quality -->
     <details open>
         <summary>
-            <span>🔌 APIs & Data Flow</span>
+            <span>🛡️ DevSecOps & Quality</span>
             <svg class="chevron" viewBox="0 0 24 24">
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </summary>
         <div class="section-content">
-            <button class="btn" onclick="generateDiagram('trace')">
-                <span>🛣️</span> Route-to-DB Map
+            <button class="btn" onclick="runHealth()">
+                <span class="codicon codicon-heart"></span> Health Score
             </button>
-            <p class="btn-desc">Traceability of REST endpoints from the API to the database.</p>
+            <p class="btn-desc">Calculate the consolidated project quality report card.</p>
 
-            <button class="btn" onclick="runContract()">
-                <span>🔌</span> API Contract Map
-            </button>
-            <p class="btn-desc">Maps HTTP routes to database models and columns.</p>
-
-            <button class="btn" onclick="runDataScience()">
-                <span>📊</span> Data Lineage Map
-            </button>
-            <p class="btn-desc">Renders data lineage maps from Jupyter Notebooks.</p>
-        </div>
-    </details>
-
-    <!-- GROUP 4: Security & Code Quality -->
-    <details open>
-        <summary>
-            <span>🛡️ Security & Code Quality</span>
-            <svg class="chevron" viewBox="0 0 24 24">
-                <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
-        </summary>
-        <div class="section-content">
-            <button class="btn" onclick="runAudit('security')">
-                <span>🛡️</span> Security Audit
-            </button>
-            <p class="btn-desc">Analysis of exposed keys, credentials, and bad practices.</p>
-            
             <button class="btn" onclick="runAudit('todo')">
-                <span>🧹</span> Scan Technical Debt
+                <span class="codicon codicon-checklist"></span> Scoped Debt
             </button>
             <p class="btn-desc">Identifies pending comments like TODO, FIXME, HACK, and BUG.</p>
 
-            <button class="btn" onclick="runHealth()">
-                <span>❤️</span> Project Health Score
+            <button class="btn" onclick="runAudit('security')">
+                <span class="codicon codicon-shield"></span> Security Audit
             </button>
-            <p class="btn-desc">Calculates a consolidated Project Health Score report card.</p>
-        </div>
-    </details>
+            <p class="btn-desc">Detect exposed secrets, credentials, and insecure practices.</p>
 
-    <!-- GROUP 5: Onboarding & Portals -->
-    <details open>
-        <summary>
-            <span>🎓 Onboarding & Portals</span>
-            <svg class="chevron" viewBox="0 0 24 24">
-                <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
-        </summary>
-        <div class="section-content">
             <button class="btn" onclick="runTeach()">
-                <span>🎓</span> Guided Onboarding
+                <span class="codicon codicon-mortar-board"></span> Onboarding
             </button>
             <p class="btn-desc">Guided onboarding tour using the dependency heatmap.</p>
-
-            <button class="btn" onclick="runAudit('docs')">
-                <span>🌐</span> Local HTML Portal
-            </button>
-            <p class="btn-desc">Creates a complete static site of interactive documentation.</p>
         </div>
     </details>
 
@@ -735,6 +928,23 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
         
         function copyContext() {
             vscode.postMessage({ command: 'copyContext' });
+        }
+
+        function openFocusedContext() {
+            const focus = document.getElementById('context-focus').value;
+            vscode.postMessage({ command: 'focusedContext', focus: focus });
+        }
+
+        function reqList() {
+            vscode.postMessage({ command: 'reqList' });
+        }
+
+        function reqInit() {
+            vscode.postMessage({ command: 'reqInit' });
+        }
+
+        function reqDiscover() {
+            vscode.postMessage({ command: 'reqDiscover' });
         }
         
         function generateDiagram(type) {
@@ -753,13 +963,6 @@ class BackendHelperSidebarProvider implements vscode.WebviewViewProvider {
             vscode.postMessage({ command: 'runTeach' });
         }
 
-        function runContract() {
-            vscode.postMessage({ command: 'runContract' });
-        }
-
-        function runDataScience() {
-            vscode.postMessage({ command: 'runDataScience' });
-        }
     </script>
 </body>
 </html>`;

@@ -1,13 +1,20 @@
 # Include documentation
 
-include LICENSE
 include README.md
-include ADVANCED.md
+include LICENSE
+include CHANGELOG.md
+include pyproject.toml
 
 # Excluir explícitamente todo lo de VS Code para mantener el paquete PyPI ligero
+recursive-exclude vscode-extension *.vsix
+prune vscode-extension/node_modules
 recursive-exclude vscode-extension *
 recursive-exclude mis_apuntes *
 recursive-exclude tests *
+
+# Exclude local Backend Helper runtime cache while preserving project metadata sources
+prune .bck-nd/cache
+recursive-exclude .bck-nd/cache *
 
 # Exclude virtual environments and build artifacts
 global-exclude __pycache__

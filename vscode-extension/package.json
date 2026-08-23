@@ -1,8 +1,8 @@
 {
   "name": "bck-nd-vscode",
-  "displayName": "Backend Helper MVP",
-  "description": "VS Code integration for bck-nd-hlpr CLI",
-  "version": "1.0.0",
+  "displayName": "Backend Helper",
+  "description": "Four Pillars and Requirements Intelligence integration for bck-nd-hlpr",
+  "version": "1.1.0",
   "publisher": "coxibius",
   "repository": {
     "type": "git",
@@ -15,7 +15,11 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:backendHelperView.controlPanel"
+    "onView:backendHelperView.controlPanel",
+    "onCommand:bck-nd-hlpr.reqList",
+    "onCommand:bck-nd-hlpr.reqInit",
+    "onCommand:bck-nd-hlpr.reqDiscover",
+    "onCommand:bck-nd-hlpr.copyContext"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -41,6 +45,22 @@
       {
         "command": "bck-nd.generateDiagram",
         "title": "Backend Helper: Generate Architecture Diagram"
+      },
+      {
+        "command": "bck-nd-hlpr.reqList",
+        "title": "Backend Helper: List Requirements"
+      },
+      {
+        "command": "bck-nd-hlpr.reqInit",
+        "title": "Backend Helper: Create New User Story"
+      },
+      {
+        "command": "bck-nd-hlpr.reqDiscover",
+        "title": "Backend Helper: Discover User Story"
+      },
+      {
+        "command": "bck-nd-hlpr.copyContext",
+        "title": "Backend Helper: Copy AI Context to Clipboard"
       }
     ]
   },

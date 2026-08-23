@@ -1,261 +1,198 @@
-# Backend Helper VS Code Extension
+# Backend Helper for VS Code
 
-Backend Helper is a Visual Studio Code extension that integrates the `bck-nd-hlpr` CLI directly into the editor, providing AI context generation, architecture visualization, UML/ER diagrams, project insights, and security auditing from a unified control panel.
+Backend Helper brings the `bck-nd-hlpr` 2.4.2 Four Pillars and Requirements Intelligence workflow into VS Code. Generate AI-ready context, manage user stories, render architecture diagrams, and run quality checks without leaving the editor.
 
-> **Requires `bck-nd-hlpr` ≥ 2.0.0** — the extension consumes the decoupled CLI layer; all analysis runs through `bck-nd` commands.
+> Requires `bck-nd-hlpr` 2.4.2 or newer and the `bck-nd` executable in your system `PATH`.
+
+## Sidebar at a Glance
+
+The Backend Helper Activity Bar view is organized around four focused sections:
+
+```text
+🧠 AI Context Provider
+   Instant Copy · Focused Context
+📋 Requirements Intelligence
+   List Stories · New Story (+) · Discovery Guide
+📊 Visual Diagrams
+   UML · ER · Routes · Docker Infrastructure
+🛡️ DevSecOps & Quality
+   Health Score · Scoped Debt · Security Audit · Onboarding
+```
+
+The sidebar uses VS Code theme colors and Codicons, so it stays consistent with light, dark, and high-contrast themes.
+
+## Features
+
+### 🧠 AI Context Provider
+
+- **Instant Copy** runs `bck-nd prompt . -c` and copies a complete AI context directly to the system clipboard.
+- **Focused Context** opens one of the following generated views in a new editor:
+  - Complete project
+  - Project tree
+  - UML classes and TypeScript interfaces
+  - Entity-relationship models
+  - UML and ER diagrams together
+
+The generated context is ready to paste into ChatGPT, Claude, or another coding assistant.
+
+### 📋 Requirements Intelligence
+
+- **List Stories** runs `bck-nd req list` and displays the result in the Backend Helper Output channel.
+- **New Story (+)** asks for a Story ID such as `US-001`, scaffolds `.bck-nd/requirements/US-001.md`, and offers to open it immediately.
+- **Discovery Guide** asks for a Story ID, generates the stakeholder interview guide with `bck-nd req discover`, and opens it in a new Markdown editor.
+
+Requirement files remain versionable project knowledge under `.bck-nd/requirements/`; only `.bck-nd/cache/` should be ignored.
+
+### 📊 Visual Diagrams
+
+- **UML Classes** — Python classes plus TypeScript, TSX, and React declarations.
+- **Entity Relationships** — ORM models, keys, and relationships.
+- **Application Routes** — detected HTTP endpoints and route structure.
+- **Docker Infrastructure** — services and dependencies from Docker Compose.
+
+Mermaid diagrams open in a dedicated preview with copy and SVG export controls.
+
+### 🛡️ DevSecOps & Quality
+
+- **Health Score** — consolidated project health report card.
+- **Scoped Debt** — TODO, FIXME, HACK, XXX, and BUG findings.
+- **Security Audit** — exposed secrets, credentials, and insecure practices.
+- **Onboarding** — a guided codebase walkthrough based on dependency heatmaps.
+
+Text reports are written to the **Backend Helper** Output channel.
 
 ## Quick Start
 
 ```bash
-# 1. Install the CLI
+# Install or upgrade the core engine
 pip install -U bck-nd-hlpr
 bck-nd --help
 
-# 2. Build the extension
+# Build the extension from source
 cd vscode-extension
-npm install && npm run compile
-
-# 3. Press F5 in VS Code to launch the Extension Development Host
+npm install
+npm run compile
 ```
 
-Open any backend project, click the **Backend Helper** icon in the Activity Bar, and generate diagrams or copy AI context.
+Press `F5` from the extension project to launch an Extension Development Host. Open a project, then select the **Backend Helper** icon in the Activity Bar.
 
-## When to Use What
+## Command Palette
 
-| Tool | Best for |
-| --- | --- |
-| **This extension** | In-editor diagram rendering, clipboard context, visual audits |
-| `bck-nd scan` (terminal) | Full CLI with all flags, scripting, and CI/CD pipelines |
-| `bck-nd prompt` | One-shot LLM context file without opening VS Code |
-| `bck-nd-mcp` | Persistent MCP tools in Claude Desktop / Cursor |
+The extension contributes these commands:
 
-See [CHANGELOG.md](../CHANGELOG.md#200) for v2.0.0 engine improvements (concurrency, fault tolerance, lazy loading).
+- **Backend Helper: Copy AI Context to Clipboard** (`bck-nd-hlpr.copyContext`)
+- **Backend Helper: List Requirements** (`bck-nd-hlpr.reqList`)
+- **Backend Helper: Create New User Story** (`bck-nd-hlpr.reqInit`)
+- **Backend Helper: Discover User Story** (`bck-nd-hlpr.reqDiscover`)
+- **Backend Helper: Generate Architecture Diagram** (`bck-nd.generateDiagram`, retained for compatibility)
 
-## Features
+Each command uses the first open workspace folder as its project root. The extension shows a clear error if no folder is open or the CLI is unavailable.
 
-### AI Context Generation
-
-Generate and copy project context for AI assistants directly from VS Code.
-
-### Architecture & Project Diagrams
-
-Generate:
-
-* UML Diagrams
-* Entity Relationship (ER) Diagrams
-* Route Maps
-* Infrastructure Diagrams
-* Flow Diagrams
-
-All diagrams are rendered using Mermaid and automatically sanitized for compatibility.
-
-### Security Auditing
-
-Run security audits against your project and visualize findings through traceability diagrams.
-
-### Project Insights
-
-Quick access to:
-
-* Project tree structure
-* Routes overview
-* Infrastructure mapping
-* Architecture visualization
-* Project health score (`--health`)
-* Guided onboarding (`--teach`)
-* API contract map (`--contract`)
-
-### Native VS Code Integration
-
-* Dedicated Activity Bar icon (`$(circuit-board)`)
-* Collapsible sections
-* Native VS Code theme support
-* Webview-based diagram rendering
-
----
-
-## Prerequisites
-
-Install the Backend Helper CLI (v2.0.0+):
+## CLI Commands Used by the Sidebar
 
 ```bash
-pip install -U bck-nd-hlpr
+# AI context
+bck-nd prompt . -c
+bck-nd prompt . -o - --tree
+bck-nd prompt . -o - --uml
+bck-nd prompt . -o - --er
+
+# Requirements
+bck-nd req list
+bck-nd req init US-001
+bck-nd req discover US-001
+
+# Diagrams
+bck-nd scan . --uml --format mermaid
+bck-nd scan . --er --format mermaid
+bck-nd scan . --routes --format mermaid
+bck-nd scan . --infra --format mermaid
+
+# DevSecOps and quality
+bck-nd scan . --health
+bck-nd scan . --todo
+bck-nd scan . --audit
+bck-nd scan . --teach
 ```
-
-Verify installation:
-
-```bash
-bck-nd --help
-bck-nd-mcp --help   # optional, for MCP integration
-```
-
-`bck-nd` must be available in your system PATH.
-
----
 
 ## Installation
 
 ### Install from Source
 
-Clone or download the extension source code and run:
-
 ```bash
+cd vscode-extension
 npm install
 npm run compile
 ```
 
-### Package the Extension
-
-Install VSCE:
+### Build and Install a VSIX
 
 ```bash
-npm install -g @vscode/vsce
-```
-
-Create a VSIX package:
-
-```bash
-vsce package
-```
-
-This generates:
-
-```text
-bck-nd-vscode-1.0.0.vsix
-```
-
-Install the package:
-
-```bash
-code --install-extension bck-nd-vscode-1.0.0.vsix
+npm run package
+code --install-extension bck-nd-vscode-1.1.0.vsix
 ```
 
 Reload VS Code after installation.
 
----
-
 ## Development
-
-### Project Structure
 
 ```text
 vscode-extension/
+├─ resources/
+│  └─ icon.svg
 ├─ src/
 │  └─ extension.ts
+├─ out/
 ├─ package.json
 ├─ README-EXTENSION.md
-├─ resources/
-└─ ...
+└─ tsconfig.json
 ```
 
-### Build
+Useful scripts:
 
 ```bash
-npm install
-npm run compile
+npm run compile  # one-time TypeScript build
+npm run watch    # rebuild on changes
+npm run package  # compile and create the VSIX
 ```
 
-### Watch Mode
+## Verification Checklist
 
-```bash
-npm run watch
-```
-
-### Run Extension Host
-
-Press `F5` — a new Extension Development Host window opens with the extension loaded.
-
----
-
-## Usage
-
-Open a project folder in VS Code. Click the Backend Helper icon in the Activity Bar.
-
-### AI Context
-
-Select **Copy AI Context**. The extension executes:
-
-```bash
-bck-nd prompt . -o .ai_context_tmp.txt
-```
-
-The generated context is copied to the clipboard automatically.
-
-### Generate Diagrams
-
-Use any diagram button (UML, ER, Routes, Infrastructure). The extension:
-
-1. Executes the corresponding `bck-nd scan` command.
-2. Extracts Mermaid blocks.
-3. Sanitizes Mermaid syntax.
-4. Renders the diagram inside a VS Code webview.
-
-### Security Audit
-
-Select **Security Audit**. The extension executes:
-
-```bash
-bck-nd scan . --audit
-```
-
-Results are displayed in the Output panel.
-
----
-
-## Exporting Diagrams
-
-From the terminal (outside the extension UI):
-
-```bash
-bck-nd scan . --uml -o classes.mmd
-bck-nd scan . --er -o schema.mmd
-```
-
-ANSI escape codes are stripped automatically. See [ADVANCED.md](../ADVANCED.md) for details.
-
----
-
-## Testing
-
-1. Open the extension project and run `npm install && npm run compile`.
-2. Press `F5` to launch the Extension Development Host.
-3. Open a backend project and test diagram generation, AI context, and security audit.
-4. To test error handling, temporarily uninstall the CLI (`pip uninstall bck-nd-hlpr`) — the extension should show a clear "CLI not found" error.
-
----
+1. Run `npm run compile` and confirm zero TypeScript errors.
+2. Press `F5` and open a project containing `.bck-nd/requirements/`.
+3. Test Instant Copy and each Focused Context option.
+4. Create a Story ID, open its generated Markdown file, then run its Discovery Guide.
+5. Generate UML, ER, Routes, and Docker diagrams.
+6. Run Health Score, Scoped Debt, Security Audit, and Onboarding.
+7. Run `npm run package` before publishing a release.
 
 ## Troubleshooting
-
-### Mermaid Diagram Does Not Render
-
-The extension sanitizes generic types, invalid identifiers, and unsupported Mermaid syntax. If rendering still fails, inspect the raw CLI output in the terminal.
-
-### Activity Bar Icon Not Appearing
-
-Run **Developer: Reload Window** and verify the extension is installed and enabled.
 
 ### CLI Not Found
 
 ```bash
-bck-nd --help   # must work from a terminal
 pip install -U bck-nd-hlpr
+bck-nd --help
 ```
 
----
+Restart VS Code after changing your system `PATH`.
 
-## Temporary Files
+### Requirement Is Not Listed
 
-`.ai_context_tmp.txt` is created in the workspace root and automatically added to `.gitignore` when necessary.
+Confirm the file is under `.bck-nd/requirements/` and follows one of the supported Markdown or JSON schemas documented in the main README.
 
----
+### Mermaid Diagram Does Not Render
+
+Run the matching `bck-nd scan` command in a terminal and inspect its raw Mermaid output. The extension strips ANSI escape sequences and sanitizes common incompatible syntax before rendering.
+
+### Clipboard Command Fails
+
+The CLI uses `clip.exe` on Windows, `pbcopy` on macOS, and `wl-copy` or `xclip` on Linux. Install one of the Linux clipboard tools when running outside a desktop environment.
 
 ## Documentation
 
-- [README.md](../README.md) — Main CLI documentation
-- [CHANGELOG.md](../CHANGELOG.md) — Release history
-- [ADVANCED.md](../ADVANCED.md) — MCP setup, library API, architecture diagram
-
----
+- [Main README](../README.md) — CLI, MCP setup, Requirements schemas, and advanced configuration
+- [Changelog](../CHANGELOG.md) — engine and extension release history
 
 ## License
 

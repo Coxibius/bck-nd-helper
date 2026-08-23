@@ -1,13 +1,13 @@
 """
 DeltaCacheManager — Incremental delta cache engine for bck-nd-hlpr.
 
-Tracks file signatures (mtime + size + sha256 content hash) in `.bck-nd-cache`
-to identify unmodified files across analysis runs and skip redundant parsing.
+Tracks file signatures (mtime + size + sha256 content hash) in
+`.bck-nd/cache/delta.json` to identify unmodified files across analysis runs
+and skip redundant parsing.
 """
 
 import hashlib
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 
@@ -17,7 +17,8 @@ class DeltaCacheManager:
     Manages incremental file signatures and analysis cache state.
     """
 
-    CACHE_FILE_NAME = ".bck-nd-cache"
+    CACHE_DIRECTORY = Path(".bck-nd") / "cache"
+    CACHE_FILE_NAME = "delta.json"
     CACHE_VERSION = "1.0"
 
     def __init__(self, root_path: Union[str, Path]):
@@ -28,10 +29,14 @@ class DeltaCacheManager:
         self.load_cache()
 
     def _resolve_cache_path(self, root: Path) -> Path:
-        target = root / self.CACHE_FILE_NAME
-        if target.is_dir():
-            return target / "cache.json"
-        return target
+        cache_dir = root / self.CACHE_DIRECTORY
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # Keep initialization non-fatal for read-only projects. save_cache
+            # will report failure through its existing boolean return value.
+            pass
+        return cache_dir / self.CACHE_FILE_NAME
 
     def _get_rel_path(self, file_path: Union[str, Path]) -> str:
         p = Path(file_path).resolve()
@@ -198,12 +203,8 @@ class DeltaCacheManager:
         Persist signatures and metadata to disk cache file.
         """
         try:
-            if self.cache_path.is_dir():
-                # Avoid collision if .bck-nd-cache was created as a directory
-                cache_file = self.cache_path / "cache.json"
-            else:
-                cache_file = self.cache_path
-                cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file = self.cache_path
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
 
             data = {
                 "version": self.CACHE_VERSION,
@@ -225,11 +226,7 @@ class DeltaCacheManager:
         self.signatures = {}
         self.metadata = {}
         try:
-            if self.cache_path.exists():
-                if self.cache_path.is_file():
-                    self.cache_path.unlink()
-                elif self.cache_path.is_dir():
-                    import shutil
-                    shutil.rmtree(self.cache_path)
+            if self.cache_path.is_file():
+                self.cache_path.unlink()
         except Exception:
             pass

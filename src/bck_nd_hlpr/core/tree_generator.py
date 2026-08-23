@@ -14,7 +14,15 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS, SKIP_DIRS, SKIP_FILES, SKIP_EXTENSIONS, DEFAULT_OUTPUT_FILE
+from bck_nd_hlpr.core.constants import (
+    BCK_ND_CACHE_DIRECTORY,
+    BCK_ND_DIRECTORY,
+    DEFAULT_OUTPUT_FILE,
+    GLOBAL_IGNORE_DIRS,
+    SKIP_DIRS,
+    SKIP_EXTENSIONS,
+    SKIP_FILES,
+)
 from bck_nd_hlpr.core.utils.gitignore_parser import parse_gitignore, matches_gitignore
 
 
@@ -120,6 +128,19 @@ def _should_ignore(
     """Determina si un archivo o directorio debe ser ignorado del árbol o del dump."""
     name = path.name
 
+    try:
+        rel_parts = path.relative_to(root).parts
+    except ValueError:
+        rel_parts = path.parts
+
+    # `.bck-nd/requirements/` is user-authored project context and remains
+    # visible. Only the generated cache subtree is hidden.
+    if len(rel_parts) >= 2 and rel_parts[:2] == (
+        BCK_ND_DIRECTORY,
+        BCK_ND_CACHE_DIRECTORY,
+    ):
+        return True
+
     # ── 0. Excluir el propio archivo de output ──
     if not path.is_dir() and name == output_file:
         return True
@@ -136,7 +157,6 @@ def _should_ignore(
 
         # Ignorar si algún componente de la ruta está en la lista negra o skip_dirs
         try:
-            rel_parts = path.relative_to(root).parts
             if any(p in GLOBAL_IGNORE_DIRS or p in SKIP_DIRS for p in rel_parts):
                 return True
         except ValueError:
@@ -144,7 +164,7 @@ def _should_ignore(
                 return True
 
         # Ignorar carpetas/archivos que empiezan con punto (excepto archivos config comunes)
-        if name.startswith(".") and path.is_dir():
+        if name.startswith(".") and name != BCK_ND_DIRECTORY and path.is_dir():
             return True
 
         # Ignorar carpetas que terminan en .egg-info

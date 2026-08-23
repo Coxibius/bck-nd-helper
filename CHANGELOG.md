@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.2] - 2026-08-22
+
+### Added
+
+- Zero-dependency `--copy` / `-c` clipboard export for `bck-nd prompt`.
+- `bck-nd req init <STORY_ID>` requirement template scaffolder.
+- Integrated requirements summary table directly into standard `bck-nd scan .` output.
+
+### Changed
+
+- Consolidated project metadata and delta cache under `.bck-nd/` (`.bck-nd/cache/delta.json` and `.bck-nd/requirements/`).
+- Merged `ADVANCED.md` into the canonical `README.md`.
+
+### Fixed
+
+- TypeScript, Next.js, and React UML and ER extraction for `interface` and `type` declarations.
+- False-positive empty UML diagram filtering on components named `Empty` (for example, Shadcn UI components).
+- Missing `Optional` typing import in `formatters.py`.
+
 ## [2.1.0] - 2026-07-18
 
 ### Added
@@ -37,3 +56,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parser failures on individual files no longer halt the entire scan pipeline.
 
 [2.0.0]: https://github.com/Coxibius/bck-nd-helper/releases/tag/v2.0.0
+[2.4.2]: https://github.com/Coxibius/bck-nd-helper/releases/tag/v2.4.2

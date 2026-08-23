@@ -84,19 +84,25 @@ def walk_source_files(
     file whose suffix is in *extensions*, respecting GLOBAL_IGNORE_DIRS and
     *max_depth*.
     """
-    root = Path(root_path)
+    root = Path(root_path).resolve()
     for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
+        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
         try:
-            current_depth = len(Path(dirpath).relative_to(root).parts)
+            rel = Path(dirpath).relative_to(root)
+            current_depth = len(rel.parts)
         except ValueError:
             current_depth = 0
         if max_depth is not None and current_depth > max_depth:
+            del dirs[:]
             continue
         for fname in files:
-            if fname.endswith(extensions):
+            fname_lower = fname.lower()
+            if any(fname_lower.endswith(ext.lower()) for ext in extensions):
                 abs_path = Path(dirpath) / fname
-                rel_path = abs_path.relative_to(root)
+                try:
+                    rel_path = abs_path.relative_to(root)
+                except ValueError:
+                    rel_path = Path(fname)
                 yield abs_path, rel_path
 
 
@@ -117,6 +123,8 @@ class BaseTreeSitterVisitor:
                 getattr(node, "start_point", (0,))[0] + 1,
                 type(self).__name__,
             )
+            for child in (getattr(node, "children", []) or []):
+                self.visit(child)
             return None
         method_name = f"visit_{node.type}"
         visitor = getattr(self, method_name, self.generic_visit)

@@ -160,7 +160,8 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
 
         # 3. UML CLASS DIAGRAM
         uml_code = scanner.scan_uml(path, max_depth=depth)
-        if uml_code and "class Empty" not in uml_code and "note " not in uml_code.lower():
+        from bck_nd_hlpr.core.uml_parser import is_empty_mermaid_class_diagram
+        if not is_empty_mermaid_class_diagram(uml_code):
             result.append("\n[UML] CLASS DIAGRAM:")
             result.append(f"```mermaid\n{uml_code}\n```")
         else:
@@ -284,7 +285,8 @@ def get_uml_diagram(path: str = ".", depth: int = 3) -> str:
         scanner = ProjectScanner()
         uml_code = scanner.scan_uml(path, max_depth=depth)
 
-        if not uml_code or "No classes found" in uml_code:
+        from bck_nd_hlpr.core.uml_parser import is_empty_mermaid_class_diagram
+        if is_empty_mermaid_class_diagram(uml_code):
             return "No classes detected. The project may not use OOP patterns, or try increasing depth."
 
         return f"```mermaid\n{uml_code}\n```"

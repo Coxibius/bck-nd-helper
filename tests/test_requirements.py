@@ -400,6 +400,61 @@ def test_cli_req_list_with_stories(tmp_path: Path):
     assert "Agente de campo" in result.stdout
 
 
+def test_cli_req_init_markdown_template(tmp_path: Path):
+    from typer.testing import CliRunner
+    from bck_nd_hlpr.cli.cli import app
+
+    result = CliRunner().invoke(
+        app,
+        ["req", "init", "us-001", "--path", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0, result.exception
+    target = tmp_path / ".bck-nd" / "requirements" / "US-001.md"
+    assert target.is_file()
+    content = target.read_text(encoding="utf-8")
+    for section in (
+        "**Role**",
+        "**Want**",
+        "**Benefit**",
+        "## Business Rules",
+        "## Acceptance Criteria",
+        "## Required Data",
+        "## Validations",
+        "## Exceptions",
+        "## Open Questions",
+    ):
+        assert section in content
+
+    spec = RequirementsParser.parse_file(target)
+    assert spec is not None
+    assert spec.story.id == "US-001"
+
+
+def test_cli_req_init_json_and_refuses_overwrite(tmp_path: Path):
+    from typer.testing import CliRunner
+    from bck_nd_hlpr.cli.cli import app
+
+    runner = CliRunner()
+    args = ["req", "init", "HU02", "--format", "json", "--path", str(tmp_path)]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.exception
+
+    target = tmp_path / ".bck-nd" / "requirements" / "HU02.json"
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["story"]["id"] == "HU02"
+    assert data["business_rules"]
+    assert data["acceptance_criteria"]
+    assert data["required_data"]
+    assert data["validations"]
+    assert data["exceptions"]
+    assert data["open_questions"]
+
+    duplicate = runner.invoke(app, args)
+    assert duplicate.exit_code == 1
+    assert "already exists" in duplicate.stdout
+
+
 def test_cli_req_list_empty(tmp_path: Path):
     from typer.testing import CliRunner
     from bck_nd_hlpr.cli.cli import app
@@ -607,4 +662,102 @@ def test_requirements_parser_load_from_directory_mixed(tmp_path: Path):
     assert len(specs[1].business_rules) == 1
 
 
+def test_orchestrator_loads_requirements_when_requested(tmp_path: Path):
+    from bck_nd_hlpr.core.orchestrator import OrchestratorConfig, ScannerOrchestrator
 
+    req_dir = tmp_path / ".bck-nd" / "requirements"
+    req_dir.mkdir(parents=True)
+    story = {
+        "story": {
+            "id": "US-001",
+            "title": "User Registration",
+            "role": "visitor",
+            "want": "create an account",
+            "benefit": "access the application",
+            "status": "IN_PROGRESS",
+        },
+        "acceptance_criteria": [
+            {"id": "AC01", "given": "valid data", "when": "submitted", "then": "account created"}
+        ],
+        "business_rules": [
+            {"id": "BR01", "description": "Email must be unique"}
+        ],
+    }
+    (req_dir / "US-001.json").write_text(json.dumps(story), encoding="utf-8")
+
+    result = ScannerOrchestrator.run(
+        OrchestratorConfig(path=str(tmp_path), requirements=True, use_cache=False)
+    )
+
+    assert result.requirements is not None
+    assert [spec.story.id for spec in result.requirements] == ["US-001"]
+
+
+def test_default_scan_includes_requirements_and_skips_empty_projects(
+    tmp_path: Path, monkeypatch
+):
+    from typer.testing import CliRunner
+    from bck_nd_hlpr.cli.cli import app
+    from bck_nd_hlpr.core.orchestrator import OrchestratorResult, ScannerOrchestrator
+
+    req_dir = tmp_path / ".bck-nd" / "requirements"
+    req_dir.mkdir(parents=True)
+    story = {
+        "story": {
+            "id": "US-001",
+            "title": "User Registration",
+            "role": "visitor",
+            "want": "create an account",
+            "benefit": "access the application",
+            "status": "DONE",
+        },
+        "acceptance_criteria": [
+            {"id": "AC01", "given": "valid data", "when": "submitted", "then": "account created"}
+        ],
+        "business_rules": [
+            {"id": "BR01", "description": "Email must be unique"}
+        ],
+    }
+    (req_dir / "US-001.json").write_text(json.dumps(story), encoding="utf-8")
+    specs = RequirementsParser.load_from_directory(tmp_path)
+
+    def fake_run(config):
+        return OrchestratorResult(
+            path=str(tmp_path),
+            framework="Unknown",
+            architecture="",
+            features=[],
+            summary="",
+            todos=[],
+            requirements=specs if config.requirements else None,
+        )
+
+    monkeypatch.setattr(ScannerOrchestrator, "run", staticmethod(fake_run))
+
+    result = CliRunner().invoke(app, ["scan", str(tmp_path)])
+    assert result.exit_code == 0, result.exception
+    assert "[REQ]" in result.stdout
+    assert "PROJECT REQUIREMENTS" in result.stdout
+    assert "US-001" in result.stdout
+    assert "User Registration" in result.stdout
+    assert "DONE" in result.stdout
+
+    empty_path = tmp_path / "without-requirements"
+    empty_path.mkdir()
+
+    def fake_empty_run(config):
+        return OrchestratorResult(
+            path=str(empty_path),
+            framework="Unknown",
+            architecture="",
+            features=[],
+            summary="",
+            todos=[],
+            requirements=[] if config.requirements else None,
+        )
+
+    monkeypatch.setattr(ScannerOrchestrator, "run", staticmethod(fake_empty_run))
+    empty_result = CliRunner().invoke(app, ["scan", str(empty_path)])
+    assert empty_result.exit_code == 0, empty_result.exception
+    assert "[REQ]" not in empty_result.stdout
+    assert "No requirements found" not in empty_result.stdout

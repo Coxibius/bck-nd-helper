@@ -1,7 +1,10 @@
-import typer
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
+
+import typer
 
 # Reconfigure stdout/stderr to UTF-8 on Windows to prevent UnicodeEncodeError with emojis
 if sys.platform.startswith("win"):
@@ -21,8 +24,8 @@ from bck_nd_hlpr.core.narrator import Narrator
 from bck_nd_hlpr.core.er_parser import parse_project_for_er, generate_mermaid_er
 from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence
 from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
-from bck_nd_hlpr.core.todo_hunter import scan_for_todos
-from bck_nd_hlpr.cli.formatters import display_todos_table, get_todos_table_string
+from bck_nd_hlpr.cli.formatters import display_todos_table, get_todos_table_string, format_uml_diagram
+from bck_nd_hlpr.core.uml_parser import is_empty_mermaid_class_diagram
 from bck_nd_hlpr.core.doc_generator import DocGenerator
 from bck_nd_hlpr.core.ci_generator import generate_ci_workflow
 from bck_nd_hlpr.core.context_dumper import ContextDumper
@@ -99,6 +102,47 @@ def save_or_print(content: str, output_path: Optional[str], title: str = "OUTPUT
         else:
              print(content)
 
+
+def copy_to_clipboard(text: str) -> bool:
+    """Copy text to the system clipboard using native command-line tools."""
+    encoded = text.encode("utf-8")
+
+    if sys.platform.startswith("win"):
+        commands = [["clip"]]
+    elif sys.platform == "darwin":
+        commands = [["pbcopy"]]
+    else:
+        commands = []
+        if shutil.which("wl-copy"):
+            commands.append(["wl-copy"])
+        if shutil.which("xclip"):
+            commands.append(["xclip", "-selection", "clipboard"])
+
+    for command in commands:
+        try:
+            subprocess.run(command, input=encoded, check=True)
+            return True
+        except (FileNotFoundError, OSError, subprocess.CalledProcessError):
+            continue
+    return False
+
+
+def _copy_context_if_requested(context: str, requested: bool) -> None:
+    if not requested:
+        return
+    if copy_to_clipboard(context):
+        typer.secho(
+            "📋 Context copied to clipboard! Ready to paste into ChatGPT / Claude.",
+            fg=typer.colors.GREEN,
+            bold=True,
+        )
+    else:
+        typer.secho(
+            "[--] Clipboard utility unavailable (tried clip, pbcopy, wl-copy, and xclip).",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+
 @app.command()
 def flow(
     layout: str = typer.Argument(..., help="Manual flow string.")
@@ -148,6 +192,7 @@ def scan(
     health: bool = typer.Option(False, "--health", help="Calculate and print a consolidated Project Health Score report card."),
     export_dict: Optional[str] = typer.Option(None, "--export-dict", help="Export Data Dictionary (JSON/CSV from ORM models). Example: bck-nd scan . --export-dict json"),
     datascience: bool = typer.Option(False, "--datascience", help="Generate Data Lineage Map (Mermaid graph LR) from Jupyter Notebooks. Example: bck-nd scan . --datascience"),
+    req: bool = typer.Option(False, "--req", help="Display Project Requirements summary table from .bck-nd/requirements/."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
     export_mermaid: bool = typer.Option(False, "--export-mermaid", help="Automatically save diagrams as .mmd files. Example: bck-nd scan . --uml --export-mermaid"),
     provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd scan . --ai --provider openrouter"),
@@ -158,11 +203,11 @@ def scan(
     Scan a project and generate architecture outputs.
 
     What it can produce (depending on flags):
-    - Tree, Infra map, Routes (sequence), UML, ER, Technical Debt table.
+    - Tree, Infra map, Routes (sequence), UML, ER, Technical Debt table, Requirements table.
     - Optional text reports (offline explain) or AI-assisted analysis.
 
     Exclusive modes (choose one):
-    - --uml, --er, --routes, --infra, --tree, --todo, --audit, --impact, --trace
+    - --uml, --er, --routes, --infra, --tree, --todo, --audit, --impact, --trace, --req
 
     Notable flags:
     - --depth: recursion depth for scanning
@@ -182,7 +227,12 @@ def scan(
     - bck-nd scan . --impact-radius app/api/users.py
     """
     from bck_nd_hlpr.core.orchestrator import ScannerOrchestrator, OrchestratorConfig
-    from bck_nd_hlpr.cli.formatters import get_security_report_string, get_impact_report_string
+    from bck_nd_hlpr.cli.formatters import (
+        get_security_report_string,
+        get_impact_report_string,
+        get_requirements_table_string,
+        display_requirements_table,
+    )
 
     initialized_files = set()
     if output:
@@ -264,7 +314,8 @@ def scan(
         style=style,
         provider=provider,
         plain=bool(output),
-        use_cache=not no_cache
+        use_cache=not no_cache,
+        requirements=req,
     )
 
     try:
@@ -297,9 +348,15 @@ def scan(
         typer.secho("\n[API] ROUTES MAP:", fg=typer.colors.CYAN, bold=True)
         output_handler(result.routes, "[API] Routes Map")
 
-    if config.uml and result.uml:
+    if config.uml:
         typer.secho("\n[UML] CLASS DIAGRAM:", fg=typer.colors.CYAN, bold=True)
-        output_handler(result.uml, "[UML] Class Diagram")
+        if not is_empty_mermaid_class_diagram(result.uml):
+            output_handler(format_uml_diagram(result.uml), "[UML] Class Diagram")
+        else:
+            if output:
+                output_handler(format_uml_diagram(result.uml), "[UML] Class Diagram")
+            else:
+                typer.secho(format_uml_diagram(result.uml), fg=typer.colors.YELLOW)
 
     if config.er and result.er:
         typer.secho("\n[ER] ENTITY-RELATIONSHIP:", fg=typer.colors.CYAN, bold=True)
@@ -323,6 +380,16 @@ def scan(
                 output_handler(table_str, "[TODO] Technical Debt")
             else:
                 display_todos_table(result.todos)
+
+    if req:
+        specs = result.requirements or []
+        if specs:
+            typer.secho("\n[REQ] 📋 PROJECT REQUIREMENTS:", fg=typer.colors.CYAN, bold=True)
+            if output:
+                table_str = get_requirements_table_string(specs, plain=True)
+                output_handler(table_str, "[REQ] Project Requirements")
+            else:
+                display_requirements_table(specs)
 
     if config.audit and result.security_risks is not None:
         typer.secho("\n🚨 SECURITY AUDIT:", fg=typer.colors.CYAN, bold=True)
@@ -498,12 +565,12 @@ def scan(
 
     # General graph mode fallback if none of the above are specified 
     # and graph=True and no single specific diagram requested
-    if graph and not any([uml, er, routes, infra, todo, audit, impact, trace, tree, datascience, contract, teach, health, export_dict, ai, explain, impact_radius]):
+    if graph and not any([uml, er, routes, infra, todo, audit, impact, trace, tree, datascience, contract, teach, health, export_dict, ai, explain, impact_radius, req]):
         typer.secho("\n📊 PROJECT ARCHITECTURE (COMPLETE):", fg=typer.colors.MAGENTA, bold=True)
         
         config_full = OrchestratorConfig(
             path=path, depth=depth,
-            tree=True, infra=True, routes=True, uml=True, er=True, todo=True
+            tree=True, infra=True, routes=True, uml=True, er=True, todo=True, requirements=True
         )
         result_full = ScannerOrchestrator.run(config_full)
         
@@ -519,9 +586,9 @@ def scan(
         if result_full.routes:
             typer.secho("\n[API] ROUTES MAP:", fg=typer.colors.CYAN, bold=True)
             output_handler(result_full.routes, "[API] Routes Map")
-        if result_full.uml:
+        if not is_empty_mermaid_class_diagram(result_full.uml):
             typer.secho("\n[UML] CLASS DIAGRAM:", fg=typer.colors.CYAN, bold=True)
-            output_handler(result_full.uml, "[UML] Class Diagram")
+            output_handler(format_uml_diagram(result_full.uml), "[UML] Class Diagram")
         if result_full.er:
             typer.secho("\n[ER] ENTITY-RELATIONSHIP:", fg=typer.colors.CYAN, bold=True)
             output_handler(result_full.er, "[ER] Entity-Relationship")
@@ -535,6 +602,17 @@ def scan(
                     output_handler(table_str, "[TODO] Technical Debt")
                 else:
                     display_todos_table(result_full.todos)
+
+        # Requirements
+        specs = result_full.requirements or []
+        if specs:
+            typer.secho("\n[REQ] 📋 PROJECT REQUIREMENTS:", fg=typer.colors.CYAN, bold=True)
+            if output:
+                req_table_str = get_requirements_table_string(specs, plain=True)
+                output_handler(req_table_str, "[REQ] Project Requirements")
+            else:
+                display_requirements_table(specs)
+
 @app.command()
 def docs(
     path: str = typer.Argument(".", help="Path to the project to document. Use '.' for current dir. Example: bck-nd docs ./my-api"),
@@ -659,7 +737,7 @@ def chat(
             extra_diagrams += "Entity-Relationship:\n```mermaid\n" + generate_mermaid_er(entities) + "\n```\n"
             
         uml_code = scanner.scan_uml(path, max_depth=depth)
-        if uml_code and "class Empty" not in uml_code:
+        if not is_empty_mermaid_class_diagram(uml_code):
             extra_diagrams += "UML Class Diagram:\n```mermaid\n" + uml_code + "\n```\n"
 
     docs = scanner.get_docs_content(path)
@@ -737,6 +815,7 @@ def prompt_cmd(
     uml: bool = typer.Option(False, "--uml", help="Generate a focused UML-only context file (default output: ai_context_uml.txt)."),
     er: bool = typer.Option(False, "--er", help="Generate a focused ER-only context file (default output: ai_context_er.txt)."),
     tree: bool = typer.Option(False, "--tree", help="Generate a focused tree-only context file (default output: ai_context_tree.txt)."),
+    copy_to_clipboard: bool = typer.Option(False, "--copy", "-c", help="Automatically copy generated context to system clipboard."),
 ):
     """
     Export an AI-ready context file (project tree, UML, ER, core files).
@@ -789,9 +868,11 @@ def prompt_cmd(
     if output == "-":
         dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
         if focused_mode:
-            print(dumper.build_focused(include_tree=tree, include_uml=uml, include_er=er))
+            context = dumper.build_focused(include_tree=tree, include_uml=uml, include_er=er)
         else:
-            print(dumper.build())
+            context = dumper.build()
+        print(context)
+        _copy_context_if_requested(context, copy_to_clipboard)
         return
 
     from rich.console import Console
@@ -875,6 +956,7 @@ def prompt_cmd(
                 box=box.ASCII2,
             )
         )
+        _copy_context_if_requested(context, copy_to_clipboard)
         return
 
     # ── FULL MODE (default — unchanged) ──────────────────────────────────
@@ -927,6 +1009,7 @@ def prompt_cmd(
             box=box.ASCII2,
         )
     )
+    _copy_context_if_requested(context, copy_to_clipboard)
 
 
 # ──────────────────────────────────────────────
@@ -939,6 +1022,102 @@ req_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(req_app, name="req")
+
+
+@req_app.command("init")
+def req_init(
+    story_id: str = typer.Argument(..., help="Story identifier, for example US-001 or HU01."),
+    file_format: str = typer.Option("md", "--format", "-f", help="Template format: md or json."),
+    project_path: str = typer.Option(".", "--path", "-p", help="Project root where .bck-nd/requirements/ will be created."),
+):
+    """Create a requirement specification template for a new User Story."""
+    import json
+    import re
+
+    normalized_id = story_id.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]*", normalized_id):
+        typer.secho(
+            "[ERROR] STORY_ID may contain only letters, numbers, hyphens, and underscores.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=2)
+
+    normalized_format = file_format.strip().lower().lstrip(".")
+    if normalized_format not in {"md", "json"}:
+        typer.secho("[ERROR] --format must be either 'md' or 'json'.", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+    requirements_dir = Path(project_path) / ".bck-nd" / "requirements"
+    requirements_dir.mkdir(parents=True, exist_ok=True)
+    target = requirements_dir / f"{normalized_id}.{normalized_format}"
+
+    if target.exists():
+        typer.secho(f"[ERROR] Requirement file already exists: {target}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    if normalized_format == "md":
+        content = f"""# {normalized_id} [TODO] - Story title
+
+- **Role**: Describe the user or stakeholder
+- **Want**: Describe the desired capability
+- **Benefit**: Describe the expected business value
+
+## Business Rules
+- BR01: Describe the business rule
+
+## Acceptance Criteria
+- AC01: Given a starting context When an action occurs Then describe the expected outcome
+
+## Required Data
+- field_name: data type and whether it is required
+
+## Validations
+- field_name: validation rule
+
+## Exceptions
+- ERR_EXAMPLE: Describe the exceptional condition
+
+## Open Questions
+- Add unresolved stakeholder questions here
+"""
+    else:
+        content = json.dumps(
+            {
+                "story": {
+                    "id": normalized_id,
+                    "title": "Story title",
+                    "role": "Describe the user or stakeholder",
+                    "want": "Describe the desired capability",
+                    "benefit": "Describe the expected business value",
+                    "status": "TODO",
+                },
+                "business_rules": [
+                    {"id": "BR01", "description": "Describe the business rule"}
+                ],
+                "acceptance_criteria": [
+                    {
+                        "id": "AC01",
+                        "given": "a starting context",
+                        "when": "an action occurs",
+                        "then": "describe the expected outcome",
+                    }
+                ],
+                "required_data": [
+                    {"field": "field_name", "type": "data type and requirement"}
+                ],
+                "validations": [
+                    {"field": "field_name", "rule": "validation rule"}
+                ],
+                "exceptions": [
+                    {"code": "ERR_EXAMPLE", "description": "Describe the exceptional condition"}
+                ],
+                "open_questions": ["Add unresolved stakeholder questions here"],
+            },
+            indent=2,
+        ) + "\n"
+
+    target.write_text(content, encoding="utf-8")
+    typer.secho(f"[OK] Requirement template created: {target}", fg=typer.colors.GREEN, bold=True)
 
 
 @req_app.command("list")

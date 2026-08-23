@@ -3,7 +3,7 @@ Formatters module for CLI and Textual UI outputs.
 Decouples terminal presentation libraries (Rich, Typer) from the core logic.
 """
 
-from typing import List, Dict, Set, Any
+from typing import List, Dict, Optional, Set, Any
 import io
 from rich.console import Console
 from rich.table import Table
@@ -345,4 +345,111 @@ def format_asg_json(asg_graph: Any, indent: int = 2) -> str:
         data = {"nodes": [], "edges": []}
 
     return json.dumps(data, indent=indent)
+
+
+def format_uml_diagram(uml_content: Any, plain: bool = False) -> str:
+    """
+    Format UML class diagram for presentation or return fallback text when empty.
+    """
+    from bck_nd_hlpr.core.uml_parser import is_empty_mermaid_class_diagram
+
+    if not is_empty_mermaid_class_diagram(uml_content):
+        return uml_content.strip()
+    return "[--] No classes or TypeScript interfaces detected."
+
+
+def display_requirements_table(specs: List[Any], console: Optional[Console] = None) -> None:
+    """Displays project requirements summary in a Rich table."""
+    if console is None:
+        console = Console()
+    from rich import box
+    table = Table(
+        title=f"Project Requirements & User Stories ({len(specs)} found)",
+        show_header=True,
+        header_style="bold cyan",
+        border_style="bright_black",
+        box=box.ROUNDED,
+    )
+    table.add_column("Story ID", style="cyan bold", justify="center")
+    table.add_column("Status", justify="center")
+    table.add_column("Title", style="bold")
+    table.add_column("Crit.", justify="right", style="green")
+    table.add_column("Rules", justify="right", style="magenta")
+
+    status_styles = {
+        "TODO": "bold yellow",
+        "IN_PROGRESS": "bold blue",
+        "TESTING": "bold magenta",
+        "DONE": "bold green",
+    }
+
+    for spec in specs:
+        story = getattr(spec, "story", None)
+        story_id = getattr(story, "id", "") if story else ""
+        raw_status = (getattr(story, "status", "TODO") or "TODO").upper() if story else "TODO"
+        status_style = status_styles.get(raw_status, "white")
+        title = getattr(story, "title", "Untitled") if story else "Untitled"
+        crit_count = len(getattr(spec, "acceptance_criteria", []) or [])
+        rules_count = len(getattr(spec, "business_rules", []) or [])
+
+        table.add_row(
+            story_id or "N/A",
+            Text(raw_status, style=status_style),
+            title or "Untitled",
+            str(crit_count),
+            str(rules_count),
+        )
+
+    console.print()
+    console.print(table)
+
+
+def get_requirements_table_string(specs: List[Any], plain: bool = False) -> str:
+    """Returns project requirements summary table as a formatted string."""
+    output = io.StringIO()
+    if plain:
+        console = Console(file=output, force_terminal=False, no_color=True, width=120)
+    else:
+        console = Console(file=output, force_terminal=True, width=120)
+
+    from rich import box
+    table = Table(
+        title="Project Requirements" if plain else f"Project Requirements & User Stories ({len(specs)} found)",
+        show_header=True,
+        header_style="bold cyan" if not plain else None,
+        border_style="bright_black" if not plain else None,
+        box=box.ASCII if plain else box.ROUNDED,
+    )
+    table.add_column("Story ID", style="cyan bold" if not plain else None, justify="center")
+    table.add_column("Status", justify="center")
+    table.add_column("Title", style="bold" if not plain else None)
+    table.add_column("Crit.", justify="right", style="green" if not plain else None)
+    table.add_column("Rules", justify="right", style="magenta" if not plain else None)
+
+    status_styles = {
+        "TODO": "bold yellow",
+        "IN_PROGRESS": "bold blue",
+        "TESTING": "bold magenta",
+        "DONE": "bold green",
+    }
+
+    for spec in specs:
+        story = getattr(spec, "story", None)
+        story_id = getattr(story, "id", "") if story else ""
+        raw_status = (getattr(story, "status", "TODO") or "TODO").upper() if story else "TODO"
+        status_style = status_styles.get(raw_status, "white") if not plain else None
+        title = getattr(story, "title", "Untitled") if story else "Untitled"
+        crit_count = len(getattr(spec, "acceptance_criteria", []) or [])
+        rules_count = len(getattr(spec, "business_rules", []) or [])
+
+        table.add_row(
+            story_id or "N/A",
+            Text(raw_status, style=status_style) if status_style else raw_status,
+            title or "Untitled",
+            str(crit_count),
+            str(rules_count),
+        )
+
+    console.print(table)
+    return output.getvalue()
 

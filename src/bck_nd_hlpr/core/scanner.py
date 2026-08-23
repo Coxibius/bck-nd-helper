@@ -291,6 +291,11 @@ class ProjectScanner:
 
         return generate_mermaid_class_diagram(all_classes)
 
+    def scan_requirements(self, root_path: str) -> list:
+        """Scan and parse requirement specifications under .bck-nd/requirements/."""
+        from bck_nd_hlpr.core.requirements import RequirementsParser
+        return RequirementsParser.load_from_directory(root_path)
+
     def get_docs_content(self, root_path: str) -> str:
         """
         Lee el contenido de archivos de documentación clave para dar contexto a la IA.

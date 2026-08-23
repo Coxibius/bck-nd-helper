@@ -61,35 +61,62 @@ def run_analyzer(
 # ---------------------------------------------------------------------------
 
 _CSHARP = ".NET Core / C#"
-_JS_FRAMEWORKS = ("Express.js", "Next.js")
+_JS_FRAMEWORKS = ("Express.js", "Next.js", "NestJS", "Fastify", "Koa", "Node.js", "React")
 _JAVA_FRAMEWORKS = ("Spring Boot", "Java (Maven)", "Java (Gradle)")
 _PHP_FRAMEWORKS = ("Laravel", "PHP")
+
+# Case-insensitive lookup sets for robust framework matching.
+_CSHARP_LOWER = {".net core / c#", ".net", "dotnet", "c#"}
+_JS_LOWER = {
+    "express.js", "express", "next.js", "nextjs", "nestjs", "nest",
+    "fastify", "koa", "node.js", "nodejs", "node", "react",
+    "javascript", "typescript",
+}
+_JAVA_LOWER = {fw.lower() for fw in _JAVA_FRAMEWORKS}
+_PHP_LOWER = {fw.lower() for fw in _PHP_FRAMEWORKS}
+
+
+def _match_fw(framework: str) -> str:
+    """Classify *framework* into a canonical family for parser routing."""
+    fw = framework.strip().lower()
+    if fw in _CSHARP_LOWER:
+        return "csharp"
+    if fw in _JS_LOWER:
+        return "js"
+    if fw == "django":
+        return "django"
+    if fw in _JAVA_LOWER:
+        return "java"
+    if fw in _PHP_LOWER:
+        return "php"
+    return "unknown"
 
 
 def build_uml_diagram(path: str, depth: Optional[int], arch_info: Dict[str, Any]) -> Optional[str]:
     """Route to the correct language parser and return Mermaid UML (or None)."""
-    framework = str(arch_info.get("framework", ""))
+    family = _match_fw(str(arch_info.get("framework", "")))
 
     classes = None
-    if framework == _CSHARP:
+    if family == "csharp":
         from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_uml
         classes = parse_project_for_csharp_uml(path, max_depth=depth)
-    elif framework in _JS_FRAMEWORKS:
+    elif family == "js":
         from bck_nd_hlpr.core.js_parser import parse_project_for_js_uml
         classes = parse_project_for_js_uml(path, max_depth=depth)
-    elif framework == "Django":
+    elif family == "django":
         from bck_nd_hlpr.core.django_parser import parse_project_for_django_uml
         classes = parse_project_for_django_uml(path, max_depth=depth)
-    elif framework in _JAVA_FRAMEWORKS:
+    elif family == "java":
         from bck_nd_hlpr.core.java_parser import parse_project_for_java_uml
         classes = parse_project_for_java_uml(path, max_depth=depth)
-    elif framework in _PHP_FRAMEWORKS:
+    elif family == "php":
         from bck_nd_hlpr.core.php_parser import parse_project_for_php_uml
         classes = parse_project_for_php_uml(path, max_depth=depth)
     else:
         from bck_nd_hlpr.core.scanner import ProjectScanner
+        from bck_nd_hlpr.core.uml_parser import is_empty_mermaid_class_diagram
         uml_code = ProjectScanner().scan_uml(path, max_depth=depth)
-        if uml_code and "class Empty" not in uml_code:
+        if not is_empty_mermaid_class_diagram(uml_code):
             return uml_code
         return None
 
@@ -101,21 +128,21 @@ def build_uml_diagram(path: str, depth: Optional[int], arch_info: Dict[str, Any]
 
 def build_er_diagram(path: str, depth: Optional[int], arch_info: Dict[str, Any]) -> Optional[str]:
     """Route to the correct language parser and return Mermaid ER (or None)."""
-    framework = str(arch_info.get("framework", ""))
+    family = _match_fw(str(arch_info.get("framework", "")))
 
-    if framework == _CSHARP:
+    if family == "csharp":
         from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_er
         entities = parse_project_for_csharp_er(path, max_depth=depth)
-    elif framework in _JS_FRAMEWORKS:
+    elif family == "js":
         from bck_nd_hlpr.core.js_parser import parse_project_for_js_er
         entities = parse_project_for_js_er(path, max_depth=depth)
-    elif framework == "Django":
+    elif family == "django":
         from bck_nd_hlpr.core.django_parser import parse_project_for_django_er
         entities = parse_project_for_django_er(path, max_depth=depth)
-    elif framework in _JAVA_FRAMEWORKS:
+    elif family == "java":
         from bck_nd_hlpr.core.java_parser import parse_project_for_java_er
         entities = parse_project_for_java_er(path, max_depth=depth)
-    elif framework in _PHP_FRAMEWORKS:
+    elif family == "php":
         from bck_nd_hlpr.core.php_parser import parse_project_for_php_er
         entities = parse_project_for_php_er(path, max_depth=depth)
     else:
@@ -276,4 +303,25 @@ class TraceAnalyzer(Analyzer):
             content=code or None,
             warning="⚠️ Could not generate the traceability graph.",
             raw=traces,
+        )
+
+
+@register
+class ReqAnalyzer(Analyzer):
+    flag = "req"
+    banner = "[REQ] 📋 PROJECT REQUIREMENTS:"
+
+    def run(self, ctx: ScanContext) -> AnalyzerResult:
+        from bck_nd_hlpr.core.requirements import RequirementsParser
+        from bck_nd_hlpr.cli.formatters import get_requirements_table_string
+        specs = RequirementsParser.load_from_directory(ctx.path)
+        if not specs:
+            return AnalyzerResult(
+                warning="No requirements found in .bck-nd/requirements/.",
+                warning_color="yellow",
+            )
+        return AnalyzerResult(
+            content=get_requirements_table_string(specs, plain=ctx.plain),
+            title="",
+            raw=specs,
         )

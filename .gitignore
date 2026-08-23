@@ -43,7 +43,10 @@ temp_verification_reports/
 ai_context.txt
 .ai_context_tmp.txt
 architecture.txt
-.bck-nd-cache
+!.bck-nd/
+.bck-nd/cache/
+!.bck-nd/requirements/
+!.bck-nd/requirements/**
 mis_apuntes/
 
 # ==========================================
@@ -56,3 +59,5 @@ docs_test/
 
 verify_pre_merge.py
 AUDIT_ROADMAP.md
+
+RELEV-Context.md

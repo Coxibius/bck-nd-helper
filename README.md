@@ -16,7 +16,7 @@ v2.4.1 rebuilds the core engine around **Four Pillars** and adds a brand-new **C
 
 | Pillar | What it does |
 | --- | --- |
-| ⚡ **Incremental Delta Cache** | Caches scan results in `.bck-nd-cache`, delivering sub-0.1s repeat scans on unchanged projects. Force a clean rescan anytime with `--no-cache`. |
+| ⚡ **Incremental Delta Cache** | Caches scan results in `.bck-nd/cache/delta.json`, delivering sub-0.1s repeat scans on unchanged projects. Force a clean rescan anytime with `--no-cache`. |
 | 🧩 **Autonomous Provider Pattern** | Each supported framework — Laravel, FastAPI, Django, Spring Boot, EF Core, and Node.js — ships as a self-contained semantic provider, owning its own detection, UML, and ER logic. |
 | 🌐 **Abstract Semantic Graph (ASG)** | A unified, in-memory architecture graph (IR) that normalizes every provider's output into one queryable structure, exposed directly to AI agents via the `get_asg_graph` MCP tool. |
 | 🧹 **Scoped Technical Debt Hunter** | Technical debt is now categorized — `TODO(audit)`, `FIXME(security)`, `HACK(perf)`, and more — so debt can be triaged by team and severity instead of dumped into one list. |
@@ -39,7 +39,7 @@ bck-nd prompt .
 # List and track project requirements
 bck-nd req list
 
-# Connect to Claude Desktop / Cursor (see ADVANCED.md)
+# Connect to Claude Desktop / Cursor (see the Advanced Configuration section)
 bck-nd-mcp
 ```
 
@@ -69,7 +69,7 @@ bck-nd-mcp
 
 ### Speed & Structure (v2.4.1)
 
-- ⚡ **Incremental Delta Cache**: `.bck-nd-cache` powers sub-0.1s repeat scans; use `--no-cache` for a clean run
+- ⚡ **Incremental Delta Cache**: `.bck-nd/cache/delta.json` powers sub-0.1s repeat scans; use `--no-cache` for a clean run
 - 🌐 **Abstract Semantic Graph (ASG)**: Normalized in-memory architecture graph, queryable by AI agents via MCP
 
 ### Diagrams & Visualization
@@ -112,7 +112,7 @@ v2.4.1's internal engine was rebuilt around four pillars that work together: the
 
 ### 1. ⚡ Incremental Delta Cache
 
-Every scan writes a fingerprint of your project to `.bck-nd-cache`. On the next run, only changed files are re-parsed — everything else is served from cache, so repeat scans on an unchanged project complete in **under 0.1 seconds**.
+Every scan writes a fingerprint of your project to `.bck-nd/cache/delta.json`. On the next run, only changed files are re-parsed — everything else is served from cache, so repeat scans on an unchanged project complete in **under 0.1 seconds**.
 
 ```bash
 # Normal scan — uses the cache automatically
@@ -122,7 +122,7 @@ bck-nd scan .
 bck-nd scan . --no-cache
 ```
 
-> `.bck-nd-cache` is project-local and safe to add to `.gitignore`.
+> `.bck-nd/cache/` is generated project-local state and should be ignored by Git; `.bck-nd/requirements/` remains versionable.
 
 ### 2. 🧩 Autonomous Provider Pattern
 
@@ -224,7 +224,7 @@ Full details in [CHANGELOG.md](CHANGELOG.md).
 
 ### v2.0.0 — Engine Rebuild
 
-Major architecture release: decoupled `core/` engine, concurrent `ScannerOrchestrator`, thread-safe file cache, lazy parser loading, fault-tolerant scans, and direct `.mmd` export. Full details in [CHANGELOG.md](CHANGELOG.md). Advanced usage (library API, MCP config, architecture diagram) in [ADVANCED.md](ADVANCED.md).
+Major architecture release: decoupled `core/` engine, concurrent `ScannerOrchestrator`, thread-safe file cache, lazy parser loading, fault-tolerant scans, and direct `.mmd` export. Full details are in [CHANGELOG.md](CHANGELOG.md); MCP clients and requirements schemas are covered in [Advanced Configuration](#advanced-configuration).
 
 ### 🗄️ ORM Parser Support Status
 
@@ -305,6 +305,9 @@ bck-nd prompt /my/project -o context.txt
 
 # Deeper scan (default depth is 4)
 bck-nd prompt . --depth 6
+
+# Copy the generated context directly to the system clipboard
+bck-nd prompt . --copy
 ```
 
 #### **Focused Mode (`--uml`, `--er`, `--tree`)**
@@ -411,6 +414,18 @@ erDiagram
 
 Track user stories and generate stakeholder discovery guides straight from the terminal — and feed the same data to your AI tools automatically.
 
+#### **`req init <story_id>`**
+
+```bash
+# Markdown template (default)
+bck-nd req init US-001
+
+# JSON template
+bck-nd req init US-002 --format json
+```
+
+Creates `.bck-nd/requirements/<STORY_ID>.md` or `.json` with the standard story, rules, acceptance criteria, data, validation, exception, and open-question sections.
+
 #### **`req list`**
 
 ```bash
@@ -432,7 +447,7 @@ Generates a **Stakeholder Interview Guide** for the given story, with discovery 
 - Every `bck-nd prompt .` run injects a `<requirements_context>` block built from the same data (see the [Requirements Intelligence Layer](#-context--requirements-intelligence-layer-v241) section above).
 - The `get_requirements_summary` MCP tool exposes this data live to Claude Desktop and Cursor.
 
-> See [ADVANCED.md](ADVANCED.md) for the requirements file format and project setup.
+> See [Advanced Configuration](#advanced-configuration) for the requirements file format and project setup.
 
 ---
 
@@ -449,6 +464,7 @@ bck-nd init-ci
 **What it does:**
 
 - Creates `.github/workflows/bck-nd-docs.yml`.
+- Adds `.bck-nd/cache/` to `.gitignore` while keeping `.bck-nd/requirements/` versionable.
 - Configures an automatic trigger on `push` to the `main` branch.
 - Installs `bck-nd-hlpr` in the CI runner.
 - Generates the full HTML portal (UML, ER, Infra, Routes).
@@ -729,7 +745,7 @@ bck-nd scan . --no-cache
 
 **Output:**
 
-- Ignores `.bck-nd-cache` and re-parses every file from scratch.
+- Ignores `.bck-nd/cache/delta.json` and re-parses every file from scratch.
 - Useful right after upgrading `bck-nd-hlpr`, or when debugging stale diagram output.
 - All other modes above accept `--no-cache` too.
 
@@ -901,13 +917,13 @@ Backend Helper automatically detects:
 
 ### **Configuration**
 
-See [ADVANCED.md](ADVANCED.md) for `pyproject.toml` overrides and library usage.
+See [Advanced Configuration](#advanced-configuration) for MCP client setup and requirements schemas.
 
 ---
 
 ## 💾 Output Persistence
 
-Save any report or diagram with `-o` / `--output`. ANSI color codes are stripped automatically. See [ADVANCED.md](ADVANCED.md) for `.mmd` export details.
+Save any report or diagram with `-o` / `--output`. ANSI color codes are stripped automatically.
 
 ```bash
 # Save ASCII diagram
@@ -970,7 +986,7 @@ bck-nd-mcp
 | `get_asg_graph` | v2.4.1 | The Abstract Semantic Graph (Pillar 3) — the full normalized architecture IR, queryable by the AI |
 | `get_requirements_summary` | v2.4.1 | Live user stories, statuses, acceptance criteria, and business rules from the Requirements Intelligence Layer |
 
-For the full tool list, client configuration, and troubleshooting, see [ADVANCED.md](ADVANCED.md).
+For MCP client configuration and requirements integration, see [Advanced Configuration](#advanced-configuration).
 
 ---
 
@@ -1044,7 +1060,7 @@ bck-nd scan . --ai --provider ollama
 
 ### Diagrams look stale after upgrading
 
-**Cause:** The Incremental Delta Cache (`.bck-nd-cache`) is reusing results from a previous version.
+**Cause:** The Incremental Delta Cache (`.bck-nd/cache/delta.json`) is reusing results from a previous version.
 **Solution:** Force a clean rescan:
 
 ```bash
@@ -1054,7 +1070,7 @@ bck-nd scan . --no-cache
 ### "No requirements found"
 
 **Cause:** `bck-nd req list` / `bck-nd req discover` found no requirements file in the project.
-**Solution:** Set up your requirements file per [ADVANCED.md](ADVANCED.md), then re-run `bck-nd req list`.
+**Solution:** Set up your requirements file per [Advanced Configuration](#advanced-configuration), then re-run `bck-nd req list`.
 
 ---
 
@@ -1173,10 +1189,316 @@ bck-nd req discover US-042 -o interview-guide.md
 
 ---
 
+## 🗂️ Project Metadata Storage
+
+Backend Helper keeps generated state and user-authored requirements together without mixing their lifecycle:
+
+```text
+.bck-nd/
+├── cache/
+│   └── delta.json       # Generated; ignored by Git and context output
+└── requirements/        # User-authored; preserved in trees and version control
+    ├── US-001.md
+    └── US-002.json
+```
+
+The cache directory is created automatically. Requirements remain visible to `bck-nd prompt`, `bck-nd scan`, and MCP clients.
+
+---
+
+## Advanced Configuration
+
+### 🤖 MCP Integration (Claude Desktop / Cursor)
+
+Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**. This allows any compatible AI client (like **Claude Desktop** or **Cursor**) to interact directly with your codebase using our local reverse engineering and diagramming tools without needing to send all your code to the cloud or consume valuable context tokens by transferring full files.
+
+The AI will call local tools on demand to analyze the architecture, generate diagrams, search for technical debt, or audit security.
+
+#### How to Run the MCP Server (Local Test)
+
+Once you have installed the package locally (`pip install -e .`), you can run the MCP server using the global command:
+
+```bash
+bck-nd-mcp
+```
+
+Alternatively, you can run it as a Python module:
+
+```bash
+python -m bck_nd_hlpr.cli.mcp_server
+```
+
+#### How to Configure Clients
+
+##### 1. Claude Desktop
+
+Add the following configuration block to your `claude_desktop_config.json` file:
+
+- **Windows Path:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Mac/Linux Path:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+**Using the global executable (Recommended):**
+
+```json
+{
+  "mcpServers": {
+    "backend-helper": {
+      "command": "bck-nd-mcp",
+      "env": {
+        "OPENAI_API_KEY": "your-optional-api-key",
+        "ANTHROPIC_API_KEY": "your-optional-api-key"
+      }
+    }
+  }
+}
+```
+
+**Using the explicit Python module** (Most robust for environment/PATH issues):
+
+```json
+{
+  "mcpServers": {
+    "backend-helper": {
+      "command": "python",
+      "args": [
+        "-m",
+        "bck_nd_hlpr.cli.mcp_server"
+      ],
+      "env": {
+        "OPENAI_API_KEY": "your-optional-api-key",
+        "ANTHROPIC_API_KEY": "your-optional-api-key"
+      }
+    }
+  }
+}
+```
+
+##### 2. Cursor
+
+1. Go to **Cursor Settings > Features > MCP**.
+2. Click on **+ Add New MCP Server**.
+3. Configure the following parameters:
+   - **Name:** `backend-helper`
+   - **Type:** `command`
+   - **Command:** `bck-nd-mcp` (or `python -m bck_nd_hlpr.cli.mcp_server` to lock it to your active python environment).
+4. Save and click on **Refresh**. Done! You now have 20 powerful architecture tools instantly available to your AI assistant.
+
+---
+
+### 📋 Requirements Specification Format (`.bck-nd/requirements/`)
+
+The **Requirements Intelligence Layer** lets you define User Stories and acceptance criteria as structured files that `bck-nd` can parse, list, validate, and inject into LLM context dumps.
+
+#### Directory Structure
+
+All requirement files live under the `.bck-nd/requirements/` directory at the root of your project:
+
+```
+my-project/
+├── .bck-nd/
+│   └── requirements/
+│       ├── US-001.json          # JSON format
+│       ├── US-001.md            # Markdown format (alternative)
+│       ├── US-002.json
+│       ├── HU-003.md
+│       └── STORY-PAYMENTS.json
+├── src/
+└── ...
+```
+
+> **Note:** If both `US-001.json` and `US-001.md` exist, only the first encountered (sorted by stem then suffix) is loaded — duplicates by Story ID are deduplicated automatically.
+
+#### Supported File Formats
+
+##### JSON Format (`.json`)
+
+The JSON format maps directly to the `RequirementSpecification` data model. This is the most precise and machine-friendly format.
+
+```json
+{
+  "story": {
+    "id": "US-001",
+    "title": "User Registration",
+    "role": "new visitor",
+    "want": "to create an account with email and password",
+    "benefit": "I can access personalized features",
+    "status": "IN_PROGRESS"
+  },
+  "business_rules": [
+    { "id": "BR01", "description": "Email must be unique across all accounts" },
+    { "id": "BR02", "description": "Password must be at least 8 characters with one uppercase and one number" }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC01",
+      "given": "a visitor is on the registration page",
+      "when": "they submit a valid email and password",
+      "then": "an account is created and a confirmation email is sent"
+    },
+    {
+      "id": "AC02",
+      "given": "a visitor submits an already registered email",
+      "when": "the form is submitted",
+      "then": "an error message 'Email already in use' is shown"
+    }
+  ],
+  "required_data": [
+    { "field": "email", "type": "string (valid email format)" },
+    { "field": "password", "type": "string (min 8 chars)" },
+    { "field": "display_name", "type": "string (optional)" }
+  ],
+  "validations": [
+    { "field": "email", "rule": "RFC 5322 format, unique in users table" },
+    { "field": "password", "rule": "min 8 chars, 1 uppercase, 1 digit" }
+  ],
+  "exceptions": [
+    { "code": "ERR_DUPLICATE_EMAIL", "description": "Email already registered" },
+    { "code": "ERR_WEAK_PASSWORD", "description": "Password does not meet complexity requirements" }
+  ],
+  "open_questions": [
+    "Should we support OAuth (Google/GitHub) in the first release?",
+    "What is the maximum length for display_name?"
+  ]
+}
+```
+
+###### JSON Field Reference
+
+| Field                     | Type       | Description                                                      |
+| ------------------------- | ---------- | ---------------------------------------------------------------- |
+| `story.id`              | `string` | Unique identifier (e.g.`US-001`, `HU01`, `REQ-42`)         |
+| `story.title`           | `string` | Short descriptive title                                          |
+| `story.role`            | `string` | The user role (*"As a …"*)                                    |
+| `story.want`            | `string` | The desired capability (*"I want …"*)                         |
+| `story.benefit`         | `string` | The business value (*"So that …"*)                            |
+| `story.status`          | `string` | Workflow status:`TODO`, `IN_PROGRESS`, `TESTING`, `DONE` |
+| `business_rules[]`      | `array`  | Each entry has`id` and `description`                         |
+| `acceptance_criteria[]` | `array`  | Each entry has`id`, `given`, `when`, `then`              |
+| `required_data[]`       | `array`  | Each entry has`field` and `type`                             |
+| `validations[]`         | `array`  | Each entry has`field` and `rule`                             |
+| `exceptions[]`          | `array`  | Each entry has`code` and `description`                       |
+| `open_questions[]`      | `array`  | Free-text strings for unresolved questions                       |
+
+> **Flat JSON alternative:** The parser also supports a flat structure where `id`, `title`, `role`, `want`, and `benefit` sit at the root level instead of nested under `story`.
+
+---
+
+##### Markdown Format (`.md`)
+
+The Markdown format is human-friendly and supports all the same sections. The Story ID defaults to the filename stem (e.g. `US-001.md` → `US-001`).
+
+```markdown
+# US-001 [IN_PROGRESS] - User Registration
+
+- **Role**: new visitor
+- **Want**: to create an account with email and password
+- **Benefit**: I can access personalized features
+
+## Business Rules
+- BR01: Email must be unique across all accounts
+- BR02: Password must be at least 8 characters with one uppercase and one number
+
+## Acceptance Criteria
+- AC01: Given a visitor is on the registration page When they submit a valid email and password Then an account is created and a confirmation email is sent
+- AC02: Given a visitor submits an already registered email When the form is submitted Then an error message 'Email already in use' is shown
+
+## Required Data
+- email: string (valid email format)
+- password: string (min 8 chars)
+- display_name: string (optional)
+
+## Validations
+- email: RFC 5322 format, unique in users table
+- password: min 8 chars, 1 uppercase, 1 digit
+
+## Exceptions
+- ERR_DUPLICATE_EMAIL: Email already registered
+- ERR_WEAK_PASSWORD: Password does not meet complexity requirements
+
+## Open Questions
+- Should we support OAuth (Google/GitHub) in the first release?
+- What is the maximum length for display_name?
+```
+
+###### Markdown Header Format
+
+The `# ` header supports multiple patterns:
+
+| Pattern                   | Example                                        |
+| ------------------------- | ---------------------------------------------- |
+| `# ID - Title`          | `# US-001 - User Registration`               |
+| `# ID: Title`           | `# HU01: Registro de Usuario`                |
+| `# ID [STATUS] - Title` | `# US-001 [IN_PROGRESS] - User Registration` |
+
+Recognized ID prefixes: `HU`, `US`, `REQ`, `STORY` (case-insensitive).
+
+###### Markdown Section Headers
+
+The parser recognizes these `## ` section headers (English and Spanish):
+
+| Section                       | Recognized Keywords                                 |
+| ----------------------------- | --------------------------------------------------- |
+| **Business Rules**      | `business rule`, `reglas de negocio`, `regla` |
+| **Acceptance Criteria** | `acceptance`, `aceptación`, `criterio`       |
+| **Required Data**       | `data`, `dato`                                  |
+| **Validations**         | `validation`, `validación`                     |
+| **Exceptions**          | `exception`, `excepción`                       |
+| **Open Questions**      | `question`, `pregunta`                          |
+
+---
+
+#### How CLI Commands Consume Requirements
+
+##### `bck-nd req list [path]`
+
+Scans `.bck-nd/requirements/` and displays a summary table of all discovered stories:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│         Project Requirements & User Stories (3 found)        │
+├──────────┬─────────────┬───────────────────┬────────┬────────┤
+│ Story ID │   Status    │ Title             │ Crit.  │ Rules  │
+├──────────┼─────────────┼───────────────────┼────────┼────────┤
+│  US-001  │ IN_PROGRESS │ User Registration │   2    │   2    │
+│  US-002  │    TODO     │ Password Reset    │   3    │   1    │
+│  HU-003  │    DONE     │ User Profile      │   1    │   0    │
+└──────────┴─────────────┴───────────────────┴────────┴────────┘
+```
+
+##### `bck-nd req discover [story_id] [path]`
+
+Generates a **Stakeholder Interview & Discovery Guide** for a specific story. When called without a `story_id`, it lists all available stories you can discover.
+
+```bash
+# List available stories for discovery
+bck-nd req discover .
+
+# Generate discovery guide for a specific story
+bck-nd req discover US-001
+```
+
+##### `bck-nd prompt .`
+
+When generating the LLM context dump, `bck-nd prompt .` automatically detects and injects all requirements from `.bck-nd/requirements/` into the output. The context dump includes:
+
+- Story metadata (ID, status, role/want/benefit)
+- Business rules
+- Acceptance criteria (Given/When/Then)
+- Required data dictionary
+- Validations and exceptions
+
+This ensures any AI assistant receiving the context dump has full visibility into the project's functional requirements alongside the architecture, UML, and ER diagrams.
+
+##### MCP Tool: `get_requirements_summary`
+
+When using the MCP server, AI clients can call the `get_requirements_summary` tool to retrieve a formatted summary of all requirement specifications without consuming the full context dump.
+
+---
+
 ## 📚 Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) - Release history
-- [ADVANCED.md](ADVANCED.md) - MCP setup, library API, requirements file format, architecture diagram
+- [Advanced Configuration](#advanced-configuration) - MCP setup and requirements file schemas
 - [vscode-extension/README-EXTENSION.md](vscode-extension/README-EXTENSION.md) - VS Code extension guide
 - [IA-context.md](IA-context.md) - Development rules & architecture
 - [ROADMAP.txt](ROADMAP.txt) - Feature roadmap
