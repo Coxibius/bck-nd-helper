@@ -1,5 +1,6 @@
 import html
 import os
+import re
 from pathlib import Path
 
 from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
@@ -14,6 +15,73 @@ from bck_nd_hlpr.core.todo_hunter import scan_for_todos
 from bck_nd_hlpr.core.scanner import ProjectScanner
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
 from bck_nd_hlpr.core.context_dumper import ContextDumper
+from bck_nd_hlpr.core.requirements import RequirementsParser
+
+
+def _offline_svg_preview(source: str, title: str) -> str:
+    """Render a dependency-free SVG preview that remains visible offline."""
+    lines = [line.rstrip() for line in source.splitlines() if line.strip()]
+    visible_lines = lines[:120] or ["No diagram data detected"]
+    if len(lines) > len(visible_lines):
+        visible_lines.append(f"... {len(lines) - len(visible_lines)} additional lines")
+    width = 1100
+    line_height = 24
+    height = max(180, 70 + (len(visible_lines) * line_height))
+    safe_title = html.escape(title, quote=True)
+    text_rows = []
+    for index, line in enumerate(visible_lines):
+        y = 58 + (index * line_height)
+        safe_line = html.escape(line, quote=False)
+        text_rows.append(
+            f'<text x="24" y="{y}" xml:space="preserve">{safe_line}</text>'
+        )
+    return (
+        f'<svg class="offline-diagram" data-renderer="offline-svg" '
+        f'viewBox="0 0 {width} {height}" role="img" '
+        f'aria-label="Offline preview: {safe_title}" '
+        f'xmlns="http://www.w3.org/2000/svg">'
+        '<rect width="100%" height="100%" rx="10" fill="#0d0e12"/>'
+        f'<text class="offline-title" x="24" y="30">{safe_title} · Offline SVG</text>'
+        '<g class="offline-source">'
+        + "".join(text_rows)
+        + "</g></svg>"
+    )
+
+
+def _requirements_section(root_path: str) -> str:
+    """Build a safe, standalone requirements dashboard section when present."""
+    specs = RequirementsParser.load_from_directory(root_path)
+    if not specs:
+        return ""
+
+    rows = []
+    for spec in specs:
+        story = spec.story
+        rows.append(
+            "<tr>"
+            f"<td><strong>{html.escape(str(story.id or 'N/A'))}</strong></td>"
+            f"<td><span class=\"status-badge\">{html.escape(str(story.status or 'TODO'))}</span></td>"
+            f"<td>{html.escape(str(story.title or 'Untitled'))}</td>"
+            f"<td>{html.escape(str(story.role or '-'))}</td>"
+            f"<td>{len(spec.acceptance_criteria)}</td>"
+            f"<td>{len(spec.business_rules)}</td>"
+            "</tr>"
+        )
+    return (
+        '<section class="card" id="requirements">'
+        '<h2><span><span class="badge">REQ</span> Project Requirements</span></h2>'
+        '<div class="table-scroll"><table>'
+        '<thead><tr><th>Story ID</th><th>Status</th><th>Title</th><th>Role</th>'
+        '<th>Criteria</th><th>Rules</th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>'
+        '</section>'
+    )
+
+
+def _render_template(template: str, replacements: dict[str, str]) -> str:
+    """Replace placeholders in one pass so inserted project text is never reprocessed."""
+    pattern = re.compile("|".join(re.escape(key) for key in replacements))
+    return pattern.sub(lambda match: replacements[match.group(0)], template)
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -21,9 +89,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Documentation</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-color: #0d0e12;
@@ -129,6 +194,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         .container { max-width: 1400px; margin: 2rem auto; padding: 0 1rem; }
+
+        .dashboard-nav {
+            max-width: 1400px;
+            margin: 1rem auto 0;
+            padding: 0 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .dashboard-nav a {
+            color: var(--text-main);
+            text-decoration: none;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+        }
+        .dashboard-nav a:hover { border-color: var(--primary); color: var(--primary); }
         
         .card { 
             background: var(--card-bg); 
@@ -183,6 +266,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         th { background-color: var(--textarea-bg); font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
         tr:hover { background-color: rgba(0, 240, 255, 0.05); }
         [data-theme="dark"] tr:hover { background-color: rgba(0, 255, 102, 0.05); }
+        .table-scroll { overflow-x: auto; }
+        .status-badge { color: var(--primary); font-weight: 700; white-space: nowrap; }
+
+        .offline-diagram { width: 100%; min-width: 680px; height: auto; }
+        .offline-title { fill: #00ff66; font: 700 16px system-ui, sans-serif; }
+        .offline-source { fill: #e5e9f0; font: 13px ui-monospace, monospace; }
 
         .badge {
             background: var(--badge-bg);
@@ -204,6 +293,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             .editor-container { flex-direction: column; }
             .preview-pane { width: 100%; }
         }
+        @media (max-width: 640px) {
+            header { position: static; align-items: flex-start; flex-direction: column; gap: 1rem; padding: 1rem; }
+            .container { margin-top: 1rem; }
+            .card { padding: 1rem; }
+            .card h2 { align-items: flex-start; flex-direction: column; }
+            .editor-pane { min-width: 100%; }
+        }
     </style>
 </head>
 <body>
@@ -222,8 +318,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <textarea id="ai-context-content" style="display:none;" readonly aria-hidden="true">{ai_context}</textarea>
 
+    <nav class="dashboard-nav" aria-label="Documentation sections">
+        <a href="#tree">Structure</a><a href="#infra">Infrastructure</a>
+        <a href="#routes">Routes</a><a href="#uml">UML</a><a href="#er">ER</a>
+        {requirements_nav}<a href="#debt">Technical Debt</a>
+    </nav>
+
     <div class="container">
-        <div class="card">
+        <section class="card" id="tree">
             <h2>
                 <span style="display: flex; align-items: center; gap: 0.5rem;">
                     <span class="badge">TREE</span> Project Structure
@@ -231,9 +333,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <button class="copy-diagram-btn" id="copy-btn-tree" onclick="copyDiagram('tree')">📋 Copy Tree</button>
             </h2>
             <pre id="tree-code" style="font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.6; padding: 1.5rem; background: var(--textarea-bg); border-radius: 8px; border: 1px solid var(--border); overflow-x: auto; white-space: pre; color: var(--text-main);">{project_tree}</pre>
-        </div>
+        </section>
 
-        <div class="card">
+        <section class="card" id="infra">
             <h2>
                 <span style="display: flex; align-items: center; gap: 0.5rem;">
                     <span class="badge">INFRA</span> Infrastructure Map
@@ -245,12 +347,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <textarea id="infra-source" data-target="infra">{infra_diagram}</textarea>
                 </div>
                 <div class="preview-pane">
-                    <div id="infra-view"></div>
+                    <div id="infra-view">{infra_fallback_svg}</div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <div class="card">
+        <section class="card" id="routes">
             <h2>
                 <span style="display: flex; align-items: center; gap: 0.5rem;">
                     <span class="badge">API</span> API Routes (Sequence)
@@ -262,12 +364,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <textarea id="seq-source" data-target="seq">{sequence_diagram}</textarea>
                 </div>
                 <div class="preview-pane">
-                    <div id="seq-view"></div>
+                    <div id="seq-view">{sequence_fallback_svg}</div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <div class="card">
+        <section class="card" id="uml">
             <h2>
                 <span style="display: flex; align-items: center; gap: 0.5rem;">
                     <span class="badge">UML</span> UML Class Diagram
@@ -279,12 +381,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <textarea id="uml-source" data-target="uml">{uml_diagram}</textarea>
                 </div>
                 <div class="preview-pane">
-                    <div id="uml-view"></div>
+                    <div id="uml-view">{uml_fallback_svg}</div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <div class="card">
+        <section class="card" id="er">
             <h2>
                 <span style="display: flex; align-items: center; gap: 0.5rem;">
                     <span class="badge">ER</span> Entity-Relationship Diagram
@@ -296,12 +398,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <textarea id="er-source" data-target="er">{er_diagram}</textarea>
                 </div>
                 <div class="preview-pane">
-                    <div id="er-view"></div>
+                    <div id="er-view">{er_fallback_svg}</div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <div class="card">
+        {requirements_section}
+
+        <section class="card" id="debt">
             <h2>
                 <span style="display: flex; align-items: center; gap: 0.5rem;">
                     <span class="badge">TODO</span> Technical Debt & TODOs
@@ -310,11 +414,43 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <div style="overflow-x: auto;">
                 {todos_table}
             </div>
-        </div>
+        </section>
     </div>
 
     <script type="module">
-        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        // Dependency-free Mermaid fallback. It renders the diagram source into
+        // an accessible SVG so the portal remains useful on file://, in
+        // air-gapped networks, and in CI artifacts with scripts restricted.
+        function escapeXml(value) {
+            return String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&apos;');
+        }
+
+        function renderOfflineSvg(sourceText) {
+            const sourceLines = sourceText.split(/\r?\n/).filter(line => line.trim());
+            const lines = sourceLines.slice(0, 120);
+            if (sourceLines.length > lines.length) {
+                lines.push(`... ${sourceLines.length - lines.length} additional lines`);
+            }
+            if (!lines.length) lines.push('No diagram data detected');
+            const lineHeight = 24;
+            const height = Math.max(180, 70 + lines.length * lineHeight);
+            const rows = lines.map((line, index) =>
+                `<text x="24" y="${58 + index * lineHeight}" xml:space="preserve">${escapeXml(line)}</text>`
+            ).join('');
+            return `<svg class="offline-diagram" data-renderer="offline-svg" viewBox="0 0 1100 ${height}" role="img" aria-label="Offline Mermaid source preview" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" rx="10" fill="#0d0e12"/><text class="offline-title" x="24" y="30">Offline SVG diagram preview</text><g class="offline-source">${rows}</g></svg>`;
+        }
+
+        const mermaid = {
+            initialize() {},
+            async render(id, sourceText) {
+                return { svg: renderOfflineSvg(sourceText) };
+            }
+        };
 
         const copyAiBtn = document.getElementById('copy-ai-context-btn');
         const aiContextEl = document.getElementById('ai-context-content');
@@ -529,33 +665,60 @@ class DocGenerator:
         if todos:
             todos_table = "<table><tr><th>File</th><th>Line</th><th>Type</th><th>Message</th></tr>\n"
             for t in todos:
-                todos_table += f"<tr><td>{t.get('file', '')}</td><td>{t.get('line', '')}</td><td>{t.get('type', '')}</td><td>{t.get('message', '')}</td></tr>\n"
+                todos_table += (
+                    "<tr>"
+                    f"<td>{html.escape(str(t.get('file', '')))}</td>"
+                    f"<td>{html.escape(str(t.get('line', '')))}</td>"
+                    f"<td>{html.escape(str(t.get('type', '')))}</td>"
+                    f"<td>{html.escape(str(t.get('message', '')))}</td>"
+                    "</tr>\n"
+                )
             todos_table += "</table>"
         else:
             todos_table = "<p>No data detected</p>"
 
-        # 5. AI Context dump (LLM-optimized XML) for clipboard copy
+        # 5. Requirements dashboard (omitted when no specifications exist)
+        requirements_section = _requirements_section(root_path)
+        requirements_nav = (
+            '<a href="#requirements">Requirements</a>'
+            if requirements_section
+            else ""
+        )
+
+        # Static SVG previews remain visible even when JavaScript is disabled.
+        fallback_svgs = {
+            "infra": _offline_svg_preview(infra_diagram, "Infrastructure Map"),
+            "sequence": _offline_svg_preview(sequence_diagram, "API Routes"),
+            "uml": _offline_svg_preview(uml_diagram, "UML Class Diagram"),
+            "er": _offline_svg_preview(er_diagram, "Entity Relationship Diagram"),
+        }
+
+        # 6. AI Context dump (LLM-optimized XML) for clipboard copy
         try:
             ai_context = ContextDumper(path=root_path).build()
         except Exception as e:
             ai_context = f"<!-- Failed to generate AI context: {e} -->"
         ai_context_escaped = html.escape(ai_context)
 
-        # Render HTML (ai_context last so dump content cannot collide with other placeholders)
-        html_content = HTML_TEMPLATE.replace(
-            "{project_tree}", project_tree
-        ).replace(
-            "{infra_diagram}", infra_diagram
-        ).replace(
-            "{sequence_diagram}", sequence_diagram
-        ).replace(
-            "{uml_diagram}", uml_diagram
-        ).replace(
-            "{er_diagram}", er_diagram
-        ).replace(
-            "{todos_table}", todos_table
-        ).replace(
-            "{ai_context}", ai_context_escaped
+        # Single-pass substitution prevents project content that resembles a
+        # placeholder from being interpreted as another template directive.
+        html_content = _render_template(
+            HTML_TEMPLATE,
+            {
+                "{project_tree}": html.escape(project_tree),
+                "{infra_diagram}": html.escape(infra_diagram),
+                "{sequence_diagram}": html.escape(sequence_diagram),
+                "{uml_diagram}": html.escape(uml_diagram),
+                "{er_diagram}": html.escape(er_diagram),
+                "{infra_fallback_svg}": fallback_svgs["infra"],
+                "{sequence_fallback_svg}": fallback_svgs["sequence"],
+                "{uml_fallback_svg}": fallback_svgs["uml"],
+                "{er_fallback_svg}": fallback_svgs["er"],
+                "{requirements_nav}": requirements_nav,
+                "{requirements_section}": requirements_section,
+                "{todos_table}": todos_table,
+                "{ai_context}": ai_context_escaped,
+            },
         )
 
         # Write to file

@@ -50,6 +50,7 @@ class OrchestratorConfig:
     plain: bool = True                 # Return raw unformatted text (strips ANSI internally if requested)
     use_cache: bool = True             # Enable incremental delta cache engine
     requirements: bool = False         # Flag to request Project Requirements summary
+    asg: bool = False                  # Flag to request the unified Abstract Semantic Graph
 
 
 @dataclass
@@ -251,6 +252,45 @@ class ScannerOrchestrator:
                 from bck_nd_hlpr.core.requirements import RequirementsParser
                 return RequirementsParser.load_from_directory(config.path)
             tasks.append(("requirements", _task_req, "Requirements Loading Error", []))
+
+        if config.asg:
+            def _task_asg():
+                from bck_nd_hlpr.core.asg import ASGBuilder, ASGGraph
+                from bck_nd_hlpr.core.er_parser import parse_project_for_er
+                from bck_nd_hlpr.core.route_parser import parse_project_routes
+
+                graph = ASGGraph()
+                scanner = ProjectScanner()
+                try:
+                    classes = scanner.collect_uml_classes(
+                        config.path,
+                        max_depth=config.depth,
+                    )
+                    if classes:
+                        ASGBuilder.from_uml_classes(classes, graph=graph)
+                except Exception:
+                    pass
+                try:
+                    entities = parse_project_for_er(
+                        config.path,
+                        max_depth=config.depth,
+                    )
+                    if entities:
+                        ASGBuilder.from_er_entities(entities, graph=graph)
+                except Exception:
+                    pass
+                try:
+                    project_routes = parse_project_routes(
+                        config.path,
+                        max_depth=config.depth,
+                    )
+                    if project_routes:
+                        ASGBuilder.from_routes(project_routes, graph=graph)
+                except Exception:
+                    pass
+                return graph
+
+            tasks.append(("asg_graph", _task_asg, "ASG Generation Error", None))
 
         # ── Concurrency Execution Block ──
         def _execute_task(attr_name, func, error_prefix, default_value):

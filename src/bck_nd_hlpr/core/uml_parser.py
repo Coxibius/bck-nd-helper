@@ -15,6 +15,11 @@ class UMLClassInfo:
         self.methods: List[str] = []
         self.attributes: List[str] = []
         self.module = module  # "carpeta.archivo" para agrupar
+        # Cross-language metadata used by TypeScript, Go, Rust, and the ASG
+        # adapter.  Parsers can extend these without changing the legacy model.
+        self.stereotypes: List[str] = []
+        self.is_interface: bool = False
+        self.metadata: Dict[str, Any] = {}
 
 class UMLExtractor(ast.NodeVisitor):
     """

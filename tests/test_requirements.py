@@ -761,3 +761,153 @@ def test_default_scan_includes_requirements_and_skips_empty_projects(
     assert empty_result.exit_code == 0, empty_result.exception
     assert "[REQ]" not in empty_result.stdout
     assert "No requirements found" not in empty_result.stdout
+
+
+def test_update_story_status_json_nested_story(tmp_path: Path):
+    req_dir = tmp_path / ".bck-nd" / "requirements"
+    req_dir.mkdir(parents=True)
+    target = req_dir / "US-001.json"
+    target.write_text(
+        json.dumps(
+            {
+                "story": {
+                    "id": "US-001",
+                    "title": "Checkout",
+                    "status": "TODO",
+                },
+                "open_questions": ["Which payment provider?"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert RequirementsParser.update_story_status(
+        tmp_path, "us-001", "in_progress"
+    ) is True
+
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["story"]["status"] == "IN_PROGRESS"
+    assert data["open_questions"] == ["Which payment provider?"]
+    assert target.read_text(encoding="utf-8").startswith('{\n  "story"')
+
+
+def test_update_story_status_root_json(tmp_path: Path):
+    req_dir = tmp_path / ".bck-nd" / "requirements"
+    req_dir.mkdir(parents=True)
+    target = req_dir / "REQ-9.json"
+    target.write_text(
+        json.dumps({"id": "REQ-9", "title": "Audit", "status": "TESTING"}),
+        encoding="utf-8",
+    )
+
+    assert RequirementsParser.get_story_status(tmp_path, "REQ-9") == "TESTING"
+    assert RequirementsParser.update_story_status(tmp_path, "REQ-9", "done") is True
+    assert json.loads(target.read_text(encoding="utf-8"))["status"] == "DONE"
+
+
+def test_update_story_status_markdown_preserves_existing_content(tmp_path: Path):
+    req_dir = tmp_path / ".bck-nd" / "requirements"
+    req_dir.mkdir(parents=True)
+    target = req_dir / "US-001.md"
+    target.write_bytes(
+        (
+            "# US-001 [TODO] - Checkout\r\n\r\n"
+            "## Acceptance Criteria\r\n"
+            "- AC01: Existing formatting remains unchanged\r\n"
+        ).encode("utf-8")
+    )
+
+    assert RequirementsParser.update_story_status(tmp_path, "US-001", "DONE") is True
+
+    content = target.read_bytes().decode("utf-8")
+    assert content.startswith("# US-001 [DONE] - Checkout\r\n")
+    assert "## Acceptance Criteria\r\n- AC01: Existing formatting remains unchanged" in content
+
+
+def test_update_story_status_markdown_adds_missing_badge(tmp_path: Path):
+    req_dir = tmp_path / ".bck-nd" / "requirements"
+    req_dir.mkdir(parents=True)
+    target = req_dir / "US-002.md"
+    target.write_text(
+        "# US-002 - Search\n\n## Business Rules\n- Preserve this section\n",
+        encoding="utf-8",
+    )
+
+    assert RequirementsParser.update_story_status(
+        tmp_path, "US-002", "blocked"
+    ) is True
+    content = target.read_text(encoding="utf-8")
+    assert content.startswith("# US-002 [BLOCKED] - Search\n")
+    assert "## Business Rules\n- Preserve this section" in content
+
+
+@pytest.mark.parametrize(
+    ("story_id", "new_status"),
+    [("MISSING", "DONE"), ("../US-001", "NOT_A_STATUS")],
+)
+def test_update_story_status_rejects_missing_or_invalid_input(
+    tmp_path: Path,
+    story_id: str,
+    new_status: str,
+):
+    assert RequirementsParser.update_story_status(
+        tmp_path, story_id, new_status
+    ) is False
+
+
+@pytest.mark.parametrize("command", ["status", "set-status"])
+def test_cli_req_status_and_alias(tmp_path: Path, command: str):
+    from typer.testing import CliRunner
+    from bck_nd_hlpr.cli.cli import app
+
+    req_dir = tmp_path / ".bck-nd" / "requirements"
+    req_dir.mkdir(parents=True)
+    target = req_dir / "US-001.json"
+    target.write_text(
+        json.dumps({"story": {"id": "US-001", "status": "TODO"}}),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["req", command, "us-001", "in_progress", "--path", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0, result.exception
+    assert "Story US-001 status updated" in result.stdout
+    assert "TODO" in result.stdout
+    assert "IN_PROGRESS" in result.stdout
+    assert json.loads(target.read_text(encoding="utf-8"))["story"]["status"] == "IN_PROGRESS"
+
+
+@pytest.mark.parametrize(
+    ("story_id", "new_status", "expected", "exit_code"),
+    [
+        ("US-001", "INVALID", "Invalid status", 2),
+        ("MISSING", "DONE", "not found", 1),
+    ],
+)
+def test_cli_req_status_reports_invalid_or_missing_story(
+    tmp_path: Path,
+    story_id: str,
+    new_status: str,
+    expected: str,
+    exit_code: int,
+):
+    from typer.testing import CliRunner
+    from bck_nd_hlpr.cli.cli import app
+
+    req_dir = tmp_path / ".bck-nd" / "requirements"
+    req_dir.mkdir(parents=True)
+    (req_dir / "US-001.json").write_text(
+        json.dumps({"story": {"id": "US-001", "status": "TODO"}}),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["req", "status", story_id, new_status, "--path", str(tmp_path)],
+    )
+
+    assert result.exit_code == exit_code
+    assert expected in result.stdout

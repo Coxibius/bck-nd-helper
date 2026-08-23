@@ -2,7 +2,7 @@
 Constantes globales para el ecosistema bck-nd-hlpr.
 """
 
-VERSION = "2.4.2"
+VERSION = "2.4.3"
 
 BCK_ND_DIRECTORY = ".bck-nd"
 BCK_ND_CACHE_DIRECTORY = "cache"

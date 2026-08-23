@@ -31,19 +31,33 @@ class ASGBuilder:
             if hasattr(item, "__dict__"):
                 c_name = getattr(item, "name", "")
                 c_module = getattr(item, "module", "") or ""
-                c_is_interface = getattr(item, "is_interface", False)
+                c_stereotypes = getattr(item, "stereotypes", []) or []
+                c_is_interface = bool(
+                    getattr(item, "is_interface", False)
+                    or "interface" in c_stereotypes
+                    or "trait" in c_stereotypes
+                )
                 c_attrs = getattr(item, "attributes", []) or []
                 c_methods = getattr(item, "methods", []) or []
-                c_parents = getattr(item, "parents", []) or []
+                c_parents = (
+                    getattr(item, "parents", [])
+                    or getattr(item, "bases", [])
+                    or []
+                )
                 c_deps = getattr(item, "dependencies", []) or []
                 c_meta = getattr(item, "metadata", {}) or {}
             elif isinstance(item, dict):
                 c_name = item.get("name", "")
                 c_module = item.get("module", "")
-                c_is_interface = item.get("is_interface", False)
+                c_stereotypes = item.get("stereotypes", []) or []
+                c_is_interface = bool(
+                    item.get("is_interface", False)
+                    or "interface" in c_stereotypes
+                    or "trait" in c_stereotypes
+                )
                 c_attrs = item.get("attributes", [])
                 c_methods = item.get("methods", [])
-                c_parents = item.get("parents", [])
+                c_parents = item.get("parents", []) or item.get("bases", [])
                 c_deps = item.get("dependencies", [])
                 c_meta = item.get("metadata", {})
             else:

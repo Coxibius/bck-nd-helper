@@ -13,9 +13,16 @@ from .models import AcceptanceCriteria, BusinessRule, RequirementSpecification, 
 
 logger = logging.getLogger(__name__)
 
+VALID_STORY_STATUSES = frozenset(
+    {"TODO", "IN_PROGRESS", "TESTING", "DONE", "BLOCKED"}
+)
+_VALID_STORY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
 
 class RequirementsParser:
     """Parses requirement JSON and Markdown specification files from the project workspace."""
+
+    VALID_STATUSES = VALID_STORY_STATUSES
 
     @classmethod
     def parse_markdown(
@@ -310,6 +317,185 @@ class RequirementsParser:
             return None
 
     @classmethod
+    def _requirements_directory(cls, project_path: Union[str, Path]) -> Path:
+        base_path = Path(project_path)
+        if base_path.name == "requirements" and base_path.is_dir():
+            return base_path
+        return base_path / ".bck-nd" / "requirements"
+
+    @classmethod
+    def find_story_file(
+        cls,
+        project_path: Union[str, Path],
+        story_id: str,
+    ) -> Optional[Path]:
+        """Find a story by filename or parsed ID using case-insensitive matching."""
+        normalized_id = str(story_id).strip().casefold()
+        if not normalized_id or not _VALID_STORY_ID.fullmatch(str(story_id).strip()):
+            return None
+
+        requirements_dir = cls._requirements_directory(project_path)
+        if not requirements_dir.is_dir():
+            return None
+
+        files = sorted(
+            (
+                path
+                for path in requirements_dir.iterdir()
+                if path.is_file()
+                and path.suffix.lower() in {".json", ".md", ".markdown"}
+            ),
+            key=lambda path: (path.stem.casefold(), path.suffix.casefold()),
+        )
+
+        for path in files:
+            if path.stem.casefold() == normalized_id:
+                return path
+
+        for path in files:
+            spec = cls.parse_file(path)
+            if (
+                spec is not None
+                and spec.story is not None
+                and str(spec.story.id).strip().casefold() == normalized_id
+            ):
+                return path
+        return None
+
+    @classmethod
+    def get_story_status(
+        cls,
+        project_path: Union[str, Path],
+        story_id: str,
+    ) -> Optional[str]:
+        """Return the persisted status for a story, or ``None`` when absent."""
+        story_file = cls.find_story_file(project_path, story_id)
+        if story_file is None:
+            return None
+        if story_file.suffix.lower() == ".json":
+            try:
+                data = json.loads(story_file.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    return None
+                story = data.get("story")
+                if isinstance(story, dict):
+                    return str(story.get("status") or "TODO").strip().upper()
+                return str(data.get("status") or "TODO").strip().upper()
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+                return None
+        spec = cls.parse_file(story_file)
+        if spec is None or spec.story is None:
+            return None
+        return str(spec.story.status or "TODO").strip().upper()
+
+    @classmethod
+    def update_story_status(
+        cls,
+        project_path: Union[str, Path],
+        story_id: str,
+        new_status: str,
+    ) -> bool:
+        """Update one JSON or Markdown story status without rewriting other content."""
+        normalized_status = str(new_status).strip().upper()
+        normalized_id = str(story_id).strip().upper()
+        if (
+            normalized_status not in cls.VALID_STATUSES
+            or not _VALID_STORY_ID.fullmatch(normalized_id)
+        ):
+            return False
+
+        story_file = cls.find_story_file(project_path, normalized_id)
+        if story_file is None:
+            return False
+
+        try:
+            if story_file.suffix.lower() == ".json":
+                data = json.loads(story_file.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    return False
+                story = data.get("story")
+                if isinstance(story, dict):
+                    story["status"] = normalized_status
+                else:
+                    data["status"] = normalized_status
+                story_file.write_text(
+                    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                return True
+
+            raw_content = story_file.read_bytes().decode("utf-8")
+            content = raw_content
+            bom = ""
+            if content.startswith("\ufeff"):
+                bom, content = "\ufeff", content[1:]
+
+            header_pattern = re.compile(
+                r"^(?P<prefix>[ \t]*#[ \t]+)(?P<body>[^\r\n]*)(?P<ending>\r?\n|$)",
+                re.MULTILINE,
+            )
+            headers = list(header_pattern.finditer(content))
+            target_header = None
+            for header in headers:
+                body = header.group("body")
+                id_match = re.match(r"(?P<id>[A-Za-z0-9][A-Za-z0-9_-]*)", body)
+                if id_match and id_match.group("id").casefold() == normalized_id.casefold():
+                    target_header = header
+                    break
+
+            if target_header is not None:
+                body = target_header.group("body")
+                id_match = re.match(r"(?P<id>[A-Za-z0-9][A-Za-z0-9_-]*)(?P<rest>.*)", body)
+                if id_match is None:
+                    return False
+                rest = re.sub(
+                    r"^[ \t]*\[[A-Za-z_]+\]",
+                    "",
+                    id_match.group("rest"),
+                    count=1,
+                    flags=re.IGNORECASE,
+                )
+                replacement = (
+                    f"{target_header.group('prefix')}{id_match.group('id')} "
+                    f"[{normalized_status}]{rest}{target_header.group('ending')}"
+                )
+                content = (
+                    content[:target_header.start()]
+                    + replacement
+                    + content[target_header.end():]
+                )
+            elif headers:
+                header = headers[0]
+                title = re.sub(
+                    r"^\s*\[[A-Za-z_]+\]\s*[-:]?\s*",
+                    "",
+                    header.group("body"),
+                    count=1,
+                    flags=re.IGNORECASE,
+                ).strip()
+                title_suffix = f" - {title}" if title else ""
+                replacement = (
+                    f"{header.group('prefix')}{normalized_id} [{normalized_status}]"
+                    f"{title_suffix}{header.group('ending')}"
+                )
+                content = content[:header.start()] + replacement + content[header.end():]
+            else:
+                newline = "\r\n" if "\r\n" in content else "\n"
+                content = (
+                    f"# {normalized_id} [{normalized_status}]{newline}{newline}{content}"
+                )
+
+            story_file.write_bytes((bom + content).encode("utf-8"))
+            return True
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError) as exc:
+            logger.warning(
+                "Failed to update requirement status in '%s': %s",
+                story_file,
+                exc,
+            )
+            return False
+
+    @classmethod
     def load_from_directory(
         cls, project_path: Union[str, Path]
     ) -> List[RequirementSpecification]:
@@ -325,12 +511,7 @@ class RequirementsParser:
             Returns an empty list if directory is missing or unreadable.
         """
         try:
-            base_path = Path(project_path)
-            # Support both passing the project root or the direct requirements folder
-            if base_path.name == "requirements" and base_path.is_dir():
-                req_dir = base_path
-            else:
-                req_dir = base_path / ".bck-nd" / "requirements"
+            req_dir = cls._requirements_directory(project_path)
 
             if not req_dir.exists() or not req_dir.is_dir():
                 return []

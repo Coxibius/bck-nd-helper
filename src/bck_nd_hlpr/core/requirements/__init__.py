@@ -9,7 +9,7 @@ from .models import (
     RequirementSpecification,
     UserStory,
 )
-from .parser import RequirementsParser
+from .parser import RequirementsParser, VALID_STORY_STATUSES
 
 __all__ = [
     "UserStory",
@@ -17,4 +17,5 @@ __all__ = [
     "BusinessRule",
     "RequirementSpecification",
     "RequirementsParser",
+    "VALID_STORY_STATUSES",
 ]

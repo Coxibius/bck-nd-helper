@@ -60,3 +60,44 @@ def test_doc_generator_basic(tmp_path):
     assert "Copy Complete AI Context to Clipboard" in html_content
     assert "&lt;project_tree&gt;" in html_content or "<project_tree>" in html_content
     assert "navigator.clipboard.writeText" in html_content
+    assert 'data-renderer="offline-svg"' in html_content
+    assert "https://cdn.jsdelivr.net" not in html_content
+    assert "fonts.googleapis.com" not in html_content
+
+
+def test_doc_generator_includes_requirements_in_offline_dashboard(tmp_path):
+    project_dir = tmp_path / "requirements_project"
+    project_dir.mkdir()
+    (project_dir / "app.py").write_text("class Checkout: pass\n", encoding="utf-8")
+    requirements_dir = project_dir / ".bck-nd" / "requirements"
+    requirements_dir.mkdir(parents=True)
+    (requirements_dir / "US-009.json").write_text(
+        """{
+  "story": {
+    "id": "US-009",
+    "title": "Offline checkout <script>alert(1)</script>",
+    "role": "buyer",
+    "want": "complete checkout",
+    "benefit": "purchase offline",
+    "status": "TESTING"
+  },
+  "acceptance_criteria": [
+    {"id": "AC01", "given": "offline", "when": "opened", "then": "content renders"}
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    out_file = DocGenerator().generate(
+        str(project_dir),
+        str(tmp_path / "offline_docs"),
+    )
+    content = Path(out_file).read_text(encoding="utf-8")
+
+    assert 'id="requirements"' in content
+    assert 'href="#requirements"' in content
+    assert "US-009" in content
+    assert "TESTING" in content
+    assert "Offline checkout &lt;script&gt;alert(1)&lt;/script&gt;" in content
+    assert "https://" not in content

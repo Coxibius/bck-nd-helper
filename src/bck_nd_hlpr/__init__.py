@@ -1,7 +1,7 @@
 # bck-nd-hlpr package init
 import sys
 
-__version__ = "2.4.2"
+__version__ = "2.4.3"
 from bck_nd_hlpr.core import (
     ai_providers,
     analysis,
@@ -17,6 +17,7 @@ from bck_nd_hlpr.core import (
     django_parser,
     doc_generator,
     er_parser,
+    go_parser,
     infra_parser,
     java_parser,
     js_parser,
@@ -24,6 +25,7 @@ from bck_nd_hlpr.core import (
     php_parser,
     renderers,
     route_parser,
+    rust_parser,
     router,
     sanitizer,
     scanner,
@@ -52,6 +54,7 @@ sys.modules["bck_nd_hlpr.detector"] = detector
 sys.modules["bck_nd_hlpr.django_parser"] = django_parser
 sys.modules["bck_nd_hlpr.doc_generator"] = doc_generator
 sys.modules["bck_nd_hlpr.er_parser"] = er_parser
+sys.modules["bck_nd_hlpr.go_parser"] = go_parser
 sys.modules["bck_nd_hlpr.infra_parser"] = infra_parser
 sys.modules["bck_nd_hlpr.java_parser"] = java_parser
 sys.modules["bck_nd_hlpr.js_parser"] = js_parser
@@ -59,6 +62,7 @@ sys.modules["bck_nd_hlpr.narrator"] = narrator
 sys.modules["bck_nd_hlpr.php_parser"] = php_parser
 sys.modules["bck_nd_hlpr.renderers"] = renderers
 sys.modules["bck_nd_hlpr.route_parser"] = route_parser
+sys.modules["bck_nd_hlpr.rust_parser"] = rust_parser
 sys.modules["bck_nd_hlpr.router"] = router
 sys.modules["bck_nd_hlpr.sanitizer"] = sanitizer
 sys.modules["bck_nd_hlpr.scanner"] = scanner

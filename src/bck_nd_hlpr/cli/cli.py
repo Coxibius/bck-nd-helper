@@ -1,8 +1,11 @@
 import shutil
 import subprocess
 import sys
+import json
+from dataclasses import asdict, is_dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 import typer
 
@@ -28,7 +31,10 @@ from bck_nd_hlpr.cli.formatters import display_todos_table, get_todos_table_stri
 from bck_nd_hlpr.core.uml_parser import is_empty_mermaid_class_diagram
 from bck_nd_hlpr.core.doc_generator import DocGenerator
 from bck_nd_hlpr.core.ci_generator import generate_ci_workflow
-from bck_nd_hlpr.core.context_dumper import ContextDumper
+from bck_nd_hlpr.core.context_dumper import (
+    ContextDumper,
+    format_context_metrics,
+)
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
 from bck_nd_hlpr.core.analysis import (
     ScanContext,
@@ -51,6 +57,7 @@ Key commands:
 - bck-nd scan . --routes   Routes only
 - bck-nd prompt .          AI-ready context dump
 - bck-nd req list .        List user stories & requirements
+- bck-nd req status HU01 DONE  Update a user story status
 - bck-nd req discover HU01 Discovery interview guide
 - bck-nd flow "A -> B"     Quick ASCII flow
 - bck-nd docs .            Static HTML docs
@@ -143,6 +150,81 @@ def _copy_context_if_requested(context: str, requested: bool) -> None:
             err=True,
         )
 
+
+def _print_context_metrics(
+    dumper: ContextDumper,
+    context: str,
+    *,
+    err: bool = False,
+) -> None:
+    """Print the standard token and context-savings footer."""
+    typer.secho(
+        format_context_metrics(dumper.get_context_metrics(context)),
+        fg=typer.colors.CYAN,
+        bold=True,
+        err=err,
+    )
+
+
+def _json_compatible(value: Any) -> Any:
+    """Recursively normalize analyzer models into deterministic JSON values."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Enum):
+        return _json_compatible(value.value)
+    if isinstance(value, Path):
+        return str(value)
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return _json_compatible(value.to_dict())
+    if is_dataclass(value):
+        return _json_compatible(asdict(value))
+    if isinstance(value, Mapping):
+        return {
+            str(key): _json_compatible(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (set, frozenset)):
+        normalized = [_json_compatible(item) for item in value]
+        return sorted(normalized, key=lambda item: str(item))
+    if isinstance(value, (list, tuple)):
+        return [_json_compatible(item) for item in value]
+    return str(value)
+
+
+def _asg_to_dict(asg_graph: Any) -> dict[str, Any]:
+    if asg_graph is None:
+        return {"nodes": [], "edges": []}
+    from bck_nd_hlpr.core.asg import ASGToJsonExporter
+
+    return _json_compatible(ASGToJsonExporter.to_dict(asg_graph))
+
+
+def _full_scan_json_payload(result: Any) -> dict[str, Any]:
+    """Build the stable consolidated schema emitted by ``scan --json``."""
+    return {
+        "framework": result.framework,
+        "architecture": result.architecture,
+        "summary": result.summary,
+        "features": _json_compatible(result.features or []),
+        "asg": _asg_to_dict(result.asg_graph),
+        "requirements": _json_compatible(result.requirements or []),
+        "health": _json_compatible(result.health_score or {}),
+        "todos": _json_compatible(result.todos or []),
+        "security_risks": _json_compatible(result.security_risks or []),
+    }
+
+
+def _emit_scan_json(payload: Any, output: Optional[str]) -> None:
+    serialized = json.dumps(
+        _json_compatible(payload),
+        ensure_ascii=False,
+        indent=2,
+    )
+    if output:
+        Path(output).write_text(serialized + "\n", encoding="utf-8")
+    else:
+        typer.echo(serialized)
+
 @app.command()
 def flow(
     layout: str = typer.Argument(..., help="Manual flow string.")
@@ -193,6 +275,7 @@ def scan(
     export_dict: Optional[str] = typer.Option(None, "--export-dict", help="Export Data Dictionary (JSON/CSV from ORM models). Example: bck-nd scan . --export-dict json"),
     datascience: bool = typer.Option(False, "--datascience", help="Generate Data Lineage Map (Mermaid graph LR) from Jupyter Notebooks. Example: bck-nd scan . --datascience"),
     req: bool = typer.Option(False, "--req", help="Display Project Requirements summary table from .bck-nd/requirements/."),
+    json_output: bool = typer.Option(False, "--json", help="Output results in machine-readable JSON format for CI/CD and scripts."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save output to file (ANSI codes stripped automatically). Works with any flag. Example: bck-nd scan . --er -o schema.mmd"),
     export_mermaid: bool = typer.Option(False, "--export-mermaid", help="Automatically save diagrams as .mmd files. Example: bck-nd scan . --uml --export-mermaid"),
     provider: Optional[str] = typer.Option(None, "--provider", help="Force specific AI provider (requires --ai). Options: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd scan . --ai --provider openrouter"),
@@ -216,6 +299,7 @@ def scan(
     - --ai/--style/--provider: AI analysis configuration
     - --impact-radius: show routes/files impacted by a given file
     - --teach, --health, --datascience, --contract, --export-dict (see help)
+    - --json: emit machine-readable JSON, optionally with --output
     - --output: write results to file
     - --no-cache: disable delta cache engine
 
@@ -234,8 +318,34 @@ def scan(
         display_requirements_table,
     )
 
+    requested_json_reports: list[tuple[str, str]] = []
+    for requested, output_key, result_attr in (
+        (tree, "tree", "tree"),
+        (infra, "infra", "infra"),
+        (routes, "routes", "routes"),
+        (uml, "uml", "uml"),
+        (er, "er", "er"),
+        (todo, "todos", "todos"),
+        (req, "requirements", "requirements"),
+        (audit, "security_risks", "security_risks"),
+        (impact, "dependency_heatmap", "dependency_heatmap"),
+        (bool(impact_radius), "impact_radius", "impact_radius_report"),
+        (contract, "api_contracts", "api_contracts"),
+        (trace, "trace", "trace"),
+        (datascience, "datascience", "datascience"),
+        (teach, "onboarding", "onboarding_path"),
+        (health, "health", "health_score"),
+        (bool(export_dict), "data_dictionary", "data_dictionary"),
+        (ai, "ai_narrative", "ai_narrative"),
+        (explain, "explain", "explain"),
+    ):
+        if requested:
+            requested_json_reports.append((output_key, result_attr))
+
+    full_json_scan = json_output and not requested_json_reports
+
     initialized_files = set()
-    if output:
+    if output and not json_output:
         try:
             with open(output, "w", encoding="utf-8") as f:
                 f.write("")
@@ -290,7 +400,8 @@ def scan(
                 else:
                     print(content)
 
-    typer.secho(f"\n🔍 Analyzing architecture of '{path}'...", fg=typer.colors.CYAN, bold=True)
+    if not json_output:
+        typer.secho(f"\n🔍 Analyzing architecture of '{path}'...", fg=typer.colors.CYAN, bold=True)
 
     config = OrchestratorConfig(
         path=path,
@@ -299,29 +410,67 @@ def scan(
         er=er,
         routes=routes,
         infra=infra,
-        todo=todo,
-        audit=audit,
+        todo=todo or full_json_scan,
+        audit=audit or full_json_scan,
         impact=impact,
         trace=trace,
         tree=tree,
         datascience=datascience,
         contract=contract,
-        health=health,
+        health=health or full_json_scan,
         teach=teach,
         export_dict=export_dict,
         impact_radius=impact_radius,
         ai=ai,
         style=style,
         provider=provider,
-        plain=bool(output),
+        plain=bool(output) or json_output,
         use_cache=not no_cache,
-        requirements=req,
+        requirements=req or full_json_scan,
+        asg=full_json_scan,
     )
 
     try:
         result = ScannerOrchestrator.run(config)
     except Exception as e:
+        if json_output:
+            try:
+                _emit_scan_json({"error": str(e)}, output)
+            except OSError:
+                typer.echo(json.dumps({"error": str(e)}), err=True)
+            raise typer.Exit(code=1)
         typer.secho(f"❌ Error during orchestrator execution: {e}", fg=typer.colors.RED)
+        return
+
+    if json_output:
+        try:
+            if full_json_scan:
+                payload: Any = _full_scan_json_payload(result)
+            else:
+                report_values: dict[str, Any] = {}
+                for output_key, result_attr in requested_json_reports:
+                    if result_attr == "explain":
+                        narrator = Narrator()
+                        scanner = ProjectScanner()
+                        flow_string = scanner.scan(path, max_depth=depth)
+                        report_values[output_key] = narrator.explain(
+                            flow_string,
+                            use_ai=False,
+                        )
+                    else:
+                        report_values[output_key] = getattr(result, result_attr, None)
+                payload = (
+                    next(iter(report_values.values()))
+                    if len(report_values) == 1
+                    else report_values
+                )
+            _emit_scan_json(payload, output)
+        except OSError as e:
+            typer.echo(
+                json.dumps({"error": f"Could not write JSON output: {e}"}),
+                err=True,
+            )
+            raise typer.Exit(code=1)
         return
 
     if result.framework != 'Unknown':
@@ -619,7 +768,7 @@ def docs(
     output: str = typer.Option("docs", "--output", "-o", help="Output directory for the HTML portal (created if missing). Example: bck-nd docs . -o site")
 ):
     """
-    Generate a static HTML documentation portal (Mermaid-powered).
+    Generate a standalone, responsive HTML documentation portal.
 
     Includes:
     - Infra map (docker-compose)
@@ -627,6 +776,8 @@ def docs(
     - UML class diagram
     - ER diagram (ORM models)
     - Technical debt table
+    - Project requirements (when .bck-nd/requirements/ exists)
+    - Embedded offline SVG diagram previews (no CDN required)
 
     Examples:
     - bck-nd docs .
@@ -866,13 +1017,19 @@ def prompt_cmd(
 
     # ── Stdout piping mode ───────────────────────────────────────────────
     if output == "-":
-        dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
+        dumper = ContextDumper(
+            path=path,
+            depth=depth,
+            output_file=output,
+            max_core_files=max_core_files,
+        )
         if focused_mode:
             context = dumper.build_focused(include_tree=tree, include_uml=uml, include_er=er)
         else:
             context = dumper.build()
         print(context)
         _copy_context_if_requested(context, copy_to_clipboard)
+        _print_context_metrics(dumper, context, err=True)
         return
 
     from rich.console import Console
@@ -901,7 +1058,12 @@ def prompt_cmd(
             )
         )
 
-        dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
+        dumper = ContextDumper(
+            path=path,
+            depth=depth,
+            output_file=Path(output).name,
+            max_core_files=max_core_files,
+        )
 
         total_steps = sum([tree, uml, er])
         step = 0
@@ -957,6 +1119,7 @@ def prompt_cmd(
             )
         )
         _copy_context_if_requested(context, copy_to_clipboard)
+        _print_context_metrics(dumper, context)
         return
 
     # ── FULL MODE (default — unchanged) ──────────────────────────────────
@@ -969,7 +1132,12 @@ def prompt_cmd(
         )
     )
 
-    dumper = ContextDumper(path=path, depth=depth, max_core_files=max_core_files)
+    dumper = ContextDumper(
+        path=path,
+        depth=depth,
+        output_file=Path(output).name,
+        max_core_files=max_core_files,
+    )
 
     typer.secho("  [1/4] Building directory tree...", fg=typer.colors.CYAN)
     tree_out = dumper.get_project_tree()
@@ -1010,6 +1178,7 @@ def prompt_cmd(
         )
     )
     _copy_context_if_requested(context, copy_to_clipboard)
+    _print_context_metrics(dumper, context)
 
 
 # ──────────────────────────────────────────────
@@ -1120,6 +1289,70 @@ def req_init(
     typer.secho(f"[OK] Requirement template created: {target}", fg=typer.colors.GREEN, bold=True)
 
 
+@req_app.command("status")
+@req_app.command("set-status")
+def req_status(
+    story_id: str = typer.Argument(..., help="Story identifier, for example US-001."),
+    new_status: str = typer.Argument(
+        ...,
+        help="New status: TODO, IN_PROGRESS, TESTING, DONE, or BLOCKED.",
+    ),
+    project_path: str = typer.Option(
+        ".",
+        "--path",
+        "-p",
+        help="Project root containing .bck-nd/requirements/.",
+    ),
+):
+    """Update a requirement story status in its JSON or Markdown source file."""
+    import re
+
+    from bck_nd_hlpr.core.requirements import RequirementsParser
+    from rich.console import Console
+
+    normalized_id = story_id.strip().upper()
+    normalized_status = new_status.strip().upper()
+
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]*", normalized_id):
+        typer.secho(
+            "[ERROR] STORY_ID may contain only letters, numbers, hyphens, and underscores.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=2)
+
+    if normalized_status not in RequirementsParser.VALID_STATUSES:
+        accepted = ", ".join(sorted(RequirementsParser.VALID_STATUSES))
+        typer.secho(
+            f"[ERROR] Invalid status '{new_status}'. Accepted statuses: {accepted}.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=2)
+
+    old_status = RequirementsParser.get_story_status(project_path, normalized_id)
+    if old_status is None:
+        typer.secho(
+            f"[ERROR] Requirement story not found: {normalized_id}",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=1)
+
+    if not RequirementsParser.update_story_status(
+        project_path,
+        normalized_id,
+        normalized_status,
+    ):
+        typer.secho(
+            f"[ERROR] Could not update requirement story: {normalized_id}",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=1)
+
+    Console().print(
+        f"✨ Story [bold]{normalized_id}[/bold] status updated: "
+        f"[yellow]{old_status}[/yellow] ➔ [green]{normalized_status}[/green]"
+    )
+
+
 @req_app.command("list")
 def req_list(
     project_path: str = typer.Argument(".", help="Path to the project root directory."),
@@ -1165,6 +1398,7 @@ def req_list(
         "IN_PROGRESS": "[bold blue]IN_PROGRESS[/bold blue]",
         "TESTING": "[bold magenta]TESTING[/bold magenta]",
         "DONE": "[bold green]DONE[/bold green]",
+        "BLOCKED": "[bold red]BLOCKED[/bold red]",
     }
 
     for spec in specs:

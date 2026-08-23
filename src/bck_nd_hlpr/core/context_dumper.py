@@ -6,6 +6,8 @@ Parte de la Fase 2 del Roadmap: 'bck-nd prompt'
 """
 import os
 import sys
+import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
@@ -47,6 +49,64 @@ CORE_FILE_CANDIDATES: List[str] = [
 
 MAX_CORE_FILES = 5
 MAX_FILE_CHARS = 8_000   # máximo caracteres por archivo de código fuente
+
+
+@dataclass(frozen=True)
+class ContextMetrics:
+    """Size and token estimates for one generated AI context."""
+
+    estimated_tokens: int
+    context_size_bytes: int
+    raw_size_bytes: int
+    savings_percentage: float
+
+    @property
+    def context_kb(self) -> float:
+        return self.context_size_bytes / 1024
+
+    @property
+    def raw_kb(self) -> float:
+        return self.raw_size_bytes / 1024
+
+
+def estimate_token_count(text: str, chars_per_token: float = 3.5) -> int:
+    """Estimate LLM tokens using the code/XML heuristic of 3.5 characters."""
+    if not text:
+        return 0
+    if chars_per_token <= 0:
+        raise ValueError("chars_per_token must be greater than zero")
+    return math.ceil(len(text) / chars_per_token)
+
+
+def calculate_context_metrics(
+    context: str,
+    raw_size_bytes: int,
+    chars_per_token: float = 3.5,
+) -> ContextMetrics:
+    """Calculate token, byte-size, and exact raw-repository savings metrics."""
+    context_size = len(context.encode("utf-8"))
+    raw_size = max(0, int(raw_size_bytes))
+    savings = (
+        ((raw_size - context_size) / raw_size) * 100
+        if raw_size
+        else 0.0
+    )
+    return ContextMetrics(
+        estimated_tokens=estimate_token_count(context, chars_per_token),
+        context_size_bytes=context_size,
+        raw_size_bytes=raw_size,
+        savings_percentage=savings,
+    )
+
+
+def format_context_metrics(metrics: ContextMetrics) -> str:
+    """Render the standard ``bck-nd prompt`` metrics footer."""
+    return (
+        f"📊 AI Context: ~{metrics.estimated_tokens:,} tokens "
+        f"({metrics.context_kb:.1f} KB) | ⚡ "
+        f"{metrics.savings_percentage:.1f}% context savings vs raw codebase "
+        f"({metrics.raw_kb:.1f} KB)"
+    )
 
 
 class ContextDumper:
@@ -132,6 +192,45 @@ class ContextDumper:
             return True
 
         return False
+
+    def get_raw_source_size(self) -> int:
+        """Return bytes used by non-ignored source files in the scan scope."""
+        total_bytes = 0
+        for root_dir, dirs, files in os.walk(self.root):
+            current_dir = Path(root_dir)
+            try:
+                current_depth = len(current_dir.relative_to(self.root).parts)
+            except ValueError:
+                current_depth = 0
+
+            if self.depth is not None and current_depth > self.depth:
+                del dirs[:]
+                continue
+
+            dirs[:] = [
+                name
+                for name in dirs
+                if not self._should_ignore(current_dir / name)
+            ]
+            if self.depth is not None and current_depth >= self.depth:
+                del dirs[:]
+
+            for file_name in files:
+                file_path = current_dir / file_name
+                if (
+                    file_path.suffix.lower() not in CODE_EXTENSIONS
+                    or self._should_ignore(file_path)
+                ):
+                    continue
+                try:
+                    total_bytes += file_path.stat().st_size
+                except OSError:
+                    continue
+        return total_bytes
+
+    def get_context_metrics(self, context: str) -> ContextMetrics:
+        """Calculate metrics for generated context against the scanned sources."""
+        return calculate_context_metrics(context, self.get_raw_source_size())
 
     # ──────────────────────────────────────────
     # 2. DIAGRAMAS UML & ER

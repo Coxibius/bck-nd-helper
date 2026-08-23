@@ -932,10 +932,20 @@ def get_asg_graph(root_path: str = ".", depth: int = 3) -> str:
         from bck_nd_hlpr.core.asg import ASGGraph, ASGBuilder
         from bck_nd_hlpr.core.er_parser import parse_project_for_er
         from bck_nd_hlpr.core.route_parser import parse_project_routes
+        from bck_nd_hlpr.core.scanner import ProjectScanner
         from bck_nd_hlpr.cli.formatters import format_asg_json
-        from pathlib import Path
 
         graph = ASGGraph()
+
+        try:
+            uml_classes = ProjectScanner().collect_uml_classes(
+                root_path,
+                max_depth=depth,
+            )
+            if uml_classes:
+                ASGBuilder.from_uml_classes(uml_classes, graph=graph)
+        except Exception:
+            pass
 
         try:
             entities = parse_project_for_er(root_path, max_depth=depth)

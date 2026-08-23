@@ -28,6 +28,19 @@ class ArchitectureDetector:
         "services": ["service", "services"],
         "routes": ["route", "routes", "router", "routers"]
     }
+
+    MONOREPO_SUBPROJECTS = (
+        "frontend",
+        "backend",
+        "client",
+        "server",
+        "apps/web",
+        "apps/api",
+        "packages/web",
+        "packages/api",
+        "web",
+        "api",
+    )
     
     def __init__(self):
         self.framework = None
@@ -84,25 +97,86 @@ class ArchitectureDetector:
                 'features': [],
                 'summary': f"Single file: {root.name}"
             }
-        
+
+        # A detector instance may be reused by API consumers.  Reset all mutable
+        # state so results from a previous project cannot leak into this scan.
+        self.framework = None
+        self.architecture_type = None
+        self.features = set()
+        self.connections = []
+        self.config = self.DEFAULT_CONFIG.copy()
+        self._matched_provider = None
+
         # Load custom configuration
         self._load_config(root)
-        
-        # Detect framework
-        self.framework = self._detect_framework(root)
-        
-        # Detect architecture type
-        self.architecture_type = self._detect_architecture_type(root)
-        
+
+        subprojects = self._detect_monorepo_subprojects(root)
+        if subprojects:
+            self.framework = " + ".join(
+                f"{item['framework']} ({item['label']})" for item in subprojects
+            )
+            self.architecture_type = "Monorepo (Polyglot)"
+            for item in subprojects:
+                self.features.update(item["features"])
+        else:
+            # Detect framework and architecture for a conventional single root.
+            self.framework = self._detect_framework(root)
+            self.architecture_type = self._detect_architecture_type(root)
+
         # Detect specific features
         self._detect_features(root)
         
         return {
             'framework': self.framework,
             'architecture': self.architecture_type,
-            'features': list(self.features),
+            'features': sorted(self.features),
             'summary': self._generate_summary()
         }
+
+    def _detect_monorepo_subprojects(self, root: Path) -> List[Dict[str, Any]]:
+        """Return distinct framework-bearing subprojects in common layouts.
+
+        A repository is considered polyglot only when at least two discovered
+        subprojects resolve to distinct frameworks.  This prevents a regular
+        single-framework project with a directory named ``server`` from being
+        mislabeled as a monorepo.
+        """
+        discovered: List[Dict[str, Any]] = []
+        seen_paths: Set[Path] = set()
+
+        for relative_name in self.MONOREPO_SUBPROJECTS:
+            subproject = root.joinpath(*relative_name.split("/"))
+            if not subproject.is_dir():
+                continue
+            try:
+                resolved = subproject.resolve()
+            except Exception:
+                resolved = subproject
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+
+            child = ArchitectureDetector()
+            child._load_config(subproject)
+            framework = child._detect_framework(subproject)
+            if framework == "Unknown":
+                continue
+            child._detect_features(subproject)
+            discovered.append(
+                {
+                    "label": relative_name,
+                    "path": subproject,
+                    "framework": framework,
+                    "features": set(child.features),
+                }
+            )
+
+        distinct_frameworks = {
+            str(item["framework"]).strip().casefold() for item in discovered
+        }
+        if len(distinct_frameworks) < 2:
+            return []
+        return discovered
     
     def _detect_framework(self, root: Path) -> str:
         """Detects the main framework.
@@ -117,7 +191,15 @@ class ArchitectureDetector:
             provider = registry.detect_provider(root)
             if not isinstance(provider, GenericProvider):
                 self._matched_provider = provider
-                return provider.name
+                try:
+                    info = provider.get_framework_info(root) or {}
+                    self.features.update(info.get("features", []) or [])
+                    orm = info.get("orm")
+                    if orm:
+                        self.features.add(f"{orm} ORM")
+                    return str(info.get("framework") or provider.name)
+                except Exception:
+                    return provider.name
         except Exception:
             pass  # If the provider subsystem fails, fall through to legacy
 
@@ -267,7 +349,11 @@ class ArchitectureDetector:
                     has_routes = True
         
         # Detect Docker
-        if (root / 'docker-compose.yml').exists() or (root / 'Dockerfile').exists():
+        if (
+            (root / 'docker-compose.yml').exists()
+            or (root / 'docker-compose.yaml').exists()
+            or (root / 'Dockerfile').exists()
+        ):
             has_docker = True
             
         # Detect microservices (multiple services in docker-compose)
@@ -311,7 +397,7 @@ class ArchitectureDetector:
         # Docker
         if (root / 'Dockerfile').exists():
             self.features.add('Docker')
-        if (root / 'docker-compose.yml').exists():
+        if (root / 'docker-compose.yml').exists() or (root / 'docker-compose.yaml').exists():
             self.features.add('Docker Compose')
         
         # CI/CD
@@ -343,6 +429,38 @@ class ArchitectureDetector:
                     self.features.add('Django ORM')
             except:
                 continue
+
+        # Polyglot feature pass.  This intentionally uses conservative tokens
+        # and a file-size cap so large generated assets cannot dominate scans.
+        text_extensions = {
+            '.py', '.js', '.jsx', '.ts', '.tsx', '.go', '.rs', '.json',
+            '.toml', '.yaml', '.yml', '.mod',
+        }
+        database_tokens = (
+            'sqlalchemy', 'django.db', 'prisma', 'typeorm', 'sequelize',
+            'mongoose', 'gorm.io', 'database/sql', 'sqlx', 'diesel',
+        )
+        auth_pattern = re.compile(
+            r"\b(jwt|oauth2?|authentication|authorization|auth middleware)\b",
+            re.IGNORECASE,
+        )
+        for source_file in self._safe_walk(root):
+            if source_file.suffix.lower() not in text_extensions:
+                continue
+            try:
+                if source_file.stat().st_size > 2_000_000:
+                    continue
+                content = source_file.read_text(encoding='utf-8', errors='ignore')
+            except Exception:
+                continue
+            lowered = content.lower()
+            if any(token in lowered for token in database_tokens):
+                self.features.add('Database')
+            if (
+                auth_pattern.search(content)
+                or 'auth' in source_file.stem.lower()
+            ):
+                self.features.add('Authentication')
     
     def _generate_summary(self) -> str:
         """Generates a textual summary of the architecture."""

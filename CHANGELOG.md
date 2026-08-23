@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.3] - 2026-08-22
+
+### Added
+
+- **Compiled Backend UML**: Full extraction of Go structs, receiver methods, interfaces and Rust structs, enums, impl blocks, and traits.
+- **Polyglot Monorepo Detector**: Automatic detection and feature aggregation for workspaces containing distinct frontend (Next.js/React) and backend (FastAPI/Go/Django) subdirectories.
+- **Requirement Status Workflow**: `bck-nd req status <STORY_ID> <STATUS>` (alias `set-status`) to transition story states directly from the terminal.
+- **AI Context Metrics**: Token estimation (~3.5 chars/token), context sizing, raw codebase size, and percentage savings printed on every `bck-nd prompt` execution.
+- **Programmatic `--json` Mode**: Stable machine-readable JSON output for single reports or consolidated full scan payloads, compatible with CI/CD and `jq`.
+- **Offline Documentation Portal**: Responsive single-file dashboard in `bck-nd docs` with embedded SVG diagram previews and safe requirements escaping (no CDN/font dependencies).
+
 ## [2.4.2] - 2026-08-22
 
 ### Added
@@ -57,3 +68,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [2.0.0]: https://github.com/Coxibius/bck-nd-helper/releases/tag/v2.0.0
 [2.4.2]: https://github.com/Coxibius/bck-nd-helper/releases/tag/v2.4.2
+[2.4.3]: https://github.com/Coxibius/bck-nd-helper/releases/tag/v2.4.3

@@ -10,34 +10,89 @@
 
 ---
 
-## 🎉 What's New in v2.4.1 — Four Pillars & Requirements Layer
+## 🚦 Release Status
 
-v2.4.1 rebuilds the core engine around **Four Pillars** and adds a brand-new **Context & Requirements Intelligence Layer** — turning `bck-nd-hlpr` from a pure architecture scanner into a context hub that understands both *how* your code is built and *why* it exists.
+### v2.4.3 — Current Stable Release
 
-| Pillar | What it does |
-| --- | --- |
-| ⚡ **Incremental Delta Cache** | Caches scan results in `.bck-nd/cache/delta.json`, delivering sub-0.1s repeat scans on unchanged projects. Force a clean rescan anytime with `--no-cache`. |
-| 🧩 **Autonomous Provider Pattern** | Each supported framework — Laravel, FastAPI, Django, Spring Boot, EF Core, and Node.js — ships as a self-contained semantic provider, owning its own detection, UML, and ER logic. |
-| 🌐 **Abstract Semantic Graph (ASG)** | A unified, in-memory architecture graph (IR) that normalizes every provider's output into one queryable structure, exposed directly to AI agents via the `get_asg_graph` MCP tool. |
-| 🧹 **Scoped Technical Debt Hunter** | Technical debt is now categorized — `TODO(audit)`, `FIXME(security)`, `HACK(perf)`, and more — so debt can be triaged by team and severity instead of dumped into one list. |
+v2.4.3 is the current stable patch release, extending the Four Pillars and Requirements Intelligence layer with compiled-backend UML, polyglot monorepo detection, requirement status workflows, measurable AI context savings, machine-readable scans, and fully offline project documentation.
 
-On top of the Four Pillars, v2.4.1 introduces the **Requirements Intelligence Layer** (`bck-nd req list`, `bck-nd req discover`, injected `<requirements_context>`, and the `get_requirements_summary` MCP tool — see [below](#-context--requirements-intelligence-layer-v241)), TypeScript `interface`/`type` support in UML diagrams, Markdown (`.md`) user story parsing, a `bck-nd --version` / `-v` flag, and a test suite that now sits at **203+ unit tests, 100% pass rate**.
+All changes listed below are implemented and verified by the full test suite.
+
+#### Verified changes — Sprint 1
+
+- **Added — Go UML:** extracts `.go` structs, typed fields, receiver methods, and interfaces through an optional Tree-sitter visitor plus a safe balanced-brace fallback.
+- **Added — Rust UML:** extracts `.rs` structs, enums, impl methods, and traits with the same visitor/fallback safety model.
+- **Added — Polyglot Monorepos:** detects distinct frameworks in common frontend/backend, client/server, apps, packages, web, and API layouts.
+- **Changed — Framework routing:** Gin, Fiber, Go, Actix-web, Actix, Rocket, and Rust route directly to their compiled-language UML extractors.
+- **Changed — ASG parity:** Go/Rust classes and interface semantics now flow into the Abstract Semantic Graph with language metadata.
+- **Verified:** **272 tests passing** after the Sprint 1 integration.
+
+#### Verified changes — Sprint 2
+
+- **Added — Requirement status workflow:** `bck-nd req status <STORY_ID> <STATUS>` (alias `set-status`) updates JSON or Markdown stories using the accepted `TODO`, `IN_PROGRESS`, `TESTING`, `DONE`, and `BLOCKED` states.
+- **Added — AI context metrics:** every `bck-nd prompt` export reports its estimated token count, generated context size, raw non-ignored source size, and context savings percentage.
+- **Preserved — Requirement sources:** Markdown updates modify only the story status badge while retaining sections, formatting, line endings, and existing content; JSON is normalized to clean two-space indentation.
+- **Verified:** **286 tests passing** after the Sprint 2 integration.
+
+#### Verified changes — Sprint 3
+
+- **Added — Machine-readable scans:** `bck-nd scan . --json` emits a consolidated CI-friendly payload with framework metadata, ASG, requirements, health, debt, and security findings; focused analysis flags emit their native report structures.
+- **Added — Direct JSON files:** combine `--json` with `-o result.json` to write clean indented JSON without terminal banners or status text.
+- **Changed — Standalone documentation:** `bck-nd docs` now generates a responsive, single-file dashboard with embedded offline SVG diagram previews and no font or Mermaid CDN dependency.
+- **Added — Requirements portal:** generated documentation includes a safely escaped requirements section and navigation entry whenever `.bck-nd/requirements/` contains stories.
+- **Verified:** **296 tests passing** after the final v2.4.3 sprint integration.
+
+### v2.4.2 — Previous Stable Release
+
+v2.4.2 completes the first stabilization pass over the Four Pillars and Requirements Intelligence layer:
+
+- **Clipboard-ready AI context:** `bck-nd prompt . --copy` / `-c` exports directly to the system clipboard without a Python dependency.
+- **Requirements scaffolding:** `bck-nd req init <STORY_ID>` creates Markdown or JSON story templates, while the standard scan includes a requirements summary.
+- **Unified project metadata:** generated cache state lives in `.bck-nd/cache/`; versionable specifications remain in `.bck-nd/requirements/`.
+- **Stronger TypeScript support:** Next.js and React `interface` and `type` declarations are included in UML/ER extraction.
+- **Safer UML output:** real components whose names contain `Empty` are no longer mistaken for empty placeholder diagrams.
+- **Canonical documentation:** advanced MCP and requirements documentation now lives in this README.
+- **Verified quality:** **248 tests passing** on the v2.4.2 release preparation run.
+
+See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
+
+## 🧭 Documentation Map
+
+- [Quick Start](#-quick-start) — install the CLI and run the main workflows.
+- [Key Features](#-key-features) — capabilities grouped by purpose.
+- [Four Pillars Architecture](#-the-four-pillars-architecture) — cache, providers, ASG, and scoped debt.
+- [Requirements Intelligence](#-context--requirements-intelligence-layer) — create, list, discover, and export user stories.
+- [Command Manual](#-command-manual) — detailed CLI flags and examples.
+- [MCP Integration](#-mcp-integration-claude-desktop--cursor) — connect AI clients.
+- [Advanced Configuration](#advanced-configuration) — client configuration and requirement schemas.
 
 ---
 
 ## ⚡ Quick Start
 
 ```bash
-pip install bck-nd-hlpr
+pip install -U bck-nd-hlpr
+
+# Confirm the installed release
+bck-nd --version
 
 # Scan architecture and generate diagrams
 bck-nd scan .
 
+# Emit the complete scan as JSON for CI/CD
+bck-nd scan . --json
+
 # Export LLM-ready context (tree + UML + ER + requirements + core files)
 bck-nd prompt .
 
-# List and track project requirements
+# Or copy that context directly into the system clipboard
+bck-nd prompt . --copy
+
+# Scaffold, list, and discover project requirements
+bck-nd req init US-001
 bck-nd req list
+bck-nd req status US-001 IN_PROGRESS
+bck-nd req discover US-001
 
 # Connect to Claude Desktop / Cursor (see the Advanced Configuration section)
 bck-nd-mcp
@@ -59,15 +114,16 @@ bck-nd-mcp
 
 ### Detection & Architecture
 
-- 🔍 **Auto-Detection**: Flask, FastAPI, Django, Next.js, Express.js, NestJS, Gin, Actix-web, and more
-- 🧩 **Autonomous Providers**: Laravel, FastAPI, Django, Spring Boot, EF Core, and Node.js each ship as self-contained semantic providers (v2.4.1)
+- 🔍 **Auto-Detection**: Flask, FastAPI, Django, Next.js, Express.js, NestJS, Gin, Fiber, Actix-web, Rocket, and more
+- 🧭 **Polyglot Monorepos**: Detects distinct frontend/backend frameworks and aggregates project features across common workspace layouts
+- 🧩 **Autonomous Providers**: Laravel, FastAPI, Django, Spring Boot, EF Core, and Node.js each ship as self-contained semantic providers
 - 🏭 **Architecture Recognition**: MVC, Microservices, Layered Architecture patterns
 - 🌍 **Polyglot Ready**: C#, Python, JS/TS, Java, PHP, Go, Rust, Docker, Terraform, Prisma, SQL migrations
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
 - 📄 **Automatic `.gitignore` Support**: Excludes ignored files from scans and context dumps
 - 📱 **Expo/React Native Detection**: Appropriate diagramming for mobile projects
 
-### Speed & Structure (v2.4.1)
+### Speed & Structure
 
 - ⚡ **Incremental Delta Cache**: `.bck-nd/cache/delta.json` powers sub-0.1s repeat scans; use `--no-cache` for a clean run
 - 🌐 **Abstract Semantic Graph (ASG)**: Normalized in-memory architecture graph, queryable by AI agents via MCP
@@ -75,22 +131,30 @@ bck-nd-mcp
 ### Diagrams & Visualization
 
 - **Smart Diagrams**: Controllers, Models, Services, Routes — Unicode or Mermaid output
+- 🧱 **Compiled Backend UML**: Go structs/interfaces/receiver methods and Rust structs/enums/traits/impl methods
 - 🎨 **Visual & Mermaid**: Terminal diagrams or copy-paste Mermaid code
 - 🚀 **Auto-Documentation (CI/CD)**: One-command GitHub Actions setup for living docs (`init-ci`)
+- 📴 **Offline Documentation Portal**: Responsive single-file dashboard with embedded SVG fallbacks and requirements
 - 📊 **Jupyter Notebook Lineage** (`--datascience`): Data pipeline flowcharts from `.ipynb` files
+- 🔧 **Machine-Readable Scans** (`scan --json`): Stable JSON reports for CI/CD pipelines and scripts
 
 ### AI & Context
 
 - 🧠 **AI Context Dump** (`bck-nd prompt`): Single LLM-optimized `.txt` with project tree + UML + ER + requirements + core files
-- 📋 **Requirements Context**: `<requirements_context>` block with user stories and business rules injected into `ai_context.txt` (v2.4.1)
+- 📋 **Requirements Context**: `<requirements_context>` block with user stories and business rules injected into `ai_context.txt`
 - 🎯 **Focused Export** (`--uml`, `--er`, `--tree`): Lightweight context files with only the sections you need
+- 📋 **Clipboard Export** (`--copy`, `-c`): Copy full or focused context directly with native OS clipboard tools
+- 📊 **Context Metrics**: Reports estimated tokens, context size, raw source size, and percentage saved on every prompt export
 - 🤖 **BYO-Key AI Analysis**: OpenAI, Anthropic, Gemini, OpenRouter, or local Ollama — no middleware
 - ⚙️ **`--max-core-files N`**: Limit core files exported by `bck-nd prompt`
 
-### Requirements Intelligence (v2.4.1)
+### Requirements Intelligence
 
+- 🧱 **`bck-nd req init`**: Scaffold a standard Markdown or JSON user story under `.bck-nd/requirements/`
 - 📖 **`bck-nd req list`**: Interactive table of User Stories, Status badges, Acceptance Criteria, and Business Rules
+- ✨ **`bck-nd req status`**: Move Markdown or JSON stories through `TODO`, `IN_PROGRESS`, `TESTING`, `DONE`, or `BLOCKED`
 - 🕵️ **`bck-nd req discover`**: Auto-generates a Stakeholder Interview Guide per story
+- 🧾 **Standard Scan Summary**: `bck-nd scan .` includes discovered requirements alongside architecture output
 - 🔌 **`get_requirements_summary`**: MCP tool exposing live requirements state to Claude Desktop / Cursor
 
 ### Quality, Security & Onboarding
@@ -101,14 +165,13 @@ bck-nd-mcp
 - 🛡️ **QA Impact Radius** (`--impact-radius <file>`): Transitive reverse-dependency blast radius
 - 🔌 **API Contract Map** (`--contract`): Match API endpoints to ORM tables and columns
 - ❤️ **Project Health Score** (`--health`): 0–100 score with letter grade (A–F)
-- 🧹 **Scoped Debt Categories**: `TODO(audit)`, `FIXME(security)`, `HACK(perf)`, and more (v2.4.1)
-- ✅ **203+ unit tests, 100% pass rate** — check your installed version with `bck-nd --version` / `-v` (v2.4.1)
+- 🧹 **Scoped Debt Categories**: `TODO(audit)`, `FIXME(security)`, `HACK(perf)`, and more
 
 ---
 
-## 🏛️ The Four Pillars Architecture (v2.4.1)
+## 🏛️ The Four Pillars Architecture
 
-v2.4.1's internal engine was rebuilt around four pillars that work together: the cache accelerates providers, providers feed the graph, and the graph feeds both diagrams and AI.
+The internal engine is organized around four pillars that work together: the cache accelerates providers, providers feed the graph, and the graph feeds both diagrams and AI.
 
 ### 1. ⚡ Incremental Delta Cache
 
@@ -152,9 +215,23 @@ bck-nd scan . --todo
 
 ---
 
-## 📋 Context & Requirements Intelligence Layer (v2.4.1)
+## 📋 Context & Requirements Intelligence Layer
 
 Architecture tells you *how* a system is built. The Requirements Intelligence Layer tells you *why* — turning user stories and business rules into first-class, AI-queryable context alongside your code.
+
+### `bck-nd req init <story_id>`
+
+Creates a versionable requirement template under `.bck-nd/requirements/` so every story begins with the same structure:
+
+```bash
+# Markdown template (default)
+bck-nd req init US-042
+
+# JSON template
+bck-nd req init US-043 --format json
+```
+
+Templates include Role, Want, Benefit, Business Rules, Acceptance Criteria, Required Data, Validations, Exceptions, and Open Questions.
 
 ### `bck-nd req list`
 
@@ -170,9 +247,20 @@ bck-nd req list
 | --- | --- |
 | Story ID | Unique identifier for the user story |
 | Title | Short description of the story |
-| Status | Color-coded badge: `TODO`, `IN_PROGRESS`, `TESTING`, `DONE` |
+| Status | Color-coded badge: `TODO`, `IN_PROGRESS`, `TESTING`, `DONE`, `BLOCKED` |
 | Acceptance Criteria | Conditions that define "done" |
 | Business Rules | Constraints and domain rules tied to the story |
+
+### `bck-nd req status <story_id> <new_status>`
+
+Updates the source requirement file in place. Status names are case-insensitive, and `set-status` is available as an alias:
+
+```bash
+bck-nd req status US-042 IN_PROGRESS
+bck-nd req set-status US-042 DONE
+```
+
+JSON stories may store `status` inside `story` or at the document root. Markdown stories use `# US-042 [IN_PROGRESS] - Title`; all sections below that header remain untouched.
 
 ### `bck-nd req discover [story_id]`
 
@@ -207,18 +295,25 @@ Running `bck-nd prompt .` now injects a `<requirements_context>` XML block direc
 
 The same requirements data is available live inside Claude Desktop or Cursor via the `get_requirements_summary` MCP tool — no need to re-export or re-paste context after every change.
 
+### Standard Scan Integration
+
+`bck-nd scan .` automatically includes the requirements summary when specifications are present, keeping architecture and product intent together in the normal project overview.
+
 ---
 
-## 🚀 Version 2.4.1
+## 🚀 Release History
 
-### v2.4.1 — Four Pillars, Requirements Layer & TypeScript UML
+### v2.4.3 — Compiled UML, Polyglot Detection & Automation
 
-- 🏛️ **Four Pillars core**: Incremental Delta Cache, Autonomous Provider Pattern, Abstract Semantic Graph, and Scoped Technical Debt Hunter — see [What's New in v2.4.1](#-whats-new-in-v241--four-pillars--requirements-layer) above.
-- 📋 **Requirements Intelligence Layer**: `bck-nd req list`, `bck-nd req discover`, injected `<requirements_context>`, and the `get_requirements_summary` MCP tool.
-- 🎨 **TypeScript Interfaces in UML**: Renders TypeScript `interface` and `type` declarations as UML class nodes, extending UML support to Next.js / React / functional codebases.
-- 📖 **Markdown Requirements Support**: `RequirementsParser` and `bck-nd req list` now parse `.md` user story files alongside `.json`.
-- 🔖 **Version Flag**: `bck-nd --version` / `-v` CLI flag.
-- ✅ **203+ unit tests, 100% pass rate**.
+Added Go and Rust UML extraction, polyglot monorepo detection, requirement status transitions, AI context metrics, machine-readable JSON scans, and a standalone offline documentation portal. See the [current stable release summary](#v243--current-stable-release) or [CHANGELOG.md](CHANGELOG.md).
+
+### v2.4.2 — Stabilization & Workflow Integration
+
+Clipboard export, requirement scaffolding, standard-scan requirement summaries, unified `.bck-nd/` storage, stronger TypeScript/Next.js extraction, and UML empty-state fixes. See the [previous stable release summary](#v242--previous-stable-release) or [CHANGELOG.md](CHANGELOG.md).
+
+### v2.4.1 — Four Pillars & Requirements Foundation
+
+Introduced the Incremental Delta Cache, Autonomous Provider Pattern, Abstract Semantic Graph, Scoped Technical Debt Hunter, initial Requirements Intelligence layer, Markdown story parsing, and the CLI version flag.
 
 Full details in [CHANGELOG.md](CHANGELOG.md).
 
@@ -283,8 +378,9 @@ bck-nd docs . --output docs
 - **API Routes:** Sequence diagrams of HTTP endpoints.
 - **UML Class Diagram:** Auto-generated class hierarchy with associations and dependencies.
 - **Entity-Relationship:** E-R diagrams for ORM models (Entity Framework, SQLAlchemy, Django).
-- **Technical Debt:** Actionable table of TODOs and FIXMEs, including v2.4.1 scope tags.
-- Fully self-contained, using MermaidJS CDN for rendering. No heavy build tools required.
+- **Technical Debt:** Actionable table of TODOs and FIXMEs, including scoped tags such as `TODO(audit)` and `FIXME(security)`.
+- **Requirements:** User stories, statuses, acceptance-criteria counts, and business-rule counts when specifications exist.
+- **Offline diagrams:** Embedded SVG previews remain available from `file://`, air-gapped environments, and restricted CI artifacts—no external fonts or Mermaid CDN required.
 
 ---
 
@@ -309,6 +405,14 @@ bck-nd prompt . --depth 6
 # Copy the generated context directly to the system clipboard
 bck-nd prompt . --copy
 ```
+
+Every full or focused export ends with a sizing footer such as:
+
+```text
+📊 AI Context: ~8,420 tokens (28.8 KB) | ⚡ 91.4% context savings vs raw codebase (334.9 KB)
+```
+
+Token counts use a lightweight code/XML estimate of approximately 3.5 characters per token. Raw size includes non-ignored source files in the selected scan depth, so generated files, dependencies, cache content, and `.gitignore` matches do not inflate the comparison.
 
 #### **Focused Mode (`--uml`, `--er`, `--tree`)**
 
@@ -347,7 +451,7 @@ bck-nd prompt . --uml -o my_diagrams.txt
 | `<project_tree>`          | Clean ASCII directory tree (no venv/node_modules)                |
 | `<architecture_uml>`      | UML Class Diagram in Mermaid format                               |
 | `<architecture_er>`       | Entity-Relationship Diagram in Mermaid format                     |
-| `<requirements_context>`  | User stories, status, acceptance criteria, business rules (v2.4.1) |
+| `<requirements_context>`  | User stories, status, acceptance criteria, and business rules       |
 | `<core_files>`            | Content of the 3-5 most important backend files                  |
 
 #### **How to use it**
@@ -410,7 +514,7 @@ erDiagram
 
 ---
 
-### 📋 `req` - Requirements Intelligence Layer (v2.4.1)
+### 📋 `req` - Requirements Intelligence Layer
 
 Track user stories and generate stakeholder discovery guides straight from the terminal — and feed the same data to your AI tools automatically.
 
@@ -444,7 +548,7 @@ Generates a **Stakeholder Interview Guide** for the given story, with discovery 
 
 #### **How it connects to the rest of the toolchain**
 
-- Every `bck-nd prompt .` run injects a `<requirements_context>` block built from the same data (see the [Requirements Intelligence Layer](#-context--requirements-intelligence-layer-v241) section above).
+- Every `bck-nd prompt .` run injects a `<requirements_context>` block built from the same data (see the [Requirements Intelligence Layer](#-context--requirements-intelligence-layer) section above).
 - The `get_requirements_summary` MCP tool exposes this data live to Claude Desktop and Cursor.
 
 > See [Advanced Configuration](#advanced-configuration) for the requirements file format and project setup.
@@ -474,7 +578,7 @@ bck-nd init-ci
 
 ### 🕵️ `scan` - Automatic Architecture Detection
 
-Automatically scans your project, detects the framework and architecture, and generates intelligent diagrams. As of v2.4.1, repeat scans are accelerated by the [Incremental Delta Cache](#1--incremental-delta-cache).
+Automatically scans your project, detects the framework and architecture, and generates intelligent diagrams. Repeat scans are accelerated by the [Incremental Delta Cache](#1--incremental-delta-cache).
 
 #### **Basic Usage**
 
@@ -590,7 +694,7 @@ bck-nd scan . --todo
 
 **Output:**
 
-- Scans for TODO, FIXME, HACK, XXX, BUG comments — now recognizing scope tags like `TODO(audit)`, `FIXME(security)`, and `HACK(perf)` (v2.4.1)
+- Scans for TODO, FIXME, HACK, XXX, BUG comments and recognizes scope tags like `TODO(audit)`, `FIXME(security)`, and `HACK(perf)`
 - Beautiful color-coded table using Rich
 - Shows file, line number, type, scope tag, and message
 - Statistics by debt type and scope category
@@ -736,7 +840,7 @@ bck-nd scan . --tree
 - Generates a clean ASCII directory tree of the project using Unicode box-drawing characters.
 - Automatically and silently filters out ignored directories (such as `node_modules`, `venv`, `.git`, etc.) based on `GLOBAL_IGNORE_DIRS`.
 
-##### 21. **Cache Control** (v2.4.1)
+##### 21. **Cache Control**
 
 ```bash
 # Skip the Incremental Delta Cache and force a full rescan
@@ -748,6 +852,25 @@ bck-nd scan . --no-cache
 - Ignores `.bck-nd/cache/delta.json` and re-parses every file from scratch.
 - Useful right after upgrading `bck-nd-hlpr`, or when debugging stale diagram output.
 - All other modes above accept `--no-cache` too.
+
+##### 22. **Machine-Readable JSON**
+
+```bash
+# Consolidated architecture, ASG, requirements, health, debt, and security data
+bck-nd scan . --json
+
+# One report uses its native JSON structure
+bck-nd scan . --health --json
+bck-nd scan . --todo --json
+bck-nd scan . --req --json
+
+# Write JSON directly without adding terminal banners to the file
+bck-nd scan . --audit --json -o audit.json
+```
+
+With one analysis flag, stdout is that report's native JSON object, array, or value. Combining multiple analysis flags returns an object keyed by report name. `--json` alone returns the consolidated schema with `framework`, `architecture`, `summary`, `features`, `asg`, `requirements`, `health`, `todos`, and `security_risks`.
+
+This mode is designed for `json.loads()`, `jq`, CI quality gates, and automation; human-readable Rich panels and progress banners are suppressed.
 
 > Use `--ai --style <name>` to change AI tone. See [AI Personalities (Fun Styles)](#-ai-personalities-fun-styles) at the end of this document.
 
@@ -860,7 +983,7 @@ bck-nd scan ./legacy --ai --style ramsay
 bck-nd scan ./new-arch --ai --style pro
 ```
 
-### Example 5: Requirements Discovery Before a Sprint (v2.4.1)
+### Example 5: Requirements Discovery Before a Sprint
 
 ```bash
 # See what's outstanding
@@ -893,7 +1016,7 @@ Backend Helper automatically detects:
 | Go                    | Gin, Fiber                                                                                                       |
 | Rust                  | Actix-web, Rocket                                                                                                |
 
-> **v2.4.1:** Laravel, FastAPI, Django, Spring Boot, EF Core, and Node.js now run through the [Autonomous Provider Pattern](#2--autonomous-provider-pattern) — each with its own self-contained detection, UML, and ER logic.
+> Laravel, FastAPI, Django, Spring Boot, EF Core, and Node.js run through the [Autonomous Provider Pattern](#2--autonomous-provider-pattern), each with self-contained detection, UML, and ER logic.
 
 ### **Architecture Patterns**
 
@@ -975,7 +1098,7 @@ bck-nd scan . --ai --provider ollama
 
 ## 🤖 MCP Integration (Claude Desktop / Cursor)
 
-Backend Helper includes an MCP server exposing local architecture and requirements tools directly inside Claude Desktop and Cursor — now **22 tools** as of v2.4.1, including two new additions:
+Backend Helper includes an MCP server exposing **23 local architecture and requirements tools** directly inside Claude Desktop and Cursor, including:
 
 ```bash
 bck-nd-mcp
@@ -1177,14 +1300,14 @@ bck-nd scan . --explain > docs/ARCHITECTURE.md
 bck-nd scan . --ai --style pro > docs/AI_ANALYSIS.md
 ```
 
-### Sprint Planning (v2.4.1)
+### Sprint Planning
 
 ```bash
 # Review outstanding stories before planning
 bck-nd req list
 
 # Prep an interview guide for the next story
-bck-nd req discover US-042 -o interview-guide.md
+bck-nd req discover US-042 > interview-guide.md
 ```
 
 ---
@@ -1500,8 +1623,7 @@ When using the MCP server, AI clients can call the `get_requirements_summary` to
 - [CHANGELOG.md](CHANGELOG.md) - Release history
 - [Advanced Configuration](#advanced-configuration) - MCP setup and requirements file schemas
 - [vscode-extension/README-EXTENSION.md](vscode-extension/README-EXTENSION.md) - VS Code extension guide
-- [IA-context.md](IA-context.md) - Development rules & architecture
-- [ROADMAP.txt](ROADMAP.txt) - Feature roadmap
+- [AUDIT_ROADMAP.md](AUDIT_ROADMAP.md) - Completed parser and provider audit record
 
 ---
 
@@ -1515,7 +1637,7 @@ Backend Helper is designed for **speed**, **intelligence**, and **actionable ins
 
 ## 🤝 Contributing
 
-Issues and PRs welcome! See [IA-context.md](IA-context.md) for development guidelines.
+Issues and pull requests are welcome. Keep fixes reproducible, include regression tests where practical, and document user-visible behavior changes.
 
 ---
 

@@ -233,10 +233,15 @@ class ProjectScanner:
             return " ; ".join(connections)
         return ""
 
-    def scan_uml(self, root_path: str, max_depth: Optional[int] = 5) -> str:
-        """Genera un diagrama de clases UML (Mermaid) multi-lenguaje."""
+    def collect_uml_classes(
+        self,
+        root_path: str,
+        max_depth: Optional[int] = 5,
+    ) -> list[UMLClassInfo]:
+        """Collect normalized UML descriptors from every supported language."""
         root = Path(root_path).resolve()
-        if not root.exists(): return "Error -> Path_Not_Found"
+        if not root.exists():
+            return []
         
         all_classes: list[UMLClassInfo] = []
         
@@ -285,6 +290,30 @@ class ProjectScanner:
             all_classes.extend(parse_project_for_php_uml(root_path, max_depth=max_depth))
         except Exception as e:
             print(f"Error parseando UML PHP: {e}", file=sys.stderr)
+
+        # 6. Go UML Parser
+        try:
+            from bck_nd_hlpr.core.go_parser import parse_project_for_go_uml
+            all_classes.extend(parse_project_for_go_uml(root_path, max_depth=max_depth))
+        except Exception as e:
+            print(f"Error parseando UML Go: {e}", file=sys.stderr)
+
+        # 7. Rust UML Parser
+        try:
+            from bck_nd_hlpr.core.rust_parser import parse_project_for_rust_uml
+            all_classes.extend(parse_project_for_rust_uml(root_path, max_depth=max_depth))
+        except Exception as e:
+            print(f"Error parseando UML Rust: {e}", file=sys.stderr)
+
+        return all_classes
+
+    def scan_uml(self, root_path: str, max_depth: Optional[int] = 5) -> str:
+        """Genera un diagrama de clases UML (Mermaid) multi-lenguaje."""
+        root = Path(root_path).resolve()
+        if not root.exists():
+            return "Error -> Path_Not_Found"
+
+        all_classes = self.collect_uml_classes(root_path, max_depth=max_depth)
 
         if not all_classes:
             return "classDiagram\n    note \"No classes found in scanned directories.\""

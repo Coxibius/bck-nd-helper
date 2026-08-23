@@ -74,6 +74,11 @@ _JS_LOWER = {
 }
 _JAVA_LOWER = {fw.lower() for fw in _JAVA_FRAMEWORKS}
 _PHP_LOWER = {fw.lower() for fw in _PHP_FRAMEWORKS}
+_GO_LOWER = {"gin", "gin (go)", "fiber", "fiber (go)", "go", "golang"}
+_RUST_LOWER = {
+    "actix-web", "actix-web (rust)", "actix", "rocket", "rocket (rust)",
+    "rust",
+}
 
 
 def _match_fw(framework: str) -> str:
@@ -89,6 +94,10 @@ def _match_fw(framework: str) -> str:
         return "java"
     if fw in _PHP_LOWER:
         return "php"
+    if fw in _GO_LOWER:
+        return "go"
+    if fw in _RUST_LOWER:
+        return "rust"
     return "unknown"
 
 
@@ -112,6 +121,12 @@ def build_uml_diagram(path: str, depth: Optional[int], arch_info: Dict[str, Any]
     elif family == "php":
         from bck_nd_hlpr.core.php_parser import parse_project_for_php_uml
         classes = parse_project_for_php_uml(path, max_depth=depth)
+    elif family == "go":
+        from bck_nd_hlpr.core.go_parser import parse_project_for_go_uml
+        classes = parse_project_for_go_uml(path, max_depth=depth)
+    elif family == "rust":
+        from bck_nd_hlpr.core.rust_parser import parse_project_for_rust_uml
+        classes = parse_project_for_rust_uml(path, max_depth=depth)
     else:
         from bck_nd_hlpr.core.scanner import ProjectScanner
         from bck_nd_hlpr.core.uml_parser import is_empty_mermaid_class_diagram
