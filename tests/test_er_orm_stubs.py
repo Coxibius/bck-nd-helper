@@ -12,6 +12,7 @@ from bck_nd_hlpr.er_parser import (
     TypeORMParser, SequelizeParser, EFCoreParser,
     run_orm_parsers, generate_mermaid_er,
 )
+from bck_nd_hlpr.core.js_parser import parse_file_for_js_er, parse_project_for_js_er
 
 
 def _create_project(tmp_path, structure: dict):
@@ -496,3 +497,40 @@ model Post {
         assert "erDiagram" in mermaid
         assert "User" in mermaid
         assert "Post" in mermaid
+
+
+class TestJSTypescriptERRegression:
+    def test_non_orm_typescript_returns_empty_entities(self, tmp_path, capsys):
+        """Ordinary extension/React TypeScript must not produce None or parser noise."""
+        source = tmp_path / "src" / "extension.ts"
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            '''
+import * as vscode from "vscode";
+
+interface SidebarMessage {
+    command: string;
+    payload?: unknown;
+}
+
+export class BackendHelperSidebarProvider
+    implements vscode.WebviewViewProvider {
+    resolveWebviewView(view: vscode.WebviewView): void {
+        view.webview.html = "<main>Backend Helper</main>";
+    }
+}
+
+export const activate = (context: vscode.ExtensionContext) => {
+    context.subscriptions.push(
+        vscode.commands.registerCommand("bck-nd-hlpr.scan", () => undefined),
+    );
+};
+''',
+            encoding="utf-8",
+        )
+
+        assert parse_file_for_js_er(source) == []
+        assert parse_project_for_js_er(str(tmp_path)) == []
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""

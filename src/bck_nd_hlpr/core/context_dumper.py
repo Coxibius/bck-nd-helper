@@ -119,6 +119,10 @@ class ContextDumper:
         self.root = Path(path).resolve()
         self.depth = depth
         self.output_file = output_file
+        self._uml_diagram: Optional[str] = None
+        self._er_diagram: Optional[str] = None
+        self._uml_diagram_cached = False
+        self._er_diagram_cached = False
 
         # Check if it is a mobile project to set the default max_core_files
         self.is_mobile = (
@@ -241,6 +245,9 @@ class ContextDumper:
         Genera el diagrama UML de clases usando la lógica polimórfica
         ya existente en ProjectScanner (reutilización, no duplicación).
         """
+        if self._uml_diagram_cached:
+            return self._uml_diagram
+
         try:
             from bck_nd_hlpr.core.scanner import ProjectScanner
             from bck_nd_hlpr.core.detector import ArchitectureDetector
@@ -289,16 +296,22 @@ class ContextDumper:
                 if not is_empty_mermaid_class_diagram(uml_code):
                     uml_diagram = uml_code
 
-            return uml_diagram
+            self._uml_diagram = uml_diagram
 
         except Exception as e:
             print(f"[ContextDumper] Warning: UML generation failed: {e}", file=sys.stderr)
-            return None
+            self._uml_diagram = None
+
+        self._uml_diagram_cached = True
+        return self._uml_diagram
 
     def get_er_diagram(self) -> Optional[str]:
         """
         Genera el diagrama ER reutilizando la lógica de er_parser + parsers específicos.
         """
+        if self._er_diagram_cached:
+            return self._er_diagram
+
         try:
             from bck_nd_hlpr.core.scanner import ProjectScanner
             from bck_nd_hlpr.core.er_parser import parse_project_for_er, generate_mermaid_er
@@ -307,7 +320,7 @@ class ContextDumper:
             arch_info = scanner.detect_architecture(str(self.root))
             framework = arch_info.get("framework", "")
 
-            entities = None
+            entities = []
 
             if framework == ".NET Core / C#":
                 from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_er
@@ -334,13 +347,14 @@ class ContextDumper:
 
             if entities:
                 er_code = generate_mermaid_er(entities)
-                return er_code if er_code else None
-
-            return None
+                self._er_diagram = er_code if er_code else None
 
         except Exception as e:
             print(f"[ContextDumper] Warning: ER generation failed: {e}", file=sys.stderr)
-            return None
+            self._er_diagram = None
+
+        self._er_diagram_cached = True
+        return self._er_diagram
 
     # ──────────────────────────────────────────
     # 3. CORE FILES

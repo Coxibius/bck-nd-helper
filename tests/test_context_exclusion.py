@@ -408,3 +408,45 @@ class TestContextDumperGitignoreIntegration:
         assert "<architecture_uml>" in content
         assert "<architecture_er>" in content
         assert "<core_files>" in content
+
+    def test_context_dumper_reuses_cached_empty_uml_and_er(self, tmp_path, monkeypatch):
+        """CLI pre-generation followed by build() must not scan diagrams twice."""
+        from bck_nd_hlpr.core import js_parser
+        from bck_nd_hlpr.core.scanner import ProjectScanner
+
+        (tmp_path / "package.json").write_text(
+            '{"dependencies": {"next": "latest"}}',
+            encoding="utf-8",
+        )
+        (tmp_path / "extension.ts").write_text(
+            "export class SidebarProvider {}",
+            encoding="utf-8",
+        )
+
+        calls = {"uml": 0, "er": 0}
+
+        monkeypatch.setattr(
+            ProjectScanner,
+            "detect_architecture",
+            lambda _self, _path: {"framework": "Next.js"},
+        )
+
+        def empty_uml(*_args, **_kwargs):
+            calls["uml"] += 1
+            return []
+
+        def empty_er(*_args, **_kwargs):
+            calls["er"] += 1
+            return []
+
+        monkeypatch.setattr(js_parser, "parse_project_for_js_uml", empty_uml)
+        monkeypatch.setattr(js_parser, "parse_project_for_js_er", empty_er)
+
+        dumper = ContextDumper(path=str(tmp_path), depth=4)
+        assert dumper.get_uml_diagram() is None
+        assert dumper.get_er_diagram() is None
+        context = dumper.build()
+
+        assert "<!-- No UML classes detected in this project. -->" in context
+        assert "<!-- No database models detected in this project. -->" in context
+        assert calls == {"uml": 1, "er": 1}

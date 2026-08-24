@@ -65,3 +65,8 @@ Repository = "https://github.com/Coxibius/bck-nd-helper"
 where = ["src"]
 include = ["bck_nd_hlpr*"]
 exclude = ["tests*", "vscode-extension*", "docs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--basetemp=pytest_temp"
+cache_dir = "pytest_cache"

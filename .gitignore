@@ -36,6 +36,7 @@ pytest_out.txt
 verify_pre_merge.py    # Opcional (si solo tú usas este script de auditoría)
 PRE_MERGE_REPORT.md
 temp_verification_reports/
+pytest_*/
 
 # ==========================================
 # 📄 Volcados de Contexto y Diagramas Temporales
@@ -56,8 +57,4 @@ docs_main/
 docs_developer/
 docs
 docs_test/
-
-verify_pre_merge.py
-AUDIT_ROADMAP.md
-
 RELEV-Context.md

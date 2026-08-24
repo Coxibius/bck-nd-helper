@@ -1623,7 +1623,6 @@ When using the MCP server, AI clients can call the `get_requirements_summary` to
 - [CHANGELOG.md](CHANGELOG.md) - Release history
 - [Advanced Configuration](#advanced-configuration) - MCP setup and requirements file schemas
 - [vscode-extension/README-EXTENSION.md](vscode-extension/README-EXTENSION.md) - VS Code extension guide
-- [AUDIT_ROADMAP.md](AUDIT_ROADMAP.md) - Completed parser and provider audit record
 
 ---
 

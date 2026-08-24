@@ -888,65 +888,94 @@ class JSERVisitor(BaseTreeSitterVisitor):
                         self.entities.append(entity)
         self.generic_visit(node)
 
-    def _check_model_definition(self, node: Node) -> None:
-        func = node.child_by_field_name("function")
-        args = node.child_by_field_name("arguments")
-        if not func or not args:
-            return
-
-        func_text = self.text(func)
-
-        if func_text.endswith(".model") or func_text == "model":
-            if args.named_child_count >= 1:
-                name_arg = args.named_child(0)
-                if name_arg.type == "string":
-                    name = self.text(name_arg).strip("'\"")
-                    entity = EREntity(name)
-                    if args.named_child_count >= 2:
-                        schema_arg = args.named_child(1)
-                        self._parse_mongoose_schema(schema_arg, entity)
-                    self.entities.append(entity)
-
-        elif func_text.endswith(".define"):
-            if args.named_child_count >= 2:
-                name_arg = args.named_child(0)
-                schema_arg = args.named_child(1)
-                if name_arg.type == "string":
-                    name = self.text(name_arg).strip("'\"")
-                    entity = EREntity(name)
-                    if schema_arg.type == "object":
-                        self._parse_sequelize_schema(schema_arg, entity)
-                    self.entities.append(entity)
-
-    def _parse_mongoose_schema(self, node: Node, entity: EREntity) -> None:
-        if node.type == "new_expression":
+    def _check_model_definition(self, node: Node) -> List[EREntity]:
+        """Extract model calls and always return a safe entity collection."""
+        discovered: List[EREntity] = []
+        try:
+            func = node.child_by_field_name("function")
             args = node.child_by_field_name("arguments")
-            if args and args.named_child_count > 0:
-                obj = args.named_child(0)
-                if obj.type == "object":
-                    for pair in self.descendants(obj, "pair"):
-                        key = pair.child_by_field_name("key")
-                        if key:
-                            entity.columns.append((self.text(key), "Field"))
+            if not func or not args:
+                return discovered
 
-    def _parse_sequelize_schema(self, node: Node, entity: EREntity) -> None:
-        for pair in self.descendants(node, "pair"):
-            key = pair.child_by_field_name("key")
-            if key:
-                entity.columns.append((self.text(key), "Field"))
+            func_text = self.text(func)
 
-    def _parse_generic_dto_class(self, node: Node, entity: EREntity) -> None:
+            if func_text.endswith(".model") or func_text == "model":
+                if args.named_child_count >= 1:
+                    name_arg = args.named_child(0)
+                    if name_arg.type == "string":
+                        name = self.text(name_arg).strip("'\"")
+                        entity = EREntity(name)
+                        if args.named_child_count >= 2:
+                            schema_arg = args.named_child(1)
+                            self._parse_mongoose_schema(schema_arg, entity)
+                        discovered.append(entity)
+
+            elif func_text.endswith(".define"):
+                if args.named_child_count >= 2:
+                    name_arg = args.named_child(0)
+                    schema_arg = args.named_child(1)
+                    if name_arg.type == "string":
+                        name = self.text(name_arg).strip("'\"")
+                        entity = EREntity(name)
+                        if schema_arg.type == "object":
+                            self._parse_sequelize_schema(schema_arg, entity)
+                        discovered.append(entity)
+        except Exception:
+            return []
+
+        self.entities.extend(discovered)
+        return discovered
+
+    def _parse_mongoose_schema(self, node: Node, entity: EREntity) -> List[tuple[str, str]]:
+        """Populate a Mongoose entity and return the extracted columns safely."""
+        columns: List[tuple[str, str]] = []
+        try:
+            if node.type == "new_expression":
+                args = node.child_by_field_name("arguments")
+                if args and args.named_child_count > 0:
+                    obj = args.named_child(0)
+                    if obj.type == "object":
+                        for pair in self.descendants(obj, "pair") or []:
+                            key = pair.child_by_field_name("key")
+                            if key:
+                                columns.append((self.text(key), "Field"))
+        except Exception:
+            return []
+        entity.columns.extend(columns)
+        return columns
+
+    def _parse_sequelize_schema(self, node: Node, entity: EREntity) -> List[tuple[str, str]]:
+        """Populate a Sequelize entity and return the extracted columns safely."""
+        columns: List[tuple[str, str]] = []
+        try:
+            for pair in self.descendants(node, "pair") or []:
+                key = pair.child_by_field_name("key")
+                if key:
+                    columns.append((self.text(key), "Field"))
+        except Exception:
+            return []
+        entity.columns.extend(columns)
+        return columns
+
+    def _parse_generic_dto_class(self, node: Node, entity: EREntity) -> List[tuple[str, str]]:
+        """Populate a DTO entity and return the extracted columns safely."""
+        columns: List[tuple[str, str]] = []
         body = node.child_by_field_name("body")
         if body is None:
-            return
-        for child in body.children:
-            if child.type == "public_field_definition":
-                name_node = child.child_by_field_name("name")
-                type_node = child.child_by_field_name("type")
-                if name_node:
-                    field_name = self.text(name_node)
-                    field_type = self.text(type_node).lstrip(": ").strip() if type_node else "any"
-                    entity.columns.append((field_name, field_type))
+            return columns
+        try:
+            for child in getattr(body, "children", []) or []:
+                if child.type == "public_field_definition":
+                    name_node = child.child_by_field_name("name")
+                    type_node = child.child_by_field_name("type")
+                    if name_node:
+                        field_name = self.text(name_node)
+                        field_type = self.text(type_node).lstrip(": ").strip() if type_node else "any"
+                        columns.append((field_name, field_type))
+        except Exception:
+            return []
+        entity.columns.extend(columns)
+        return columns
 
 
 DEFAULT_JS_UML_NAME_HINTS = (
@@ -996,24 +1025,54 @@ def parse_project_for_js_uml(
     return all_classes
 
 
+def parse_file_for_js_er(file_path: Path | str) -> List[EREntity]:
+    """Parse one JS/TS source file for ER entities without ever returning ``None``."""
+    try:
+        path = Path(file_path).resolve()
+        if not path.is_file() or path.suffix.lower() not in (".js", ".jsx", ".ts", ".tsx", ".mjs"):
+            return []
+
+        parser = _parser_for_file(path)
+        if parser is None:
+            return []
+
+        source_bytes = read_source_bytes(path)
+        tree = parser.parse(source_bytes)
+        visitor = JSERVisitor(source_bytes)
+        visitor.visit(tree.root_node)
+        return list(visitor.entities or [])
+    except Exception:
+        # A single unsupported or malformed AST must never abort a project scan.
+        return []
+
+
 def parse_project_for_js_er(root_path: str, max_depth: Optional[int] = 4) -> List[EREntity]:
-    if not PARSER:
+    """Parse a JS/TS project for ER entities, returning ``[]`` when none exist.
+
+    Relationships are stored on each :class:`EREntity`; the public ER parser
+    contract is therefore one entity list rather than a separate tuple.
+    """
+    if not any((PARSER, TS_PARSER, TSX_PARSER)):
         return []
 
     all_entities: List[EREntity] = []
-    for file_path, _rel_path in walk_source_files(root_path, (".js", ".jsx", ".ts", ".tsx", ".mjs"), max_depth=max_depth):
-        try:
-            parser = _parser_for_file(file_path)
-            if parser is None:
+    try:
+        files = walk_source_files(
+            root_path,
+            (".js", ".jsx", ".ts", ".tsx", ".mjs"),
+            max_depth=max_depth,
+        )
+        for file_path, _rel_path in files:
+            try:
+                entities = parse_file_for_js_er(file_path)
+                if entities:
+                    all_entities.extend(entities)
+            except Exception:
+                # Keep scanning after an unexpected file-specific AST shape.
                 continue
-            source_bytes = read_source_bytes(file_path)
-            tree = parser.parse(source_bytes)
-
-            visitor = JSERVisitor(source_bytes)
-            visitor.visit(tree.root_node)
-            all_entities.extend(visitor.entities)
-        except Exception:
-            continue
+    except Exception:
+        return []
+    return all_entities
 def parse_js_content(content: str, filename: str = "file.ts") -> List[UMLClassInfo]:
     """Parse JavaScript/TypeScript source string directly into UMLClassInfo objects."""
     source_bytes = content.encode("utf-8") if isinstance(content, str) else content
