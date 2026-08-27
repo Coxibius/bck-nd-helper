@@ -11,6 +11,14 @@ from .models import (
     ProductStatus,
 )
 from .parser import ProductParser
+from .renderer import (
+    DEFAULT_PRODUCT_CONTEXT_CHARS,
+    MIN_PRODUCT_CONTEXT_CHARS,
+    ProductContextBudgetError,
+    ProductContextError,
+    ProductContextPathError,
+    build_product_context,
+)
 from .service import (
     DEFAULT_PRODUCT_ID,
     PRODUCT_SCHEMA_VERSION,
@@ -34,9 +42,14 @@ from .validator import ProductValidator
 
 __all__ = [
     "DEFAULT_PRODUCT_ID",
+    "DEFAULT_PRODUCT_CONTEXT_CHARS",
     "DiagnosticSeverity",
     "PRODUCT_SCHEMA_VERSION",
+    "MIN_PRODUCT_CONTEXT_CHARS",
     "ProductCollisionError",
+    "ProductContextBudgetError",
+    "ProductContextError",
+    "ProductContextPathError",
     "ProductCollectionResult",
     "ProductCreateResult",
     "ProductDiagnostic",
@@ -59,5 +72,6 @@ __all__ = [
     "ProductValidationReport",
     "ProductValidator",
     "ProductWriteError",
+    "build_product_context",
     "render_product_template",
 ]

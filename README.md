@@ -150,7 +150,7 @@ bck-nd-mcp --install
 
 - 🧠 **AI Context Dump** (`bck-nd prompt`): Single LLM-optimized `.txt` with project tree + UML + ER + requirements + core files
 - 📋 **Requirements Context**: `<requirements_context>` block with user stories and business rules injected into `ai_context.txt`
-- 🎯 **Focused Export** (`--uml`, `--er`, `--tree`): Lightweight context files with only the sections you need
+- 🎯 **Focused Export** (`--uml`, `--er`, `--tree`): Product-aware context plus the requested technical sections; add `--no-prd` for strictly technical output
 - 📋 **Clipboard Export** (`--copy`, `-c`): Copy full or focused context directly with native OS clipboard tools
 - 📊 **Context Metrics**: Reports estimated tokens, context size, raw source size, and percentage saved on every prompt export
 - 🤖 **BYO-Key AI Analysis**: OpenAI, Anthropic, Gemini, OpenRouter, or local Ollama — no middleware
@@ -424,7 +424,7 @@ Token counts use a lightweight code/XML estimate of approximately 3.5 characters
 
 #### **Focused Mode (`--uml`, `--er`, `--tree`)**
 
-Export **only** the sections you need into a lightweight file. The default output filename adapts dynamically:
+Focused exports include applicable product context plus the requested technical sections by default. Add `--no-prd` when you need strictly technical output. The default output filename adapts dynamically:
 
 | Flags used          | Default output file          |
 | ------------------- | ----------------------------- |
@@ -436,13 +436,13 @@ Export **only** the sections you need into a lightweight file. The default outpu
 | *(no flags)*        | `ai_context.txt`             |
 
 ```bash
-# UML diagram only
+# Product context + UML (add --no-prd for UML only)
 bck-nd prompt . --uml
 
-# ER diagram only
+# Product context + ER (add --no-prd for ER only)
 bck-nd prompt . --er
 
-# Project tree only
+# Product context + project tree (add --no-prd for tree only)
 bck-nd prompt . --tree
 
 # Combine: UML + ER diagrams

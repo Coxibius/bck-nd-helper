@@ -47,6 +47,11 @@ from bck_nd_hlpr.core.doc_generator import DocGenerator
 from bck_nd_hlpr.core.ci_generator import generate_ci_workflow
 from bck_nd_hlpr.core.traceability import parse_project_traceability, generate_mermaid_traceability
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
+from bck_nd_hlpr.core.product.renderer import (
+    DEFAULT_PRODUCT_CONTEXT_CHARS,
+    ProductContextError,
+    build_product_context,
+)
 from bck_nd_hlpr.cli.formatters import (
     get_todos_table_string,
     get_security_report_string,
@@ -76,6 +81,7 @@ ROUTING GUIDE — call the right tool for the right question:
 - "trace endpoints / route to database / data flow?" → get_traceability_diagram
 - "project structure / file tree / directory layout?" → get_project_tree
 - "requirements / user stories / acceptance criteria / business rules?" → get_requirements_summary
+- "product intent / PRD / scope / goals?"       → get_product_context
 - "setup CI / GitHub Actions / auto-documentation workflow?" → init_ci
 
 Default path is always "." (current directory) unless the user specifies a different path.
@@ -1024,6 +1030,36 @@ def get_architecture_summary(root_path: str = ".", depth: int = 3) -> str:
         return "\n".join(summary_lines)
     except Exception as e:
         return f"Error getting architecture summary: {str(e)}\n{traceback.format_exc()}"
+
+
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_product_context(
+    project_path: str = ".",
+    target_path: str = ".",
+    max_chars: int = DEFAULT_PRODUCT_CONTEXT_CHARS,
+) -> str:
+    """Return applicable, validated product intent as canonical read-only context.
+
+    AI clients should consult this tool before proposing changes to product scope,
+    goals, target users, or release behavior. The result is the same deterministic
+    ``<product_context>`` block used by ``bck-nd prompt`` and ContextDumper.
+
+    Args:
+        project_path: Selected project root. Default ".".
+        target_path: Safe project-relative scope such as "." or "frontend/src".
+        max_chars: Total character budget for the complete canonical block.
+    """
+    try:
+        return build_product_context(
+            project_path,
+            target_path=target_path,
+            max_chars=max_chars,
+        ) or ""
+    except ProductContextError as exc:
+        return f"Error building product context: {exc}"
+    except Exception:
+        return "Error building product context safely."
 
 
 @mcp.tool()

@@ -13,6 +13,11 @@ from typing import List, Optional
 
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
 from bck_nd_hlpr.core.utils.gitignore_parser import parse_gitignore, matches_gitignore
+from bck_nd_hlpr.core.product.renderer import (
+    DEFAULT_PRODUCT_CONTEXT_CHARS,
+    ProductContextError,
+    build_product_context,
+)
 
 
 # ──────────────────────────────────────────────
@@ -129,10 +134,22 @@ class ContextDumper:
     optimizado para LLMs (ChatGPT, Claude, Gemini, etc.)
     """
 
-    def __init__(self, path: str = ".", depth: Optional[int] = None, output_file: str = DEFAULT_OUTPUT_FILE, max_core_files: Optional[int] = None):
+    def __init__(
+        self,
+        path: str = ".",
+        depth: Optional[int] = None,
+        output_file: str = DEFAULT_OUTPUT_FILE,
+        max_core_files: Optional[int] = None,
+        include_prd: bool = True,
+        max_product_chars: int = DEFAULT_PRODUCT_CONTEXT_CHARS,
+    ):
         self.root = Path(path).resolve()
         self.depth = depth
         self.output_file = output_file
+        self.include_prd = include_prd
+        self.max_product_chars = max_product_chars
+        self._product_context: Optional[str] = None
+        self._product_context_cached = False
         self._uml_diagram: Optional[str] = None
         self._er_diagram: Optional[str] = None
         self._uml_diagram_cached = False
@@ -644,6 +661,26 @@ class ContextDumper:
     # 4. REQUERIMIENTOS / HISTORIAS DE USUARIO
     # ──────────────────────────────────────────
 
+    def get_product_context(self) -> Optional[str]:
+        """Return the canonical PRD block without reimplementing domain policy."""
+        if not self.include_prd:
+            return None
+        if not self._product_context_cached:
+            try:
+                self._product_context = build_product_context(
+                    self.root,
+                    target_path=".",
+                    max_chars=self.max_product_chars,
+                )
+            except ProductContextError as exc:
+                print(
+                    f"[ContextDumper] Warning: Product context unavailable: {exc}",
+                    file=sys.stderr,
+                )
+                self._product_context = None
+            self._product_context_cached = True
+        return self._product_context
+
     def get_requirements_context(self) -> Optional[str]:
         """
         Lee y formatea las especificaciones de requerimientos e historias de usuario
@@ -746,6 +783,19 @@ class ContextDumper:
             f"<!-- ============================================================ -->\n"
         )
 
+        product_context = self.get_product_context()
+        if product_context:
+            sections.append(f"{product_context}\n")
+
+            if include_requirements:
+                sections.append("<requirements_context>")
+                req_ctx = self.get_requirements_context()
+                if req_ctx:
+                    sections.append(req_ctx)
+                else:
+                    sections.append("<!-- No requirements detected in .bck-nd/requirements/. -->")
+                sections.append("</requirements_context>\n")
+
         # ── Tree ──────────────────────────────────────────────────────────
         if include_tree:
             sections.append("<project_tree>")
@@ -777,7 +827,7 @@ class ContextDumper:
             sections.append("</architecture_er>\n")
 
         # ── Requirements ──────────────────────────────────────────────────
-        if include_requirements:
+        if include_requirements and not product_context:
             sections.append("<requirements_context>")
             req_ctx = self.get_requirements_context()
             if req_ctx:
@@ -809,6 +859,16 @@ class ContextDumper:
             f"<!-- ============================================================ -->\n"
         )
 
+        product_context = self.get_product_context()
+        if product_context:
+            sections.append(f"{product_context}\n")
+
+            req_ctx = self.get_requirements_context()
+            if req_ctx:
+                sections.append("<requirements_context>")
+                sections.append(req_ctx)
+                sections.append("</requirements_context>\n")
+
         # ── 1. Project Tree ───────────────────────────────────────────────
         sections.append("<project_tree>")
         sections.append(self.get_project_tree())
@@ -837,11 +897,12 @@ class ContextDumper:
         sections.append("</architecture_er>\n")
 
         # ── 4. Requirements Context ───────────────────────────────────────
-        req_ctx = self.get_requirements_context()
-        if req_ctx:
-            sections.append("<requirements_context>")
-            sections.append(req_ctx)
-            sections.append("</requirements_context>\n")
+        if not product_context:
+            req_ctx = self.get_requirements_context()
+            if req_ctx:
+                sections.append("<requirements_context>")
+                sections.append(req_ctx)
+                sections.append("</requirements_context>\n")
 
         # ── 5. Core Files ─────────────────────────────────────────────────
         sections.append("<core_files>")

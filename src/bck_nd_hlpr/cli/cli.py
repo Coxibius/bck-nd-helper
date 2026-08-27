@@ -35,6 +35,10 @@ from bck_nd_hlpr.core.context_dumper import (
     ContextDumper,
     format_context_metrics,
 )
+from bck_nd_hlpr.core.product.renderer import (
+    DEFAULT_PRODUCT_CONTEXT_CHARS,
+    MIN_PRODUCT_CONTEXT_CHARS,
+)
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
 from bck_nd_hlpr.core.analysis import (
     ScanContext,
@@ -968,15 +972,23 @@ def prompt_cmd(
     output: str = typer.Option("ai_context.txt", "--output", "-o", help="Output file path/name for the context dump (default adapts to flags). Example: bck-nd prompt . -o context.txt"),
     depth: Optional[int] = typer.Option(None, "--depth", "-d", help="Directory scan depth (default: unlimited). Set a value to cap recursion. Example: bck-nd prompt . --depth 6"),
     max_core_files: Optional[int] = typer.Option(None, "--max-core-files", help="Maximum number of core files to include in the context dump (default: 8 for mobile, 5 for backend)."),
-    uml: bool = typer.Option(False, "--uml", help="Generate a focused UML-only context file (default output: ai_context_uml.txt)."),
-    er: bool = typer.Option(False, "--er", help="Generate a focused ER-only context file (default output: ai_context_er.txt)."),
-    tree: bool = typer.Option(False, "--tree", help="Generate a focused tree-only context file (default output: ai_context_tree.txt)."),
+    uml: bool = typer.Option(False, "--uml", help="Generate product-aware focused context with UML (use --no-prd for strictly technical output)."),
+    er: bool = typer.Option(False, "--er", help="Generate product-aware focused context with ER (use --no-prd for strictly technical output)."),
+    tree: bool = typer.Option(False, "--tree", help="Generate product-aware focused context with project tree (use --no-prd for strictly technical output)."),
     copy_to_clipboard: bool = typer.Option(False, "--copy", "-c", help="Automatically copy generated context to system clipboard."),
+    no_prd: bool = typer.Option(False, "--no-prd", help="Exclude local PRD product context without modifying its source files."),
+    max_product_chars: int = typer.Option(
+        DEFAULT_PRODUCT_CONTEXT_CHARS,
+        "--max-product-chars",
+        min=MIN_PRODUCT_CONTEXT_CHARS,
+        help="Maximum characters for the complete product context block.",
+    ),
 ):
     """
     Export AI-ready context with requirements, diagrams, core files, and metrics.
 
     Default (no flags) — full context dump:
+    - <product_context>: applicable product intent, provenance, and trust status
     - <project_tree>: filtered directory tree
     - <architecture_uml>: Mermaid classDiagram
     - <architecture_er>: Mermaid erDiagram
@@ -985,7 +997,8 @@ def prompt_cmd(
     - Metrics: estimated tokens, context size, and savings vs raw source
 
     Focused mode (--uml, --er, --tree):
-    - Exports ONLY the requested sections into a lightweight file.
+    - Includes applicable product context plus the requested technical sections.
+    - Use --no-prd for strictly technical requested sections only.
     - Default filename adapts: ai_context_uml.txt, ai_context_er.txt, etc.
     - Flags can be combined: --uml --er → ai_context_diagrams.txt
 
@@ -1003,6 +1016,8 @@ def prompt_cmd(
     - bck-nd prompt . --tree
     - bck-nd prompt . --uml --er
     - bck-nd prompt . --copy
+    - bck-nd prompt . --no-prd
+    - bck-nd prompt . --max-product-chars 4000
     """
     # ── Detect focused mode ──────────────────────────────────────────────
     focused_mode = uml or er or tree
@@ -1030,6 +1045,8 @@ def prompt_cmd(
             depth=depth,
             output_file=output,
             max_core_files=max_core_files,
+            include_prd=not no_prd,
+            max_product_chars=max_product_chars,
         )
         if focused_mode:
             context = dumper.build_focused(include_tree=tree, include_uml=uml, include_er=er)
@@ -1071,6 +1088,8 @@ def prompt_cmd(
             depth=depth,
             output_file=Path(output).name,
             max_core_files=max_core_files,
+            include_prd=not no_prd,
+            max_product_chars=max_product_chars,
         )
 
         total_steps = sum([tree, uml, er])
@@ -1145,6 +1164,8 @@ def prompt_cmd(
         depth=depth,
         output_file=Path(output).name,
         max_core_files=max_core_files,
+        include_prd=not no_prd,
+        max_product_chars=max_product_chars,
     )
 
     typer.secho("  [1/4] Building directory tree...", fg=typer.colors.CYAN)

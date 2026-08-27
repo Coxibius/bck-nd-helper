@@ -24,12 +24,22 @@ def test_root_help_lists_current_workflows():
 
 def test_prompt_help_describes_requirements_copy_and_metrics():
     result = runner.invoke(app, ["prompt", "--help"])
+    compact_help = " ".join(result.stdout.replace("│", " ").split())
 
     assert result.exit_code == 0, result.exception
     assert "requirements, diagrams, core files, and metrics" in result.stdout
     assert "--copy" in result.stdout
     assert "--max-core-files" in result.stdout
+    assert "--no-prd" in result.stdout
+    assert "--max-product-chars" in result.stdout
     assert "estimated tokens" in result.stdout
+    assert "product-aware focused context with UML" in compact_help
+    assert "product-aware focused context with ER" in compact_help
+    assert "product-aware focused context with project tree" in compact_help
+    assert "strictly technical" in compact_help
+    assert "UML-only" not in result.stdout
+    assert "ER-only" not in result.stdout
+    assert "tree-only" not in result.stdout
 
 
 def test_requirements_help_lists_current_workflow_commands():
