@@ -6,12 +6,12 @@ import ast
 import csv
 import io
 import json
-import os
 import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.base_tree_sitter import walk_source_files
+from bck_nd_hlpr.core.utils.indexer import FileSystemIndexer
 
 class EREntity:
     """Representa una entidad (tabla) en el diagrama ER."""
@@ -835,34 +835,24 @@ class ORMParserStub:
 
     def _walk_files(self, root_path: str, extensions: tuple, name_hints: list = None, max_depth: Optional[int] = 3):
         """Helper: yield (file_path, content) for matching files."""
-        root = Path(root_path)
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
+        for fp, _rel_path in walk_source_files(
+            root_path, extensions, max_depth=max_depth
+        ):
+            if name_hints:
+                f_lower = fp.name.lower()
+                if not any(h in f_lower for h in name_hints):
+                    continue
             try:
-                depth = len(Path(root_dir).relative_to(root).parts)
-            except ValueError:
-                depth = 0
-            if max_depth is not None and depth > max_depth:
+                with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                    yield fp, fh.read()
+            except Exception:
                 continue
-            for f in files:
-                if not f.endswith(extensions):
-                    continue
-                if name_hints:
-                    f_lower = f.lower()
-                    if not any(h in f_lower for h in name_hints):
-                        continue
-                fp = Path(root_dir) / f
-                try:
-                    with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
-                        yield fp, fh.read()
-                except Exception:
-                    continue
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         """¿Existe este ORM en el proyecto?"""
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         """Extraer entidades y relaciones."""
         return []
 
@@ -888,19 +878,23 @@ class SQLAlchemyParser(ORMParserStub):
     """
     name = "sqlalchemy"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".py",), ["model", "schema"]):
+            for _, content in self._walk_files(
+                root_path, (".py",), ["model", "schema"], max_depth=max_depth
+            ):
                 if re.search(r'(?:declarative_base|Column|relationship|mapped_column|Mapped)\s*\(?', content):
                     return True
         except Exception:
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            for _, content in self._walk_files(root_path, (".py",), ["model", "schema"]):
+            for _, content in self._walk_files(
+                root_path, (".py",), ["model", "schema"], max_depth=max_depth
+            ):
                 try:
                     # Buscar clases que heredan de Base / DeclarativeBase / Model
                     class_matches = re.finditer(
@@ -988,19 +982,23 @@ class DjangoORMParser(ORMParserStub):
     """
     name = "django"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".py",), ["model"]):
+            for _, content in self._walk_files(
+                root_path, (".py",), ["model"], max_depth=max_depth
+            ):
                 if re.search(r'(?:models\.Model|ForeignKey|ManyToManyField|OneToOneField)', content):
                     return True
         except Exception:
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            for _, content in self._walk_files(root_path, (".py",), ["model"]):
+            for _, content in self._walk_files(
+                root_path, (".py",), ["model"], max_depth=max_depth
+            ):
                 try:
                     class_matches = re.finditer(
                         r'class\s+(\w+)\s*\(\s*(?:\w+\.)*(?:Model|AbstractUser)\s*(?:,\s*\w+)*\s*\)\s*:',
@@ -1066,25 +1064,24 @@ class PrismaParser(ORMParserStub):
     """
     name = "prisma"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            root = Path(root_path)
-            for root_dir, dirs, files in os.walk(root):
-                dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-                if "schema.prisma" in files:
+            for fp, _content in self._walk_files(
+                root_path, (".prisma",), ["schema"], max_depth=max_depth
+            ):
+                if fp.name == "schema.prisma":
                     return True
         except Exception:
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            root = Path(root_path)
-            for root_dir, dirs, files in os.walk(root):
-                dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-                if "schema.prisma" in files:
-                    fp = Path(root_dir) / "schema.prisma"
+            for fp, _content in self._walk_files(
+                root_path, (".prisma",), ["schema"], max_depth=max_depth
+            ):
+                if fp.name == "schema.prisma":
                     entities.extend(parse_prisma_schema(fp))
         except Exception:
             pass
@@ -1099,9 +1096,11 @@ class TypeORMParser(ORMParserStub):
     """
     name = "typeorm"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".ts",), ["entity", "model"]):
+            for _, content in self._walk_files(
+                root_path, (".ts",), ["entity", "model"], max_depth=max_depth
+            ):
                 cleaned = re.sub(r'//.*', '', content)
                 cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
                 if re.search(r'@Entity\s*\(', cleaned):
@@ -1110,10 +1109,12 @@ class TypeORMParser(ORMParserStub):
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            for _, content in self._walk_files(root_path, (".ts",), ["entity", "model"]):
+            for _, content in self._walk_files(
+                root_path, (".ts",), ["entity", "model"], max_depth=max_depth
+            ):
                 try:
                     if not re.search(r'@Entity\s*\(', content):
                         continue
@@ -1179,19 +1180,23 @@ class SequelizeParser(ORMParserStub):
     """
     name = "sequelize"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".js", ".ts"), ["model"]):
+            for _, content in self._walk_files(
+                root_path, (".js", ".ts"), ["model"], max_depth=max_depth
+            ):
                 if re.search(r'(?:Model\.init|sequelize\.define|\.belongsTo|\.hasMany|\.hasOne|\.belongsToMany)\s*\(', content):
                     return True
         except Exception:
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            for fp, content in self._walk_files(root_path, (".js", ".ts"), ["model"]):
+            for fp, content in self._walk_files(
+                root_path, (".js", ".ts"), ["model"], max_depth=max_depth
+            ):
                 try:
                     file_entities = []
 
@@ -1278,9 +1283,14 @@ class EFCoreParser(ORMParserStub):
     """
     name = "efcore"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".cs",), ["context", "dbcontext", "model"]):
+            for _, content in self._walk_files(
+                root_path,
+                (".cs",),
+                ["context", "dbcontext", "model"],
+                max_depth=max_depth,
+            ):
                 # Remove line and block comments to avoid false positives
                 cleaned = re.sub(r'//.*', '', content)
                 cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
@@ -1290,13 +1300,18 @@ class EFCoreParser(ORMParserStub):
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
             entities_from_dbset = set()
 
             # Paso 1: Buscar DbContext para extraer DbSet<T> como entidades
-            for _, content in self._walk_files(root_path, (".cs",), ["context", "dbcontext"]):
+            for _, content in self._walk_files(
+                root_path,
+                (".cs",),
+                ["context", "dbcontext"],
+                max_depth=max_depth,
+            ):
                 try:
                     dbset_matches = re.finditer(r'DbSet\s*<\s*(\w+)\s*>', content)
                     for dm in dbset_matches:
@@ -1306,7 +1321,12 @@ class EFCoreParser(ORMParserStub):
                     pass
 
             # Paso 2: Buscar archivos de modelo para extraer propiedades
-            for _, content in self._walk_files(root_path, (".cs",), ["model", "entity"]):
+            for _, content in self._walk_files(
+                root_path,
+                (".cs",),
+                ["model", "entity"],
+                max_depth=max_depth,
+            ):
                 try:
                     class_matches = re.finditer(
                         r'(?:public\s+)?class\s+(\w+)\s*(?::\s*[^{]+)?\s*\{',
@@ -1381,7 +1401,10 @@ ORM_REGISTRY: List[ORMParserStub] = [
     EFCoreParser(),
 ]
 
-def run_orm_parsers(root_path: str) -> List[EREntity]:
+def run_orm_parsers(
+    root_path: str,
+    max_depth: Optional[int] = 3,
+) -> List[EREntity]:
     """
     Orquestador: detecta qué ORMs están presentes, corre solo los detectados,
     y retorna la lista combinada de entidades (sin deduplicar - eso lo hace
@@ -1390,8 +1413,8 @@ def run_orm_parsers(root_path: str) -> List[EREntity]:
     all_entities: List[EREntity] = []
     for parser in ORM_REGISTRY:
         try:
-            if parser.detect(root_path):
-                results = parser.extract(root_path)
+            if parser.detect(root_path, max_depth=max_depth):
+                results = parser.extract(root_path, max_depth=max_depth)
                 all_entities.extend(results)
         except Exception as e:
             print(f"Error in ORM parser '{parser.name}': {e}", file=sys.stderr)
@@ -1400,19 +1423,19 @@ def run_orm_parsers(root_path: str) -> List[EREntity]:
 
 def parse_project_for_er(root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
     all_entities = []
-    root = Path(root_path)
+    root = Path(root_path).resolve()
+    file_index = FileSystemIndexer(str(root), max_depth=max_depth).build()
+    project_files = file_index.all_files
 
     # Check if firebaseConfig.ts is present
-    firebase_config_present = False
-    for r_dir, _, f_files in os.walk(root):
-        if "firebaseConfig.ts" in f_files:
-            firebase_config_present = True
-            break
+    firebase_config_present = any(
+        file_path.name == "firebaseConfig.ts" for file_path in project_files
+    )
 
     # Check if mongoose is in package.json
     mongoose_present = False
     pkg_json = root / "package.json"
-    if pkg_json.is_file():
+    if pkg_json in project_files:
         try:
             with open(pkg_json, "r", encoding="utf-8", errors="ignore") as f:
                 pkg_content = f.read()
@@ -1421,19 +1444,8 @@ def parse_project_for_er(root_path: str, max_depth: Optional[int] = 3) -> List[E
         except Exception:
             pass
 
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-        
-        try:
-            current_depth = len(Path(root_dir).relative_to(root).parts)
-        except ValueError:
-            current_depth = 0
-            
-        if max_depth is not None and current_depth > max_depth:
-            continue
-            
-        for file in files:
-            file_path = Path(root_dir) / file
+    for file_path in project_files:
+            file = file_path.name
             # 1. Python Models (SQLAlchemy / Django)
             if file.endswith(".py"):
                 is_model_file = "model" in file.lower()
@@ -1496,7 +1508,7 @@ def parse_project_for_er(root_path: str, max_depth: Optional[int] = 3) -> List[E
         print(f"Error parsing PHP ER: {e}", file=sys.stderr)
 
     # 9. ORM Parser Stubs (SQLAlchemy, Django, Prisma, TypeORM, Sequelize, EF Core)
-    all_entities.extend(run_orm_parsers(root_path))
+    all_entities.extend(run_orm_parsers(root_path, max_depth=max_depth))
 
     # Deduplicate entities by name to avoid duplicates
     seen = {}

@@ -47,6 +47,20 @@ CORE_FILE_CANDIDATES: List[str] = [
     "Program.cs", "Startup.cs",
 ]
 
+CORE_ENTRYPOINT_CANDIDATES: List[str] = [
+    "App.js", "main.py", "app.py", "application.py", "server.py",
+    "wsgi.py", "asgi.py", "Program.cs", "Startup.cs", "index.js",
+    "index.ts", "server.js", "server.ts", "app.ts",
+]
+
+_CORE_EXCLUDED_DIRECTORIES = frozenset({
+    "test", "tests", "testing", "fixture", "fixtures", "scripts", "script",
+})
+_CORE_DOMAIN_HINTS = (
+    "orchestrator", "scanner", "registry", "service", "manager", "engine",
+    "repository", "model", "schema", "entity", "controller", "core",
+)
+
 MAX_CORE_FILES = 5
 MAX_FILE_CHARS = 8_000   # máximo caracteres por archivo de código fuente
 
@@ -360,42 +374,105 @@ class ContextDumper:
     # 3. CORE FILES
     # ──────────────────────────────────────────
 
+    def _is_core_file_eligible(self, file_path: Path) -> bool:
+        """Return whether *file_path* is safe architectural context."""
+        if file_path.suffix.lower() not in CODE_EXTENSIONS:
+            return False
+        if self._should_ignore(file_path):
+            return False
+
+        try:
+            rel_path = file_path.relative_to(self.root)
+        except ValueError:
+            return False
+
+        directory_parts = {part.lower() for part in rel_path.parts[:-1]}
+        if directory_parts & _CORE_EXCLUDED_DIRECTORIES:
+            return False
+
+        name = file_path.name.lower()
+        stem = file_path.stem.lower()
+        if name == "conftest.py":
+            return False
+        if name.startswith("test_") or stem.endswith("_test"):
+            return False
+        if ".test." in name or ".spec." in name:
+            return False
+        if "fixture" in stem:
+            return False
+        if "postinstall" in stem or stem.endswith("_post_install"):
+            return False
+        return True
+
+    @staticmethod
+    def _is_core_entrypoint(file_path: Path) -> bool:
+        entrypoint_names = {name.lower() for name in CORE_ENTRYPOINT_CANDIDATES}
+        return file_path.name.lower() in entrypoint_names
+
+    def _relative_core_path(self, file_path: Path) -> str:
+        return str(file_path.relative_to(self.root)).replace("\\", "/")
+
+    def _domain_priority(self, file_path: Path) -> int:
+        rel_lower = self._relative_core_path(file_path).lower()
+        for priority, hint in enumerate(reversed(_CORE_DOMAIN_HINTS), start=1):
+            if hint in rel_lower:
+                return priority
+        return 0
+
+    @staticmethod
+    def _deduplicate_paths(paths: List[Path]) -> List[Path]:
+        result: List[Path] = []
+        seen = set()
+        for path in paths:
+            if path in seen:
+                continue
+            seen.add(path)
+            result.append(path)
+        return result
+
+    def _fallback_core_candidates(self, all_files: List[Path]) -> List[Path]:
+        """Preserve deterministic filename heuristics when no graph exists."""
+        priorities = {
+            name.lower(): index for index, name in enumerate(CORE_FILE_CANDIDATES)
+        }
+        candidates = [
+            path for path in all_files
+            if path.name.lower() in priorities and not self._is_core_entrypoint(path)
+        ]
+        candidates.sort(
+            key=lambda path: (
+                priorities[path.name.lower()],
+                len(path.relative_to(self.root).parts),
+                self._relative_core_path(path),
+            )
+        )
+
+        # Match the old one-file-per-known-name behavior, now deterministically.
+        selected: List[Path] = []
+        seen_names = set()
+        for path in candidates:
+            name = path.name.lower()
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            selected.append(path)
+        return selected
+
     def get_core_files(self) -> List[dict]:
         """
         Encuentra y lee los archivos más importantes del backend o mobile.
         Retorna una lista de dicts: [{path, content}]
         """
         found: List[dict] = []
-        all_files: List[Path] = []
+        from bck_nd_hlpr.core.utils.indexer import FileSystemIndexer
 
-        # Walk the project tree and index all files
-        for root_dir, dirs, files in os.walk(self.root):
-            dirs[:] = [
-                d for d in dirs
-                if d not in GLOBAL_IGNORE_DIRS
-                and d not in SKIP_DIRS
-                and not d.startswith(".")
-                and not d.endswith(".egg-info")
-            ]
-
-            try:
-                rel_parts = Path(root_dir).relative_to(self.root).parts
-                if any(p in GLOBAL_IGNORE_DIRS or p in SKIP_DIRS for p in rel_parts):
-                    continue
-            except ValueError:
-                if any(p in GLOBAL_IGNORE_DIRS or p in SKIP_DIRS for p in Path(root_dir).parts):
-                    continue
-
-            rel_root = Path(root_dir).relative_to(self.root)
-            depth = len(rel_root.parts)
-            if self.depth is not None and depth > self.depth:
-                continue
-
-            for file_name in files:
-                file_path = Path(root_dir) / file_name
-                if self._should_ignore(file_path):
-                    continue
-                all_files.append(file_path)
+        file_index = FileSystemIndexer(
+            str(self.root), max_depth=self.depth
+        ).build()
+        all_files = [
+            path for path in file_index.all_files
+            if self._is_core_file_eligible(path)
+        ]
 
         if self.is_mobile:
             # Prioritize in this order:
@@ -438,31 +515,96 @@ class ContextDumper:
 
             ordered_candidates = group1 + group2 + group3 + group4 + group5 + group6
         else:
-            candidate_map: dict[str, Path] = {}
-            for file_path in all_files:
-                file_name = file_path.name
-                if file_name not in candidate_map and file_name in CORE_FILE_CANDIDATES:
-                    candidate_map[file_name] = file_path
+            entry_priorities = {
+                name.lower(): index
+                for index, name in enumerate(CORE_ENTRYPOINT_CANDIDATES)
+            }
+            entry_candidates = [
+                path for path in all_files if self._is_core_entrypoint(path)
+            ]
+            entry_candidates.sort(
+                key=lambda path: (
+                    entry_priorities[path.name.lower()],
+                    len(path.relative_to(self.root).parts),
+                    self._relative_core_path(path),
+                )
+            )
 
-            # Prioritize entry points over other candidates
-            entry_candidates = []
-            other_candidates = []
+            fallback_candidates = self._fallback_core_candidates(all_files)
+            graph_candidates: List[Path] = []
+            domain_candidates: List[Path] = []
 
-            for candidate_name in CORE_FILE_CANDIDATES:
-                if candidate_name in candidate_map:
-                    file_path = candidate_map[candidate_name]
-                    if candidate_name in ENTRY_POINTS:
-                        entry_candidates.append(file_path)
-                    else:
-                        other_candidates.append(file_path)
+            try:
+                from bck_nd_hlpr.core.dependency_tracker import DependencyTracker
 
-            ordered_candidates = entry_candidates + other_candidates
+                tracker = DependencyTracker(str(self.root))
+                tracker.scan_dependencies()
+                eligible_paths = {
+                    self._relative_core_path(path) for path in all_files
+                }
+
+                ranked = []
+                for path in all_files:
+                    if self._is_core_entrypoint(path):
+                        continue
+                    rel_path = self._relative_core_path(path)
+                    incoming = len(
+                        set(tracker.usage_map.get(rel_path, set())) & eligible_paths
+                    )
+                    outgoing = len(
+                        set(tracker.imports_map.get(rel_path, set())) & eligible_paths
+                    )
+                    domain_priority = self._domain_priority(path)
+                    if incoming or outgoing:
+                        ranked.append(
+                            (path, incoming, outgoing, domain_priority)
+                        )
+
+                ranked.sort(
+                    key=lambda item: (
+                        -(item[1] * 4 + item[2]),
+                        -item[1],
+                        -item[2],
+                        -item[3],
+                        self._relative_core_path(item[0]),
+                    )
+                )
+                graph_candidates = [item[0] for item in ranked]
+
+                if ranked:
+                    ranked_paths = set(graph_candidates)
+                    domain_candidates = [
+                        path for path in all_files
+                        if path not in ranked_paths
+                        and not self._is_core_entrypoint(path)
+                        and self._domain_priority(path) > 0
+                    ]
+                    domain_candidates.sort(
+                        key=lambda path: (
+                            -self._domain_priority(path),
+                            self._relative_core_path(path),
+                        )
+                    )
+            except Exception:
+                # Dependency analysis is advisory; filename fallback stays safe.
+                graph_candidates = []
+                domain_candidates = []
+
+            ordered_candidates = self._deduplicate_paths(
+                entry_candidates
+                + graph_candidates
+                + domain_candidates
+                + fallback_candidates
+            )
 
         for file_path in ordered_candidates:
             if len(found) >= self.max_core_files:
                 break
 
-            is_entry = file_path.name in ENTRY_POINTS or (self.is_mobile and (file_path.name == "index.tsx" or file_path.name == "App.js"))
+            is_entry = self._is_core_entrypoint(file_path) or (
+                self.is_mobile
+                and (file_path.name == "index.tsx" or file_path.name == "App.js")
+            )
 
             # Size limit check for non-entry files
             try:

@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 from bck_nd_hlpr.core.detector import ArchitectureDetector
 from bck_nd_hlpr.core.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram, UMLClassInfo
+from bck_nd_hlpr.core.base_tree_sitter import walk_source_files
 from bck_nd_hlpr.core.base_analyzer import (
     AnalyzerResult,
     ScanContext,
@@ -246,22 +247,11 @@ class ProjectScanner:
         all_classes: list[UMLClassInfo] = []
         
         # 1. Python (via AST)
-        for root_dir, dirs, files in os.walk(root):
-            rel_path = Path(root_dir).relative_to(root)
-            depth_level = len(rel_path.parts)
-            if str(rel_path) == ".": depth_level = 0
-
-            if max_depth is not None and depth_level > max_depth:
-                del dirs[:] 
-                continue
-            
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-            
-            for file in files:
-                if file.endswith(".py"):
-                    full_path = Path(root_dir) / file
-                    classes = parse_file_for_uml(full_path, root)
-                    all_classes.extend(classes)
+        for full_path, _rel_path in walk_source_files(
+            str(root), (".py",), max_depth=max_depth
+        ):
+            classes = parse_file_for_uml(full_path, root)
+            all_classes.extend(classes)
         
         # 2. C# UML Parser
         try:

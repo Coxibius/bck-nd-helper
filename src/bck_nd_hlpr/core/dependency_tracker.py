@@ -1,9 +1,9 @@
-import os
 import re
 from pathlib import Path
 from typing import List, Dict, Set
 from collections import defaultdict
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.utils.indexer import FileSystemIndexer
 
 class DependencyTracker:
     def __init__(self, root_path: str):
@@ -16,25 +16,24 @@ class DependencyTracker:
 
     def scan_dependencies(self):
         """Builds the dependency graph."""
-        for root_dir, dirs, files in os.walk(self.root):
-            rel_root = Path(root_dir).relative_to(self.root)
-            if str(rel_root) == ".": depth = 0
-            else: depth = len(rel_root.parts)
-            
-            # Skip deep nesting or ignored dirs
-            if any(part in GLOBAL_IGNORE_DIRS for part in rel_root.parts):
-                del dirs[:]
-                continue
-            
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
+        self.usage_map = {}
+        self.imports_map = defaultdict(set)
+        self.all_files = set()
 
-            for file in files:
-                file_path = Path(root_dir) / file
-                rel_file_path = str(file_path.relative_to(self.root)).replace("\\", "/") # Normalize to forward slash
-                self.all_files.add(rel_file_path)
-                
-                if file.endswith((".py", ".js", ".ts", ".jsx", ".tsx")):
-                    self._analyze_file_imports(file_path, rel_file_path)
+        file_index = FileSystemIndexer(str(self.root), max_depth=None).build()
+        indexed_files = []
+        for file_path in file_index.all_files:
+            try:
+                rel_file_path = str(file_path.relative_to(self.root)).replace("\\", "/")
+            except ValueError:
+                continue
+            self.all_files.add(rel_file_path)
+            indexed_files.append((file_path, rel_file_path))
+
+        # Resolve imports only after the complete, ignore-filtered file set is known.
+        for file_path, rel_file_path in indexed_files:
+            if file_path.suffix.lower() in (".py", ".js", ".ts", ".jsx", ".tsx"):
+                self._analyze_file_imports(file_path, rel_file_path)
 
     def _analyze_file_imports(self, file_path: Path, rel_source_path: str):
         try:
@@ -117,7 +116,9 @@ class DependencyTracker:
                     
                     for p in possible_paths:
                         if p.exists() and self._is_within_root(p):
-                            return str(p.relative_to(self.root)).replace("\\", "/")
+                            rel_path = str(p.relative_to(self.root)).replace("\\", "/")
+                            if rel_path in self.all_files:
+                                return rel_path
                             
             except Exception:
                 pass
@@ -143,7 +144,9 @@ class DependencyTracker:
             ]
             for p in possible_paths:
                 if p.exists() and self._is_within_root(p):
-                     return str(p.relative_to(self.root)).replace("\\", "/")
+                    rel_path = str(p.relative_to(self.root)).replace("\\", "/")
+                    if rel_path in self.all_files:
+                        return rel_path
 
         return None
 

@@ -2,7 +2,6 @@
 Module for static analysis of PHP code using Tree-Sitter.
 Generates structures compatible with UMLClassInfo and EREntity for Laravel/Eloquent.
 """
-import os
 from pathlib import Path
 from typing import List, Optional
 import tree_sitter
@@ -20,7 +19,7 @@ except ImportError:
 
 from bck_nd_hlpr.core.uml_parser import UMLClassInfo
 from bck_nd_hlpr.core.er_parser import EREntity
-from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.base_tree_sitter import walk_source_files, module_name_for
 
 import re
 
@@ -700,28 +699,19 @@ def parse_project_for_php_uml(root_path: str, max_depth: Optional[int] = 4) -> L
     all_classes = []
     root = Path(root_path)
 
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
-        try: current_depth = len(Path(root_dir).relative_to(root).parts)
-        except ValueError: current_depth = 0
-        if max_depth is not None and current_depth > max_depth: continue
+    for file_path, rel_path in walk_source_files(
+        str(root), (".php",), max_depth=max_depth
+    ):
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                source_bytes = f.read().encode('utf-8')
 
-        for file in files:
-            if file.endswith(".php"):
-                file_path = Path(root_dir) / file
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        source_bytes = f.read().encode('utf-8')
-
-                    tree = PARSER.parse(source_bytes)
-                    module_name = str(file_path.parent.relative_to(root)).replace(os.sep, ".")
-                    if module_name == ".": module_name = "Root"
-
-                    visitor = PHPUMLVisitor(source_bytes, module_name)
-                    visitor.visit(tree.root_node)
-                    all_classes.extend(visitor.classes)
-                except Exception:
-                    continue
+            tree = PARSER.parse(source_bytes)
+            visitor = PHPUMLVisitor(source_bytes, module_name_for(rel_path))
+            visitor.visit(tree.root_node)
+            all_classes.extend(visitor.classes)
+        except Exception:
+            continue
     return all_classes
 
 def parse_project_for_php_er(root_path: str, max_depth: Optional[int] = 4) -> List[EREntity]:
@@ -731,23 +721,17 @@ def parse_project_for_php_er(root_path: str, max_depth: Optional[int] = 4) -> Li
     all_entities = []
     root = Path(root_path)
 
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
-        try: current_depth = len(Path(root_dir).relative_to(root).parts)
-        except ValueError: current_depth = 0
-        if max_depth is not None and current_depth > max_depth: continue
+    for file_path, _rel_path in walk_source_files(
+        str(root), (".php",), max_depth=max_depth
+    ):
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                source_bytes = f.read().encode('utf-8')
 
-        for file in files:
-            if file.endswith(".php"):
-                file_path = Path(root_dir) / file
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        source_bytes = f.read().encode('utf-8')
-
-                    tree = PARSER.parse(source_bytes)
-                    visitor = PHPERVisitor(source_bytes)
-                    visitor.visit(tree.root_node)
-                    all_entities.extend(visitor.entities)
-                except Exception:
-                    continue
+            tree = PARSER.parse(source_bytes)
+            visitor = PHPERVisitor(source_bytes)
+            visitor.visit(tree.root_node)
+            all_entities.extend(visitor.entities)
+        except Exception:
+            continue
     return all_entities

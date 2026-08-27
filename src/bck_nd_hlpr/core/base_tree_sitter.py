@@ -16,7 +16,7 @@ import tree_sitter
 
 _log = logging.getLogger(__name__)
 
-from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.utils.indexer import FileSystemIndexer
 
 
 # =====================================================================
@@ -81,29 +81,20 @@ def walk_source_files(
 ) -> Generator[Tuple[Path, Path], None, None]:
     """
     Walk *root_path* yielding ``(absolute_path, relative_path)`` for every
-    file whose suffix is in *extensions*, respecting GLOBAL_IGNORE_DIRS and
-    *max_depth*.
+    matching source file. The shared indexer applies ``GLOBAL_IGNORE_DIRS``,
+    ``.gitignore`` rules, depth limits, and deterministic path ordering.
     """
     root = Path(root_path).resolve()
-    for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-        try:
-            rel = Path(dirpath).relative_to(root)
-            current_depth = len(rel.parts)
-        except ValueError:
-            current_depth = 0
-        if max_depth is not None and current_depth > max_depth:
-            del dirs[:]
+    extension_set = frozenset(ext.lower() for ext in extensions)
+    index = FileSystemIndexer(str(root), max_depth=max_depth).build()
+    for abs_path in index.all_files:
+        if abs_path.suffix.lower() not in extension_set:
             continue
-        for fname in files:
-            fname_lower = fname.lower()
-            if any(fname_lower.endswith(ext.lower()) for ext in extensions):
-                abs_path = Path(dirpath) / fname
-                try:
-                    rel_path = abs_path.relative_to(root)
-                except ValueError:
-                    rel_path = Path(fname)
-                yield abs_path, rel_path
+        try:
+            rel_path = abs_path.relative_to(root)
+        except ValueError:
+            continue
+        yield abs_path, rel_path
 
 
 # =====================================================================
