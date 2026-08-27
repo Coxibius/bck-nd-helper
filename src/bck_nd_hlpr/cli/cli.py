@@ -46,24 +46,28 @@ from bck_nd_hlpr.core.analysis import (
 
 app = typer.Typer(
     name="bck-nd",
-    help="Backend Helper: Lightweight Architecture CLI",
+    help="Backend Helper: Architecture, requirements, AI context, and MCP tooling.",
     add_completion=False,
+    rich_markup_mode="rich",
     context_settings={"help_option_names": ["-h", "--help"]},
     epilog="""
-Key commands:
-- bck-nd scan .            Full architecture overview
-- bck-nd scan . --uml      UML only
-- bck-nd scan . --er       ER only
-- bck-nd scan . --routes   Routes only
-- bck-nd prompt .          AI-ready context dump
-- bck-nd req list .        List user stories & requirements
-- bck-nd req status HU01 DONE  Update a user story status
-- bck-nd req discover HU01 Discovery interview guide
-- bck-nd flow "A -> B"     Quick ASCII flow
-- bck-nd docs .            Static HTML docs
-- bck-nd chat .            Interactive AI chat
+[bold]Current workflows[/bold]
 
-Tip: Run any command with --help for detailed usage.
+• [cyan]bck-nd scan . --json[/cyan] — Four Pillars scan for CI/CD
+
+• [cyan]bck-nd prompt . --copy[/cyan] — AI context, requirements, and metrics
+
+• [cyan]bck-nd req init US-001[/cyan] — scaffold a user story
+
+• [cyan]bck-nd req status US-001 DONE[/cyan] — update story status
+
+• [cyan]bck-nd prd init PRD-AUTH[/cyan] — scaffold local product intent
+
+• [cyan]bck-nd docs .[/cyan] — standalone offline documentation portal
+
+• [cyan]bck-nd-mcp --install[/cyan] — connect Claude, Cursor, and Antigravity
+
+[dim]Tip: Run any command with --help for detailed usage.[/dim]
 """
 )
 
@@ -89,7 +93,7 @@ def main(
         help="Show the application version and exit.",
     ),
 ):
-    """Backend Helper (bck-nd) — Lightweight Architecture CLI."""
+    """Backend Helper — Four Pillars architecture and requirements intelligence."""
     pass
 
 
@@ -112,13 +116,14 @@ def save_or_print(content: str, output_path: Optional[str], title: str = "OUTPUT
 
 def copy_to_clipboard(text: str) -> bool:
     """Copy text to the system clipboard using native command-line tools."""
-    encoded = text.encode("utf-8")
-
     if sys.platform.startswith("win"):
         commands = [["clip"]]
+        encoded = text.encode("utf-16le")
     elif sys.platform == "darwin":
         commands = [["pbcopy"]]
+        encoded = text.encode("utf-8")
     else:
+        encoded = text.encode("utf-8")
         commands = []
         if shutil.which("wl-copy"):
             commands.append(["wl-copy"])
@@ -259,7 +264,7 @@ def scan(
     ai: bool = typer.Option(False, "--ai", help="Run AI-powered analysis. Auto-detects API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENROUTER_API_KEY) or a local Ollama server. Example: bck-nd scan . --ai --style hacker"),
     style: str = typer.Option("pro", "--style", "-s", help="AI personality (requires --ai). Options: pro (architect), hacker (security), soviet (efficiency), eli5 (simple), ramsay (critical), jarvis (elegant), corporate (buzzwords), medieval (wizard), doom (bug hunter). Example: bck-nd scan . --ai --style ramsay"),
     format: str = typer.Option("ascii", "--format", "-f", help="Output format: 'ascii' (terminal boxes) or 'mermaid' (graph TD code for Notion/GitHub/Obsidian + terminal preview). Example: bck-nd scan . --format mermaid"),
-    uml: bool = typer.Option(False, "--uml", "-u", help="Generate UML Class Diagram (Mermaid classDiagram). Supports Python (AST), C#, Java, JS/TS, PHP (Tree-sitter). Shows classes, methods, inheritance, associations. Example: bck-nd scan . --uml -o classes.mmd"),
+    uml: bool = typer.Option(False, "--uml", "-u", help="Generate a Mermaid UML class diagram. Supports Python, C#, Java, JS/TS/React, PHP, Go, and Rust classes/interfaces. Example: bck-nd scan . --uml -o classes.mmd"),
     er: bool = typer.Option(False, "--er", help="Generate Entity-Relationship Diagram (Mermaid erDiagram). Scans ORMs: SQLAlchemy, Django, Entity Framework, Prisma, Drizzle, Sequelize, Mongoose, Laravel/Eloquent, JPA, and raw SQL. Example: bck-nd scan . --er -o schema.mmd"),
     routes: bool = typer.Option(False, "--routes", help="Generate API Routes Sequence Diagram (Mermaid sequenceDiagram). Scans Flask, FastAPI, Express, NestJS endpoints. Shows Client -> API interactions. Example: bck-nd scan . --routes"),
     infra: bool = typer.Option(False, "--infra", help="Generate Infrastructure Diagram from docker-compose.yml (Mermaid graph LR). Shows services, images, dependencies. DB services as cylinders. Example: bck-nd scan . --infra"),
@@ -969,13 +974,15 @@ def prompt_cmd(
     copy_to_clipboard: bool = typer.Option(False, "--copy", "-c", help="Automatically copy generated context to system clipboard."),
 ):
     """
-    Export an AI-ready context file (project tree, UML, ER, core files).
+    Export AI-ready context with requirements, diagrams, core files, and metrics.
 
     Default (no flags) — full context dump:
     - <project_tree>: filtered directory tree
     - <architecture_uml>: Mermaid classDiagram
     - <architecture_er>: Mermaid erDiagram
+    - <requirements_context>: stories, statuses, criteria, and business rules
     - <core_files>: prioritized key files
+    - Metrics: estimated tokens, context size, and savings vs raw source
 
     Focused mode (--uml, --er, --tree):
     - Exports ONLY the requested sections into a lightweight file.
@@ -984,8 +991,8 @@ def prompt_cmd(
 
     Usage:
     1) bck-nd prompt .
-    2) Open ai_context.txt (or custom path)
-    3) Copy/paste into your LLM as the first message
+    2) Open ai_context.txt (or use --copy / -c)
+    3) Paste it into your AI client as the first message
 
     Examples:
     - bck-nd prompt .
@@ -995,6 +1002,7 @@ def prompt_cmd(
     - bck-nd prompt . --er
     - bck-nd prompt . --tree
     - bck-nd prompt . --uml --er
+    - bck-nd prompt . --copy
     """
     # ── Detect focused mode ──────────────────────────────────────────────
     focused_mode = uml or er or tree
@@ -1182,12 +1190,329 @@ def prompt_cmd(
 
 
 # ──────────────────────────────────────────────
+# PRODUCT REQUIREMENTS DOCUMENTS (bck-nd prd)
+# ──────────────────────────────────────────────
+
+prd_app = typer.Typer(
+    name="prd",
+    help="Create, inspect, validate, and update local Product Requirements Documents.",
+    no_args_is_help=True,
+)
+app.add_typer(prd_app, name="prd")
+
+
+def _prd_operation_json(message: str, diagnostics: Optional[list] = None) -> dict:
+    """Build a pure JSON failure payload for the PRD CLI adapter."""
+    serialized = [item.to_dict() for item in (diagnostics or [])]
+    if not any(item.get("severity") == "ERROR" for item in serialized):
+        serialized.append(
+            {
+                "code": "PRD_OPERATION_ERROR",
+                "severity": "ERROR",
+                "message": message,
+                "source_path": "",
+                "field": None,
+                "section": None,
+                "reference": None,
+            }
+        )
+    return {
+        "schema_version": 1,
+        "valid": False,
+        "summary": {
+            "documents": 0,
+            "errors": sum(item["severity"] == "ERROR" for item in serialized),
+            "warnings": sum(item["severity"] == "WARNING" for item in serialized),
+            "info": sum(item["severity"] == "INFO" for item in serialized),
+        },
+        "documents": [],
+        "diagnostics": serialized,
+    }
+
+
+def _print_prd_diagnostics(diagnostics: list) -> None:
+    """Render structured product diagnostics without domain logic in Typer."""
+    from rich.console import Console
+    from rich.table import Table
+    from rich.text import Text
+
+    table = Table(header_style="bold cyan", expand=False)
+    table.add_column("Document")
+    table.add_column("Code")
+    table.add_column("Severity")
+    table.add_column("Field / Section")
+    table.add_column("Message")
+    severity_styles = {"ERROR": "red", "WARNING": "yellow", "INFO": "cyan"}
+    for diagnostic in diagnostics:
+        severity = diagnostic.severity.value
+        code = diagnostic.code.value if isinstance(diagnostic.code, Enum) else str(diagnostic.code)
+        table.add_row(
+            Text(diagnostic.source_path or "-"),
+            Text(code),
+            Text(severity, style=severity_styles.get(severity, "white")),
+            Text(diagnostic.field or diagnostic.section or "-"),
+            Text(diagnostic.message),
+        )
+    Console(width=180).print(table)
+
+
+@prd_app.command("init")
+def prd_init(
+    product_id: Optional[str] = typer.Argument(
+        None,
+        help="Optional PRD identifier, for example PRD-AUTH. Defaults to PRD.",
+    ),
+    project_path: str = typer.Option(
+        ".",
+        "--path",
+        "-p",
+        help="Project root where .bck-nd/product/ will be created.",
+    ),
+):
+    """Create a canonical Markdown PRD template without overwriting files."""
+    from bck_nd_hlpr.core.product import (
+        ProductInvalidIdError,
+        ProductService,
+        ProductServiceError,
+    )
+
+    try:
+        service = ProductService(project_path)
+        result = service.create_document(product_id)
+        relative_path = result.path.relative_to(service.project_root).as_posix()
+    except ProductInvalidIdError as exc:
+        typer.secho(f"[ERROR] {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+    except ProductServiceError as exc:
+        typer.secho(f"[ERROR] {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    typer.secho(
+        f"[OK] Product requirements document created: {relative_path}",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
+
+
+@prd_app.command("list")
+def prd_list(
+    project_path: str = typer.Option(
+        ".",
+        "--path",
+        "-p",
+        help="Project root containing .bck-nd/product/.",
+    ),
+):
+    """List local PRDs with lifecycle and validation summaries."""
+    from bck_nd_hlpr.core.product import DiagnosticSeverity, ProductService, ProductServiceError
+    from rich.console import Console
+    from rich.table import Table
+    from rich.text import Text
+
+    console = Console(width=160)
+    try:
+        service = ProductService(project_path)
+        collection = service.load_documents()
+        report = service.validate_documents(collection=collection)
+    except ProductServiceError as exc:
+        typer.secho(f"[ERROR] {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    if not report.documents:
+        if report.diagnostics:
+            _print_prd_diagnostics(report.diagnostics)
+        else:
+            typer.secho(
+                "[--] No product requirements documents found.",
+                fg=typer.colors.YELLOW,
+            )
+        return
+
+    table = Table(
+        title=f"Product Requirements Documents ({len(report.documents)} found)",
+        header_style="bold cyan",
+    )
+    for column in ("ID", "Title", "Status", "Applies To", "Requirements", "Diagnostics"):
+        table.add_column(column)
+
+    for document in report.documents:
+        related = [
+            item
+            for item in report.diagnostics
+            if item.source_path == document.source_path
+        ]
+        errors = sum(item.severity is DiagnosticSeverity.ERROR for item in related)
+        warnings = sum(item.severity is DiagnosticSeverity.WARNING for item in related)
+        status_style = {
+            "DRAFT": "yellow",
+            "REVIEW": "blue",
+            "APPROVED": "green",
+            "SHIPPED": "bold green",
+            "ARCHIVED": "dim",
+        }.get(document.status_value, "white")
+        table.add_row(
+            Text(document.id or "-"),
+            Text(document.title or "Untitled"),
+            Text(document.status_value or "-", style=status_style),
+            Text(", ".join(document.applies_to) or "-"),
+            str(len(document.requirement_ids)),
+            f"{errors}E / {warnings}W",
+        )
+
+    console.print(table)
+    global_diagnostics = [
+        item
+        for item in report.diagnostics
+        if item.source_path not in {document.source_path for document in report.documents}
+    ]
+    if global_diagnostics:
+        _print_prd_diagnostics(global_diagnostics)
+
+
+@prd_app.command("validate")
+def prd_validate(
+    product_id: Optional[str] = typer.Argument(
+        None,
+        help="Optional PRD identifier; omit it to validate the complete collection.",
+    ),
+    project_path: str = typer.Option(
+        ".",
+        "--path",
+        "-p",
+        help="Project root containing .bck-nd/product/.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit only deterministic machine-readable JSON.",
+    ),
+):
+    """Validate product intent and its linked requirement identifiers."""
+    from bck_nd_hlpr.core.product import (
+        ProductInvalidIdError,
+        ProductSerializationError,
+        ProductService,
+        ProductServiceError,
+    )
+
+    try:
+        service = ProductService(project_path)
+        report = service.validate_documents(product_id)
+        if json_output:
+            try:
+                payload = report.to_dict()
+            except ProductSerializationError:
+                payload = _prd_operation_json(
+                    "Product data could not be serialized safely."
+                )
+                typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+                raise typer.Exit(code=1)
+            typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            if not report.documents and not report.diagnostics:
+                typer.secho(
+                    "[--] No product requirements documents found.",
+                    fg=typer.colors.YELLOW,
+                )
+            elif report.diagnostics:
+                _print_prd_diagnostics(report.diagnostics)
+            else:
+                typer.secho(
+                    "[OK] All selected product requirements documents are valid.",
+                    fg=typer.colors.GREEN,
+                    bold=True,
+                )
+            typer.echo(
+                "Summary: "
+                f"{len(report.documents)} document(s), "
+                f"{report.error_count} error(s), "
+                f"{report.warning_count} warning(s), "
+                f"{report.info_count} info."
+            )
+        if not report.valid:
+            raise typer.Exit(code=1)
+    except ProductInvalidIdError as exc:
+        if json_output:
+            typer.echo(json.dumps(_prd_operation_json(str(exc)), ensure_ascii=False, indent=2))
+        else:
+            typer.secho(f"[ERROR] {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+    except ProductServiceError as exc:
+        if json_output:
+            typer.echo(
+                json.dumps(
+                    _prd_operation_json(str(exc), exc.diagnostics),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            typer.secho(f"[ERROR] {exc}", fg=typer.colors.RED)
+            if exc.diagnostics:
+                _print_prd_diagnostics(exc.diagnostics)
+        raise typer.Exit(code=1)
+
+
+@prd_app.command("status")
+def prd_status(
+    product_id: str = typer.Argument(..., help="PRD identifier, for example PRD-AUTH."),
+    new_status: str = typer.Argument(
+        ...,
+        help="New status: DRAFT, REVIEW, APPROVED, SHIPPED, or ARCHIVED.",
+    ),
+    project_path: str = typer.Option(
+        ".",
+        "--path",
+        "-p",
+        help="Project root containing .bck-nd/product/.",
+    ),
+):
+    """Apply a validated PRD lifecycle transition with a minimal atomic edit."""
+    from bck_nd_hlpr.core.product import (
+        ProductInvalidIdError,
+        ProductInvalidStatusError,
+        ProductService,
+        ProductServiceError,
+        ProductTransitionBlockedError,
+    )
+
+    try:
+        result = ProductService(project_path).update_status(product_id, new_status)
+    except (ProductInvalidIdError, ProductInvalidStatusError) as exc:
+        typer.secho(f"[ERROR] {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+    except ProductTransitionBlockedError as exc:
+        typer.secho(f"[ERROR] {exc}", fg=typer.colors.RED)
+        if exc.diagnostics:
+            _print_prd_diagnostics(exc.diagnostics)
+        raise typer.Exit(code=1)
+    except ProductServiceError as exc:
+        typer.secho(f"[ERROR] {exc}", fg=typer.colors.RED)
+        if exc.diagnostics:
+            _print_prd_diagnostics(exc.diagnostics)
+        raise typer.Exit(code=1)
+
+    if result.changed:
+        typer.secho(
+            f"[OK] PRD {result.document.id} status updated: "
+            f"{result.previous_status or '<missing>'} -> {result.new_status}",
+            fg=typer.colors.GREEN,
+            bold=True,
+        )
+    else:
+        typer.secho(
+            f"[OK] PRD {result.document.id} is already {result.new_status}.",
+            fg=typer.colors.GREEN,
+        )
+
+
+# ──────────────────────────────────────────────
 # SUBCOMANDOS DE REQUERIMIENTOS (bck-nd req)
 # ──────────────────────────────────────────────
 
 req_app = typer.Typer(
     name="req",
-    help="Manage, list, and discover User Stories and Requirements specifications.",
+    help="Scaffold, list, update, and discover User Stories and requirements.",
     no_args_is_help=True,
 )
 app.add_typer(req_app, name="req")
