@@ -1,5 +1,9 @@
+import asyncio
+import json
 import os
+import shutil
 import sys
+import tempfile
 import traceback
 from pathlib import Path
 from typing import Optional
@@ -1101,7 +1105,7 @@ def get_requirements_summary(project_path: str = ".") -> str:
 
 
 # ──────────────────────────────────────────────
-# Claude Desktop & Cursor / AntiGravity Auto-Installer
+# Claude Desktop, Cursor & Antigravity Auto-Installer
 # ──────────────────────────────────────────────
 
 def _get_claude_config_path() -> Path:
@@ -1116,7 +1120,7 @@ def _get_claude_config_path() -> Path:
 
 
 def _get_cursor_config_paths() -> list[Path]:
-    """Return candidate platform-specific paths for Cursor / AntiGravity IDE / Trae mcp.json."""
+    """Return candidate platform-specific paths for Cursor's mcp.json."""
     candidates: list[Path] = []
 
     # Standard User home .cursor/mcp.json across Windows, macOS, Linux
@@ -1135,15 +1139,45 @@ def _get_cursor_config_paths() -> list[Path]:
     return candidates
 
 
-def _update_mcp_config_file(target: Path) -> None:
+def _get_antigravity_config_path() -> Path:
+    """Return the shared global MCP configuration used by Antigravity IDE/CLI."""
+    return Path.home() / ".gemini" / "config" / "mcp_config.json"
+
+
+def _find_antigravity_executable() -> Optional[str]:
+    """Find a current or compatible Antigravity launcher on PATH."""
+    for command in ("antigravity-ide", "antigravity", "agy"):
+        executable = shutil.which(command)
+        if executable:
+            return executable
+    return None
+
+
+def _get_antigravity_server_definition() -> dict:
+    """Build a GUI-safe stdio definition using the active Python interpreter."""
+    return {
+        "command": str(Path(sys.executable).resolve()),
+        "args": ["-m", "bck_nd_hlpr.cli.mcp_server"],
+    }
+
+
+def _update_mcp_config_file(
+    target: Path,
+    server_definition: Optional[dict] = None,
+) -> Optional[Path]:
     """
     Safely inject or update the 'bck-nd-mcp' entry in an MCP JSON config file.
-    Preserves existing servers and cleans up legacy server entries.
-    """
-    import json
+    Preserves existing servers, cleans up legacy entries, creates a backup, and
+    replaces the file atomically.
 
+    Returns:
+        The backup path when an existing file was preserved, otherwise None.
+    """
     config: dict = {}
+    backup_path: Optional[Path] = None
     if target.is_file():
+        backup_path = target.with_name(f"{target.name}.bak")
+        shutil.copy2(target, backup_path)
         try:
             config = json.loads(target.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
@@ -1161,15 +1195,30 @@ def _update_mcp_config_file(target: Path) -> None:
     for legacy_key in ("backend-helper", "bck_nd_hlpr"):
         servers.pop(legacy_key, None)
 
-    servers["bck-nd-mcp"] = {"command": "bck-nd-mcp"}
+    servers["bck-nd-mcp"] = server_definition or {"command": "bck-nd-mcp"}
 
     # Ensure parent directory exists
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    target.write_text(
-        json.dumps(config, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    temp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            json.dump(config, temp_file, indent=2, ensure_ascii=False)
+            temp_file.write("\n")
+            temp_path = Path(temp_file.name)
+        os.replace(temp_path, target)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+
+    return backup_path
 
 
 def _generate_manual_ide_settings_box() -> str:
@@ -1184,7 +1233,7 @@ def _generate_manual_ide_settings_box() -> str:
         console = Console(file=string_io, force_terminal=False, highlight=False, width=80)
 
         content = (
-            "[bold]Manual IDE Settings (Cursor / AntiGravity IDE / Trae / Windsurf)[/bold]\n\n"
+            "[bold]Manual IDE Settings (Claude / Cursor / Antigravity IDE)[/bold]\n\n"
             "  • [cyan]Server Name[/cyan] : [bold green]bck-nd-mcp[/bold green]\n"
             "  • [cyan]Command[/cyan]     : [bold green]bck-nd-mcp[/bold green]\n"
             "  • [cyan]Transport[/cyan]   : [yellow]stdio[/yellow]\n\n"
@@ -1210,7 +1259,7 @@ def _generate_manual_ide_settings_box() -> str:
     except ImportError:
         return (
             "--------------------------------------------------\n"
-            "Manual IDE Settings (Cursor / AntiGravity IDE / Trae):\n"
+            "Manual IDE Settings (Claude / Cursor / Antigravity IDE):\n"
             "  • Server Name: bck-nd-mcp\n"
             "  • Command:     bck-nd-mcp\n"
             "  • Transport:   stdio\n"
@@ -1218,33 +1267,39 @@ def _generate_manual_ide_settings_box() -> str:
         )
 
 
-def _install_claude_desktop(
-    config_path: Optional["Path"] = None,
-    cursor_config_path: Optional["Path"] = None,
+def _install_mcp_clients(
+    claude_config_path: Optional[Path] = None,
+    cursor_config_path: Optional[Path] = None,
+    antigravity_config_path: Optional[Path] = None,
 ) -> str:
     """
-    Write or update claude_desktop_config.json and Cursor/AntiGravity mcp.json to register bck-nd-mcp.
+    Register bck-nd-mcp with Claude Desktop, Cursor, and Antigravity.
 
     Args:
-        config_path: Override the default Claude Desktop path (useful for testing).
+        claude_config_path: Override the default Claude Desktop path.
         cursor_config_path: Override the default Cursor path (useful for testing).
+        antigravity_config_path: Override the Antigravity path (useful for testing).
 
     Returns:
         A human-readable status message with configuration details and manual IDE setup box.
     """
-    messages = []
+    messages: list[str] = []
+    explicit_paths = any(
+        path is not None
+        for path in (claude_config_path, cursor_config_path, antigravity_config_path)
+    )
 
     # 1. Claude Desktop configuration
-    claude_target = config_path if config_path is not None else _get_claude_config_path()
-    _update_mcp_config_file(claude_target)
-    messages.append(f"✅ Claude Desktop configured successfully.\n   Config written to: {claude_target}")
+    if claude_config_path is not None or not explicit_paths:
+        claude_target = claude_config_path or _get_claude_config_path()
+        _update_mcp_config_file(claude_target)
+        messages.append(f"✅ Claude Desktop configured successfully.\n   Config written to: {claude_target}")
 
-    # 2. Cursor / AntiGravity IDE / Trae configuration
+    # 2. Cursor configuration
     if cursor_config_path is not None:
         _update_mcp_config_file(cursor_config_path)
-        messages.append(f"✅ Cursor / AntiGravity IDE configured successfully.\n   Config written to: {cursor_config_path}")
-    elif config_path is None:
-        # Auto-detect Cursor / AntiGravity paths on the host system
+        messages.append(f"✅ Cursor configured successfully.\n   Config written to: {cursor_config_path}")
+    elif not explicit_paths:
         cursor_candidates = _get_cursor_config_paths()
         installed_cursor_paths = []
         for candidate in cursor_candidates:
@@ -1254,26 +1309,108 @@ def _install_claude_desktop(
 
         if installed_cursor_paths:
             for p in installed_cursor_paths:
-                messages.append(f"✅ Cursor / AntiGravity IDE configured successfully.\n   Config written to: {p}")
+                messages.append(f"✅ Cursor configured successfully.\n   Config written to: {p}")
         else:
-            messages.append("ℹ️  Cursor / AntiGravity IDE config directory not found (manual setup available below).")
+            messages.append("ℹ️  Cursor config directory not found (manual setup available below).")
 
-    # 3. Rich box for manual IDE configuration
+    # 3. Antigravity IDE / CLI shared global configuration
+    antigravity_target = antigravity_config_path
+    antigravity_executable = _find_antigravity_executable()
+    if antigravity_target is not None:
+        _update_mcp_config_file(
+            antigravity_target,
+            server_definition=_get_antigravity_server_definition(),
+        )
+        messages.append(
+            "✅ Antigravity IDE / CLI configured successfully.\n"
+            f"   Config written to: {antigravity_target}"
+        )
+    elif not explicit_paths:
+        antigravity_target = _get_antigravity_config_path()
+        if (
+            antigravity_executable
+            or antigravity_target.is_file()
+            or antigravity_target.parent.is_dir()
+        ):
+            _update_mcp_config_file(
+                antigravity_target,
+                server_definition=_get_antigravity_server_definition(),
+            )
+            detected_as = f" (detected: {antigravity_executable})" if antigravity_executable else ""
+            messages.append(
+                f"✅ Antigravity IDE / CLI configured successfully{detected_as}.\n"
+                f"   Config written to: {antigravity_target}"
+            )
+        else:
+            messages.append(
+                "ℹ️  Antigravity IDE / CLI not detected "
+                "(manual setup available below)."
+            )
+
+    # 4. Rich box for manual IDE configuration
     messages.append("\n" + _generate_manual_ide_settings_box())
 
     return "\n".join(messages)
+
+
+def _install_claude_desktop(
+    config_path: Optional[Path] = None,
+    cursor_config_path: Optional[Path] = None,
+    antigravity_config_path: Optional[Path] = None,
+) -> str:
+    """Backward-compatible wrapper for the original installer helper."""
+    return _install_mcp_clients(
+        claude_config_path=config_path,
+        cursor_config_path=cursor_config_path,
+        antigravity_config_path=antigravity_config_path,
+    )
 
 
 # ──────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────
 
+def _get_mcp_cli_help() -> str:
+    """Return current command-line help without starting the stdio server."""
+    return """Usage: bck-nd-mcp [OPTIONS]
+
+Backend Helper MCP server for local architecture and requirements intelligence.
+
+With no options, starts the stdio server for an MCP-compatible client.
+
+Options:
+  --install       Register with Claude Desktop, Cursor, and Antigravity IDE/CLI.
+  -v, --version   Show the Backend Helper version and exit.
+  -h, --help      Show this message and exit.
+
+Antigravity:
+  Detects the current antigravity-ide launcher and safely merges bck-nd-mcp into
+  ~/.gemini/config/mcp_config.json without removing GitHub or other MCP servers.
+"""
+
+
 def main():
-    # Handle --install flag
-    if "--install" in sys.argv:
+    args = sys.argv[1:]
+
+    if "--help" in args or "-h" in args:
+        print(_get_mcp_cli_help())
+        return
+
+    if "--version" in args or "-v" in args:
+        from bck_nd_hlpr.core.constants import VERSION
+        print(f"bck-nd-hlpr {VERSION}")
+        return
+
+    # Handle --install before entering stdio mode.
+    if args == ["--install"]:
         msg = _install_claude_desktop()
         print(msg)
         return
+
+    if args:
+        print(f"Error: unknown option or argument: {' '.join(args)}", file=sys.stderr)
+        print(_get_mcp_cli_help(), file=sys.stderr)
+        raise SystemExit(2)
 
     # Interactive TTY helper: if a human runs `bck-nd-mcp` directly in a
     # terminal without piping, show a friendly explanation instead of silently
@@ -1288,8 +1425,8 @@ def main():
             console.print(Panel(
                 "[bold cyan]Backend Helper MCP Server[/bold cyan] is running in [yellow]stdio[/yellow] mode.\n\n"
                 "This process communicates over stdin/stdout using the MCP protocol.\n"
-                "It is meant to be launched by an MCP-compatible client (e.g. Claude Desktop, Cursor, AntiGravity IDE).\n\n"
-                "[dim]To auto-register with Claude Desktop & Cursor, run:[/dim]\n"
+                "It is meant to be launched by an MCP-compatible client (e.g. Claude Desktop, Cursor, Antigravity IDE).\n\n"
+                "[dim]To auto-register with Claude Desktop, Cursor & Antigravity, run:[/dim]\n"
                 "  [bold green]bck-nd-mcp --install[/bold green]\n\n"
                 "[dim]To exit, press[/dim] [bold red]Ctrl+C[/bold red].",
                 title="🔌 MCP Server",
@@ -1300,12 +1437,17 @@ def main():
         except ImportError:
             print(
                 "Backend Helper MCP Server is running in stdio mode.\n"
-                "To auto-register with Claude Desktop / Cursor, run: bck-nd-mcp --install\n"
+                "To auto-register with Claude Desktop / Cursor / Antigravity, "
+                "run: bck-nd-mcp --install\n"
                 "To exit, press Ctrl+C.",
                 file=sys.stderr,
             )
 
-    mcp.run(transport="stdio")
+    try:
+        mcp.run(transport="stdio")
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # A human stopped a stdio server that was waiting for its MCP client.
+        return
 
 if __name__ == "__main__":
     main()

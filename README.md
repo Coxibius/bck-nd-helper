@@ -42,6 +42,14 @@ All changes listed below are implemented and verified by the full test suite.
 - **Added — Requirements portal:** generated documentation includes a safely escaped requirements section and navigation entry whenever `.bck-nd/requirements/` contains stories.
 - **Verified:** **296 tests passing** after the final v2.4.3 sprint integration.
 
+#### Verified maintenance fixes
+
+- **Fixed — Antigravity auto-installation:** `bck-nd-mcp --install` now detects the renamed `antigravity-ide` launcher and registers Backend Helper in Antigravity's official shared MCP configuration.
+- **Preserved — Existing MCP servers:** configuration updates retain GitHub MCP, Supabase, and unrelated servers, create a backup, and replace JSON atomically.
+- **Fixed — Manual stdio shutdown:** interrupting a directly launched `bck-nd-mcp` exits cleanly without exposing cancellation tracebacks.
+- **Changed — Current CLI help:** root, prompt, requirements, and MCP help now document JSON scans, clipboard context, requirements workflows, context metrics, and Antigravity installation.
+- **Verified:** **320 tests passing** after the Antigravity and CLI-help compatibility maintenance.
+
 ### v2.4.2 — Previous Stable Release
 
 v2.4.2 completes the first stabilization pass over the Four Pillars and Requirements Intelligence layer:
@@ -63,7 +71,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 - [Four Pillars Architecture](#-the-four-pillars-architecture) — cache, providers, ASG, and scoped debt.
 - [Requirements Intelligence](#-context--requirements-intelligence-layer) — create, list, discover, and export user stories.
 - [Command Manual](#-command-manual) — detailed CLI flags and examples.
-- [MCP Integration](#-mcp-integration-claude-desktop--cursor) — connect AI clients.
+- [MCP Integration](#-mcp-integration-claude-desktop--cursor--antigravity) — connect AI clients.
 - [Advanced Configuration](#advanced-configuration) — client configuration and requirement schemas.
 
 ---
@@ -94,8 +102,8 @@ bck-nd req list
 bck-nd req status US-001 IN_PROGRESS
 bck-nd req discover US-001
 
-# Connect to Claude Desktop / Cursor (see the Advanced Configuration section)
-bck-nd-mcp
+# Connect to Claude Desktop / Cursor / Antigravity IDE
+bck-nd-mcp --install
 ```
 
 ## 🧭 When to Use What
@@ -105,7 +113,7 @@ bck-nd-mcp
 | `bck-nd scan` | Interactive terminal analysis, diagrams, audits, and reports |
 | `bck-nd prompt` | One-shot AI context file to paste into ChatGPT / Claude |
 | `bck-nd req` | Tracking user stories, acceptance criteria, and stakeholder discovery |
-| `bck-nd-mcp` | Persistent MCP tools inside Claude Desktop or Cursor |
+| `bck-nd-mcp` | Persistent MCP tools inside Claude Desktop, Cursor, or Antigravity |
 | `bck-nd explore` | Full-screen TUI to browse and visualize the codebase |
 | `bck-nd docs` / `init-ci` | Static HTML portal and GitHub Pages automation |
 | VS Code Extension | In-editor diagrams, audits, and clipboard context — see [README-EXTENSION.md](vscode-extension/README-EXTENSION.md) |
@@ -155,7 +163,7 @@ bck-nd-mcp
 - ✨ **`bck-nd req status`**: Move Markdown or JSON stories through `TODO`, `IN_PROGRESS`, `TESTING`, `DONE`, or `BLOCKED`
 - 🕵️ **`bck-nd req discover`**: Auto-generates a Stakeholder Interview Guide per story
 - 🧾 **Standard Scan Summary**: `bck-nd scan .` includes discovered requirements alongside architecture output
-- 🔌 **`get_requirements_summary`**: MCP tool exposing live requirements state to Claude Desktop / Cursor
+- 🔌 **`get_requirements_summary`**: MCP tool exposing live requirements state to Claude Desktop, Cursor, and Antigravity
 
 ### Quality, Security & Onboarding
 
@@ -193,7 +201,7 @@ Instead of one monolithic detector, each supported framework — **Laravel, Fast
 
 ### 3. 🌐 Abstract Semantic Graph (ASG)
 
-All providers normalize their output into one **Abstract Semantic Graph** — an in-memory architecture IR that represents controllers, models, services, routes, and their relationships in a framework-agnostic shape. The ASG is what powers diagrams and reports, and it's also queryable directly by AI agents inside Claude Desktop or Cursor via the MCP tool:
+All providers normalize their output into one **Abstract Semantic Graph** — an in-memory architecture IR that represents controllers, models, services, routes, and their relationships in a framework-agnostic shape. The ASG is what powers diagrams and reports, and it's also queryable directly by AI agents inside Claude Desktop, Cursor, or Antigravity via the MCP tool:
 
 ```
 get_asg_graph
@@ -293,7 +301,7 @@ Running `bck-nd prompt .` now injects a `<requirements_context>` XML block direc
 
 ### MCP Tool: `get_requirements_summary`
 
-The same requirements data is available live inside Claude Desktop or Cursor via the `get_requirements_summary` MCP tool — no need to re-export or re-paste context after every change.
+The same requirements data is available live inside Claude Desktop, Cursor, or Antigravity via the `get_requirements_summary` MCP tool — no need to re-export or re-paste context after every change.
 
 ### Standard Scan Integration
 
@@ -549,7 +557,7 @@ Generates a **Stakeholder Interview Guide** for the given story, with discovery 
 #### **How it connects to the rest of the toolchain**
 
 - Every `bck-nd prompt .` run injects a `<requirements_context>` block built from the same data (see the [Requirements Intelligence Layer](#-context--requirements-intelligence-layer) section above).
-- The `get_requirements_summary` MCP tool exposes this data live to Claude Desktop and Cursor.
+- The `get_requirements_summary` MCP tool exposes this data live to Claude Desktop, Cursor, and Antigravity.
 
 > See [Advanced Configuration](#advanced-configuration) for the requirements file format and project setup.
 
@@ -1096,13 +1104,15 @@ bck-nd scan . --ai --provider ollama
 
 ---
 
-## 🤖 MCP Integration (Claude Desktop / Cursor)
+## 🤖 MCP Integration (Claude Desktop / Cursor / Antigravity)
 
-Backend Helper includes an MCP server exposing **23 local architecture and requirements tools** directly inside Claude Desktop and Cursor, including:
+Backend Helper includes an MCP server exposing **23 local architecture and requirements tools** directly inside Claude Desktop, Cursor, and Antigravity IDE, including:
 
 ```bash
-bck-nd-mcp
+bck-nd-mcp --install
 ```
+
+The installer detects the current `antigravity-ide` launcher and safely merges Backend Helper into Antigravity's global MCP configuration without removing GitHub, Supabase, or any other configured server.
 
 | Tool | Introduced | What it returns |
 | --- | --- | --- |
@@ -1331,80 +1341,90 @@ The cache directory is created automatically. Requirements remain visible to `bc
 
 ## Advanced Configuration
 
-### 🤖 MCP Integration (Claude Desktop / Cursor)
+### 🤖 MCP Integration (Claude Desktop / Cursor / Antigravity)
 
-Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**. This allows any compatible AI client (like **Claude Desktop** or **Cursor**) to interact directly with your codebase using our local reverse engineering and diagramming tools without needing to send all your code to the cloud or consume valuable context tokens by transferring full files.
+Backend Helper includes a local **Model Context Protocol (MCP)** server with 23 architecture, quality, security, and requirements tools. Claude Desktop, Cursor, and Antigravity can call those tools on demand without copying the entire repository into every conversation.
 
-The AI will call local tools on demand to analyze the architecture, generate diagrams, search for technical debt, or audit security.
+#### Automatic Installation
 
-#### How to Run the MCP Server (Local Test)
-
-Once you have installed the package locally (`pip install -e .`), you can run the MCP server using the global command:
+Install or update Backend Helper, then run the one-command client installer:
 
 ```bash
-bck-nd-mcp
+pip install -U bck-nd-hlpr
+bck-nd-mcp --install
 ```
 
-Alternatively, you can run it as a Python module:
+The installer:
+
+- registers Backend Helper with Claude Desktop;
+- updates detected Cursor profiles;
+- detects the current `antigravity-ide` launcher and updates Antigravity IDE/CLI;
+- preserves every unrelated MCP server already present, including GitHub MCP;
+- replaces legacy Backend Helper keys with the canonical `bck-nd-mcp` entry;
+- creates a `.bak` copy before changing an existing JSON configuration.
+
+Restart the client or use its MCP **Refresh** action after installation.
+
+#### Antigravity IDE and Agent
+
+Antigravity's IDE agent and CLI share this global MCP registry:
+
+- **Windows:** `%USERPROFILE%\.gemini\config\mcp_config.json`
+- **macOS/Linux:** `~/.gemini/config/mcp_config.json`
+
+These locations and the `mcpServers` schema follow the [official Antigravity MCP documentation](https://antigravity.google/docs/mcp/).
+
+For a server that should exist only inside one repository, Antigravity also supports:
+
+```text
+<project>/.agents/mcp_config.json
+```
+
+Backend Helper installs globally by default so it is available in every Antigravity project. Existing entries such as GitHub MCP remain unchanged, which means the agent can use repository data from GitHub together with live architecture and requirements context from Backend Helper.
+
+To verify the integration in Antigravity IDE:
+
+1. Open the Agent side panel.
+2. Select **MCP Servers > Manage MCP Servers**.
+3. Refresh the list or restart the IDE.
+4. Confirm that `bck-nd-mcp` is enabled.
+5. Ask the agent to call `get_requirements_summary` or `scan_project` in the active workspace.
+
+If manual configuration is necessary, add this entry under the existing `mcpServers` object without deleting the other entries:
+
+```json
+{
+  "mcpServers": {
+    "bck-nd-mcp": {
+      "command": "bck-nd-mcp"
+    }
+  }
+}
+```
+
+The automatic Antigravity installation uses the absolute path of the active Python interpreter plus `-m bck_nd_hlpr.cli.mcp_server`, which is more reliable when a graphical IDE does not inherit the terminal's `PATH`.
+
+#### Claude Desktop
+
+The automatic installer updates:
+
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+
+#### Cursor
+
+The automatic installer updates detected `.cursor/mcp.json` or Cursor global-storage configurations. For manual setup, go to **Cursor Settings > Features > MCP**, create a command server named `bck-nd-mcp`, and use `bck-nd-mcp` as its command.
+
+#### Running the Server Directly
+
+Normally, do not start `bck-nd-mcp` yourself: the MCP client launches it using the `stdio` transport. Running the command manually displays an explanation and then waits for protocol messages on standard input. Pressing `Ctrl+C` exits cleanly.
+
+For environment troubleshooting, the equivalent module command is:
 
 ```bash
 python -m bck_nd_hlpr.cli.mcp_server
 ```
-
-#### How to Configure Clients
-
-##### 1. Claude Desktop
-
-Add the following configuration block to your `claude_desktop_config.json` file:
-
-- **Windows Path:** `%APPDATA%\Claude\claude_desktop_config.json`
-- **Mac/Linux Path:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-**Using the global executable (Recommended):**
-
-```json
-{
-  "mcpServers": {
-    "backend-helper": {
-      "command": "bck-nd-mcp",
-      "env": {
-        "OPENAI_API_KEY": "your-optional-api-key",
-        "ANTHROPIC_API_KEY": "your-optional-api-key"
-      }
-    }
-  }
-}
-```
-
-**Using the explicit Python module** (Most robust for environment/PATH issues):
-
-```json
-{
-  "mcpServers": {
-    "backend-helper": {
-      "command": "python",
-      "args": [
-        "-m",
-        "bck_nd_hlpr.cli.mcp_server"
-      ],
-      "env": {
-        "OPENAI_API_KEY": "your-optional-api-key",
-        "ANTHROPIC_API_KEY": "your-optional-api-key"
-      }
-    }
-  }
-}
-```
-
-##### 2. Cursor
-
-1. Go to **Cursor Settings > Features > MCP**.
-2. Click on **+ Add New MCP Server**.
-3. Configure the following parameters:
-   - **Name:** `backend-helper`
-   - **Type:** `command`
-   - **Command:** `bck-nd-mcp` (or `python -m bck_nd_hlpr.cli.mcp_server` to lock it to your active python environment).
-4. Save and click on **Refresh**. Done! You now have 20 powerful architecture tools instantly available to your AI assistant.
 
 ---
 

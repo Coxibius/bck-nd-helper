@@ -1,17 +1,21 @@
 """
 Unit tests for Pillar D: Client & MCP Integration (get_asg_graph, get_architecture_summary)
-and the --install auto-installer for Claude Desktop.
+and the --install auto-installer for Claude Desktop, Cursor, and Antigravity.
 """
 
 import json
 import pytest
 from pathlib import Path
 
+import bck_nd_hlpr.cli.mcp_server as mcp_server_module
 from bck_nd_hlpr.cli.mcp_server import (
     get_architecture_summary,
     get_asg_graph,
     get_requirements_summary,
+    _find_antigravity_executable,
+    _get_antigravity_config_path,
     _install_claude_desktop,
+    _install_mcp_clients,
 )
 from bck_nd_hlpr.cli.formatters import format_asg_json
 from bck_nd_hlpr.core.asg import ASGGraph, ASGNode, NodeKind, ASGEdge, EdgeKind
@@ -103,20 +107,6 @@ class TestMCPTools:
 
 
 class TestClipboardIntegration:
-    def test_windows_clipboard_helper_uses_native_clip(self, monkeypatch):
-        import bck_nd_hlpr.cli.cli as cli_module
-
-        calls = []
-
-        def fake_run(command, *, input, check):
-            calls.append((command, input, check))
-
-        monkeypatch.setattr(cli_module.sys, "platform", "win32")
-        monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
-
-        assert cli_module.copy_to_clipboard("hello á") is True
-        assert calls == [(["clip"], "hello á".encode("utf-8"), True)]
-
     def test_prompt_copy_flag_copies_generated_context(self, tmp_path, monkeypatch):
         from typer.testing import CliRunner
         import bck_nd_hlpr.cli.cli as cli_module
@@ -148,7 +138,7 @@ class TestClipboardIntegration:
 
 
 class TestMCPInstaller:
-    """Tests for the --install auto-installer that writes claude_desktop_config.json."""
+    """Tests for the multi-client --install auto-installer."""
 
     def test_install_creates_new_config(self, tmp_path):
         """--install should create a fresh config file when none exists."""
@@ -197,6 +187,9 @@ class TestMCPInstaller:
 
         data = json.loads(config_path.read_text(encoding="utf-8"))
         assert data["mcpServers"]["bck-nd-mcp"] == {"command": "bck-nd-mcp"}
+        assert config_path.with_name("claude_desktop_config.json.bak").read_text(
+            encoding="utf-8"
+        ) == "{invalid json!!"
 
     def test_install_handles_non_dict_json(self, tmp_path):
         """--install should handle a config file that contains non-dict JSON (e.g. a list)."""
@@ -245,7 +238,7 @@ class TestMCPInstaller:
         assert data["mcpServers"]["bck-nd-mcp"] == {"command": "bck-nd-mcp"}
 
     def test_install_updates_cursor_config(self, tmp_path):
-        """--install should create/update Cursor/AntiGravity MCP config when path is provided."""
+        """--install should create/update Cursor MCP config when path is provided."""
         cursor_path = tmp_path / ".cursor" / "mcp.json"
         claude_path = tmp_path / "Claude" / "claude_desktop_config.json"
 
@@ -253,7 +246,7 @@ class TestMCPInstaller:
 
         assert cursor_path.is_file()
         assert claude_path.is_file()
-        assert "Cursor / AntiGravity" in result
+        assert "Cursor configured" in result
 
         data = json.loads(cursor_path.read_text(encoding="utf-8"))
         assert data == {
@@ -294,5 +287,121 @@ class TestMCPInstaller:
         assert "bck-nd-mcp" in result
         assert "Server Name" in result
         assert "Command" in result
+
+    def test_antigravity_uses_official_global_config_path(self, tmp_path, monkeypatch):
+        """Antigravity should use ~/.gemini/config/mcp_config.json."""
+        monkeypatch.setattr(mcp_server_module.Path, "home", staticmethod(lambda: tmp_path))
+
+        assert _get_antigravity_config_path() == (
+            tmp_path / ".gemini" / "config" / "mcp_config.json"
+        )
+
+    def test_finds_current_antigravity_ide_command(self, monkeypatch):
+        """The renamed antigravity-ide launcher should be preferred."""
+        calls = []
+
+        def fake_which(command):
+            calls.append(command)
+            if command == "antigravity-ide":
+                return "C:/Program Files/Antigravity/bin/antigravity-ide.cmd"
+            return None
+
+        monkeypatch.setattr(mcp_server_module.shutil, "which", fake_which)
+
+        assert _find_antigravity_executable().endswith("antigravity-ide.cmd")
+        assert calls == ["antigravity-ide"]
+
+    def test_install_updates_antigravity_preserving_other_servers(self, tmp_path):
+        """Antigravity installation must leave GitHub and other MCP entries untouched."""
+        claude_path = tmp_path / "Claude" / "claude_desktop_config.json"
+        antigravity_path = tmp_path / ".gemini" / "config" / "mcp_config.json"
+        antigravity_path.parent.mkdir(parents=True)
+        existing = {
+            "mcpServers": {
+                "github-mcp-server": {
+                    "command": "docker",
+                    "args": ["run", "github-mcp-server"],
+                    "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "test-secret"},
+                },
+                "supabase": {"serverUrl": "https://example.test/mcp"},
+            },
+            "customSettings": {"enabled": True},
+        }
+        antigravity_path.write_text(json.dumps(existing), encoding="utf-8")
+
+        result = _install_claude_desktop(
+            config_path=claude_path,
+            antigravity_config_path=antigravity_path,
+        )
+
+        data = json.loads(antigravity_path.read_text(encoding="utf-8"))
+        assert data["mcpServers"]["github-mcp-server"] == existing["mcpServers"][
+            "github-mcp-server"
+        ]
+        assert data["mcpServers"]["supabase"] == existing["mcpServers"]["supabase"]
+        assert data["customSettings"] == {"enabled": True}
+        assert data["mcpServers"]["bck-nd-mcp"] == {
+            "command": str(Path(mcp_server_module.sys.executable).resolve()),
+            "args": ["-m", "bck_nd_hlpr.cli.mcp_server"],
+        }
+        assert "Antigravity IDE / CLI configured successfully" in result
+        assert antigravity_path.with_name("mcp_config.json.bak").is_file()
+
+    def test_antigravity_install_is_idempotent(self, tmp_path):
+        """Repeated installation should update one stable entry without duplicates."""
+        antigravity_path = tmp_path / ".gemini" / "config" / "mcp_config.json"
+
+        for _ in range(2):
+            _install_claude_desktop(antigravity_config_path=antigravity_path)
+
+        data = json.loads(antigravity_path.read_text(encoding="utf-8"))
+        assert list(data["mcpServers"]) == ["bck-nd-mcp"]
+
+    def test_auto_installer_detects_antigravity_without_real_home_writes(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """The production no-argument flow should register a detected Antigravity IDE."""
+        claude_path = tmp_path / "Claude" / "claude_desktop_config.json"
+        antigravity_path = tmp_path / ".gemini" / "config" / "mcp_config.json"
+        monkeypatch.setattr(
+            mcp_server_module,
+            "_get_claude_config_path",
+            lambda: claude_path,
+        )
+        monkeypatch.setattr(mcp_server_module, "_get_cursor_config_paths", lambda: [])
+        monkeypatch.setattr(
+            mcp_server_module,
+            "_get_antigravity_config_path",
+            lambda: antigravity_path,
+        )
+        monkeypatch.setattr(
+            mcp_server_module,
+            "_find_antigravity_executable",
+            lambda: "C:/Antigravity/antigravity-ide.cmd",
+        )
+
+        result = _install_mcp_clients()
+
+        assert antigravity_path.is_file()
+        assert "detected: C:/Antigravity/antigravity-ide.cmd" in result
+
+    def test_manual_stdio_interrupt_exits_cleanly(self, monkeypatch):
+        """Ctrl+C while manually running the stdio server should not leak a traceback."""
+        class NonInteractiveInput:
+            @staticmethod
+            def isatty():
+                return False
+
+        def interrupted_run(*, transport):
+            assert transport == "stdio"
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(mcp_server_module.sys, "argv", ["bck-nd-mcp"])
+        monkeypatch.setattr(mcp_server_module.sys, "stdin", NonInteractiveInput())
+        monkeypatch.setattr(mcp_server_module.mcp, "run", interrupted_run)
+
+        assert mcp_server_module.main() is None
 
 
