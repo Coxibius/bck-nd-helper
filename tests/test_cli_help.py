@@ -12,12 +12,19 @@ runner = CliRunner()
 
 def test_root_help_lists_current_workflows():
     result = runner.invoke(app, ["--help"])
+    compact_help = " ".join(result.stdout.replace("│", " ").split())
 
     assert result.exit_code == 0, result.exception
-    assert "Architecture, requirements, AI context, and MCP tooling" in result.stdout
+    assert "Product intent" in result.stdout
+    assert "requirements" in result.stdout
+    assert "architecture" in result.stdout
+    assert "AI context" in result.stdout
+    assert "MCP tooling" in result.stdout
     assert "scan . --json" in result.stdout
     assert "prompt . --copy" in result.stdout
     assert "req init US-001" in result.stdout
+    assert "prd init PRD-AUTH" in result.stdout
+    assert "AI context with product intent, requirements, and metrics" in compact_help
     assert "bck-nd-mcp --install" in result.stdout
     assert "Antigravity" in result.stdout
 
@@ -63,8 +70,15 @@ def test_mcp_help_does_not_start_stdio(help_flag, monkeypatch, capsys):
 
     assert mcp_server_module.main() is None
     output = capsys.readouterr().out
+    compact_help = " ".join(output.split())
     assert "Usage: bck-nd-mcp [OPTIONS]" in output
+    assert "product" in output
+    assert "requirements" in output
+    assert "architecture" in output
     assert "--install" in output
+    assert "--version" in output
+    assert "--help" in output
+    assert "Antigravity" in compact_help
     assert "antigravity-ide" in output
     assert "GitHub or other MCP servers" in output
 

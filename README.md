@@ -12,9 +12,31 @@
 
 ## 🚦 Release Status
 
-### v2.4.3 — Current Stable Release
+### v2.5.0 — Current Stable Release
 
-v2.4.3 is the current stable patch release, extending the Four Pillars and Requirements Intelligence layer with compiled-backend UML, polyglot monorepo detection, requirement status workflows, measurable AI context savings, machine-readable scans, and fully offline project documentation.
+v2.5.0 is the current stable release in this repository. It is prepared for release, while publication to PyPI remains pending explicit human authorization.
+
+The release adds a local-first PRD Intelligence layer that keeps human-authored product intent separate from detailed requirements and the technical architecture discovered by the scanner:
+
+- **Local product contract:** version-controlled `.bck-nd/product/*.md` documents use YAML front matter and the lifecycle states `DRAFT`, `REVIEW`, `APPROVED`, `SHIPPED`, and `ARCHIVED`.
+- **Deterministic validation:** typed models, safe parsing, lifecycle-aware diagnostics, stable JSON output, linked requirement IDs, and monorepo scope through `applies_to`.
+- **CLI workflow:** `bck-nd prd init`, `list`, `validate`, and `status`, with `--path` / `-p` for selecting a project root.
+- **Trusted AI context:** a canonical `<product_context>` block appears before requirements and technical architecture, uses a shared deterministic budget, and can be excluded completely with `--no-prd`.
+- **Context controls:** `--max-product-chars` defaults to 6000 characters with a public minimum of 256.
+- **Read-only MCP:** `get_product_context` exposes the same canonical scoped representation without modifying product sources.
+- **Backward compatibility:** repositories without `.bck-nd/product/` preserve their previous prompt behavior without empty product tags.
+- **Context fidelity fixes:** UML/ER discovery consistently honors `.gitignore`, `<core_files>` uses dependency impact plus architectural priorities, and Windows clipboard export preserves Unicode through UTF-16LE.
+- **Local security boundaries:** project-contained paths, safe YAML, strict deterministic serialization, sanitized exposed paths, and minimal atomic status updates with concurrent-modification detection.
+
+PRD Intelligence structures and delivers decisions written by humans; it does not generate or approve product intent autonomously.
+
+**Release verification:** 575 tests passed and the only 2 skips were the known Windows symlink-permission cases.
+
+**Runtime compatibility:** v2.5.0 requires Python `>=3.10`. Its declared support classifiers cover Python 3.10–3.13, and final local release verification ran on Windows with Python 3.13; newer Python versions can satisfy `Requires-Python` but are not yet part of this release's verified support matrix. Backend Helper uses the maintained official MCP SDK 1.x API through `mcp>=1.28.1,<2`, preventing fresh installations from resolving the incompatible MCP 2.x API. MCP SDK 2.x support requires an explicit later migration and is not claimed by this release.
+
+### v2.4.3 — Previous Stable Release
+
+v2.4.3 is the previous stable patch release, extending the Four Pillars and Requirements Intelligence layer with compiled-backend UML, polyglot monorepo detection, requirement status workflows, measurable AI context savings, machine-readable scans, and fully offline project documentation.
 
 All changes listed below are implemented and verified by the full test suite.
 
@@ -50,7 +72,7 @@ All changes listed below are implemented and verified by the full test suite.
 - **Changed — Current CLI help:** root, prompt, requirements, and MCP help now document JSON scans, clipboard context, requirements workflows, context metrics, and Antigravity installation.
 - **Verified:** **320 tests passing** after the Antigravity and CLI-help compatibility maintenance.
 
-### v2.4.2 — Previous Stable Release
+### v2.4.2 — Earlier Stable Release
 
 v2.4.2 completes the first stabilization pass over the Four Pillars and Requirements Intelligence layer:
 
@@ -69,6 +91,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 - [Quick Start](#-quick-start) — install the CLI and run the main workflows.
 - [Key Features](#-key-features) — capabilities grouped by purpose.
 - [Four Pillars Architecture](#-the-four-pillars-architecture) — cache, providers, ASG, and scoped debt.
+- [Product & PRD Intelligence](#-product--prd-intelligence) — capture, validate, scope, and deliver product intent.
 - [Requirements Intelligence](#-context--requirements-intelligence-layer) — create, list, discover, and export user stories.
 - [Command Manual](#-command-manual) — detailed CLI flags and examples.
 - [MCP Integration](#-mcp-integration-claude-desktop--cursor--antigravity) — connect AI clients.
@@ -77,6 +100,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 ---
 
 ## ⚡ Quick Start
+
+Until v2.5.0 receives explicit publication authorization, install it from this source checkout or from its locally built wheel. The PyPI command below installs the latest version that has actually been published, which may still be v2.4.3.
 
 ```bash
 pip install -U bck-nd-hlpr
@@ -90,8 +115,16 @@ bck-nd scan .
 # Emit the complete scan as JSON for CI/CD
 bck-nd scan . --json
 
-# Export LLM-ready context (tree + UML + ER + requirements + core files)
+# Export LLM-ready context: product intent + requirements + architecture + core files
 bck-nd prompt .
+
+# Exclude local PRD product context when it is sensitive or unnecessary
+# This does not modify the source PRD
+bck-nd prompt . --no-prd
+
+# Create and validate a local product contract
+bck-nd prd init PRD-AUTH
+bck-nd prd validate PRD-AUTH
 
 # Or copy that context directly into the system clipboard
 bck-nd prompt . --copy
@@ -112,6 +145,7 @@ bck-nd-mcp --install
 | --- | --- |
 | `bck-nd scan` | Interactive terminal analysis, diagrams, audits, and reports |
 | `bck-nd prompt` | One-shot AI context file to paste into ChatGPT / Claude |
+| `bck-nd prd` | Local product intent, lifecycle validation, and scoped AI context |
 | `bck-nd req` | Tracking user stories, acceptance criteria, and stakeholder discovery |
 | `bck-nd-mcp` | Persistent MCP tools inside Claude Desktop, Cursor, or Antigravity |
 | `bck-nd explore` | Full-screen TUI to browse and visualize the codebase |
@@ -148,7 +182,8 @@ bck-nd-mcp --install
 
 ### AI & Context
 
-- 🧠 **AI Context Dump** (`bck-nd prompt`): Single LLM-optimized `.txt` with project tree + UML + ER + requirements + core files
+- 🧠 **AI Context Dump** (`bck-nd prompt`): Single LLM-optimized `.txt` with applicable product intent + requirements + project tree + UML + ER + core files
+- 🧭 **PRD Context**: Canonical budgeted `<product_context>` with source provenance, lifecycle trust, scope selection, and safe diagnostics
 - 📋 **Requirements Context**: `<requirements_context>` block with user stories and business rules injected into `ai_context.txt`
 - 🎯 **Focused Export** (`--uml`, `--er`, `--tree`): Product-aware context plus the requested technical sections; add `--no-prd` for strictly technical output
 - 📋 **Clipboard Export** (`--copy`, `-c`): Copy full or focused context directly with native OS clipboard tools
@@ -220,6 +255,69 @@ The technical debt scanner now understands **scope tags**, letting teams triage 
 ```bash
 bck-nd scan . --todo
 ```
+
+---
+
+## 🧭 Product & PRD Intelligence
+
+A PRD records **why** a product or release exists, who it serves, its goals, scope, boundaries, success measures, risks, and unresolved decisions. Requirements describe **what behavior** must be delivered through user stories, business rules, and acceptance criteria. The scanner and ASG describe **what the codebase currently is**. Backend Helper combines these three layers as explicit context; it does not infer or invent missing product intent.
+
+### Local document contract
+
+Editable PRDs are UTF-8 Markdown files with YAML front matter under `.bck-nd/product/`. The metadata identifies the document, lifecycle state, applicable project paths, and linked requirement IDs. The required narrative remains human-authored.
+
+```yaml
+---
+schema_version: 1
+id: PRD-AUTH
+title: Authentication release
+status: DRAFT
+applies_to:
+  - apps/api
+requirement_ids:
+  - US-001
+---
+```
+
+Supported lifecycle states are `DRAFT`, `REVIEW`, `APPROVED`, `SHIPPED`, and `ARCHIVED`. Validation is lifecycle-aware: incomplete material can be reported while drafting, but blocking errors prevent transitions to `REVIEW`, `APPROVED`, or `SHIPPED`. Open questions are warnings in `DRAFT` and `REVIEW`, and block `APPROVED` and `SHIPPED`.
+
+### User workflow
+
+```console
+# Current project
+bck-nd prd init
+bck-nd prd init PRD-AUTH
+bck-nd prd list
+bck-nd prd validate
+bck-nd prd validate PRD-AUTH
+bck-nd prd validate --json
+bck-nd prd status PRD-AUTH REVIEW
+
+# Another project root: --path / -p is available on every prd command
+bck-nd prd list --path ./my-project
+bck-nd prd validate PRD-AUTH --path ./my-project --json
+
+# Product-aware AI context
+bck-nd prompt .
+bck-nd prompt . --max-product-chars 6000
+bck-nd prompt . --no-prd
+```
+
+`bck-nd prd init` without an ID creates `.bck-nd/product/PRD.md`. `prd validate --json` emits deterministic diagnostics suitable for scripts and CI. `prd status` makes a minimal atomic metadata edit after validating the requested transition.
+
+### Scope, budget, and trust
+
+- `applies_to: [.]` targets the full project. Component-aware paths such as `frontend` or `apps/api` select PRDs for overlapping monorepo scopes without unsafe string-prefix matching.
+- All applicable active PRDs share one deterministic character budget. `--max-product-chars` defaults to 6000; values below 256 are rejected.
+- `<product_context>` is emitted before `<requirements_context>`, the project tree, and architecture blocks.
+- `approved=true` is possible only for an `APPROVED` or `SHIPPED` document whose validation is `VALID`.
+- An invalid document retains its declared status as provenance, but is never presented as approved and contributes no trusted narrative.
+- An applicable `DRAFT` may appear, always with a visible non-approved trust notice.
+- `--no-prd` prevents loading and including product context, including in focused prompt modes.
+- Exposed paths are project-relative or the sentinel `<outside-project>`.
+- When no product directory exists, Backend Helper emits no empty product block and preserves the previous context behavior.
+
+PRD content remains repository data, not instructions to Backend Helper itself. The feature is local and deterministic: it does not call an AI model, cloud service, Jira, or Confluence, and it does not add PRD nodes to the ASG or the offline HTML portal.
 
 ---
 
@@ -311,9 +409,13 @@ The same requirements data is available live inside Claude Desktop, Cursor, or A
 
 ## 🚀 Release History
 
+### v2.5.0 — PRD Intelligence
+
+Added the local-first PRD domain, lifecycle-aware CLI validation, deterministic JSON diagnostics, canonical product context for prompts and MCP, monorepo applicability, trust-aware rendering, and release hardening. This release is prepared in the repository; PyPI publication remains pending.
+
 ### v2.4.3 — Compiled UML, Polyglot Detection & Automation
 
-Added Go and Rust UML extraction, polyglot monorepo detection, requirement status transitions, AI context metrics, machine-readable JSON scans, and a standalone offline documentation portal. See the [current stable release summary](#v243--current-stable-release) or [CHANGELOG.md](CHANGELOG.md).
+Added Go and Rust UML extraction, polyglot monorepo detection, requirement status transitions, AI context metrics, machine-readable JSON scans, and a standalone offline documentation portal. See the [previous stable release summary](#v243--previous-stable-release) or [CHANGELOG.md](CHANGELOG.md).
 
 ### v2.4.2 — Stabilization & Workflow Integration
 
@@ -343,6 +445,8 @@ Major architecture release: decoupled `core/` engine, concurrent `ScannerOrchest
 ---
 
 ## 📦 Installation
+
+Backend Helper v2.5.0 requires Python `>=3.10`. Its declared support classifiers cover Python 3.10–3.13, and the final local release verification used Windows with Python 3.13. Newer Python versions can satisfy `Requires-Python`, but they are not yet part of v2.5.0's verified support matrix. The MCP server targets the official MCP SDK 1.x line through `mcp>=1.28.1,<2`; this keeps new installations on the compatible `FastMCP` API until a separately tested MCP 2.x migration is completed.
 
 ```bash
 # From PyPI
@@ -456,10 +560,11 @@ bck-nd prompt . --uml -o my_diagrams.txt
 
 | XML Tag                    | Contents                                                        |
 | --------------------------- | ----------------------------------------------------------------- |
+| `<product_context>`       | Applicable PRD provenance, lifecycle trust, linked requirement IDs, and budgeted product narrative |
+| `<requirements_context>`  | User stories, status, acceptance criteria, and business rules    |
 | `<project_tree>`          | Clean ASCII directory tree (no venv/node_modules)                |
 | `<architecture_uml>`      | UML Class Diagram in Mermaid format                               |
 | `<architecture_er>`       | Entity-Relationship Diagram in Mermaid format                     |
-| `<requirements_context>`  | User stories, status, acceptance criteria, and business rules       |
 | `<core_files>`            | Content of the 3-5 most important backend files                  |
 
 #### **How to use it**
@@ -475,6 +580,18 @@ bck-nd prompt . --uml -o my_diagrams.txt
 ````xml
 <!-- bck-nd-hlpr Context Dump -->
 <!-- Paste this file into ChatGPT / Claude for instant AI context -->
+
+<product_context schema_version="1">
+{"truncated":false,"documents":[{"id":"PRD-AUTH","status":"APPROVED","approved":true,"validation":"VALID"}],"diagnostics":[]}
+</product_context>
+
+<requirements_context>
+<story id="US-042" status="IN_PROGRESS">
+  <title>Allow refunds on partial shipments</title>
+  <acceptance_criteria>...</acceptance_criteria>
+  <business_rules>...</business_rules>
+</story>
+</requirements_context>
 
 <project_tree>
 my-project/
@@ -500,14 +617,6 @@ erDiagram
 ```
 
 </architecture_er>
-
-<requirements_context>
-<story id="US-042" status="IN_PROGRESS">
-  <title>Allow refunds on partial shipments</title>
-  <acceptance_criteria>...</acceptance_criteria>
-  <business_rules>...</business_rules>
-</story>
-</requirements_context>
 
 <core_files>
 <file path="src/main.py">
@@ -1106,7 +1215,7 @@ bck-nd scan . --ai --provider ollama
 
 ## 🤖 MCP Integration (Claude Desktop / Cursor / Antigravity)
 
-Backend Helper includes an MCP server exposing **23 local architecture and requirements tools** directly inside Claude Desktop, Cursor, and Antigravity IDE, including:
+Backend Helper includes an MCP server exposing **24 local architecture, product, and requirements tools** directly inside Claude Desktop, Cursor, and Antigravity IDE, including:
 
 ```bash
 bck-nd-mcp --install
@@ -1118,6 +1227,7 @@ The installer detects the current `antigravity-ide` launcher and safely merges B
 | --- | --- | --- |
 | `get_asg_graph` | v2.4.1 | The Abstract Semantic Graph (Pillar 3) — the full normalized architecture IR, queryable by the AI |
 | `get_requirements_summary` | v2.4.1 | Live user stories, statuses, acceptance criteria, and business rules from the Requirements Intelligence Layer |
+| `get_product_context` | v2.5.0 | Read-only canonical product context for `project_path`, safe `target_path`, and `max_chars`; consult it before decisions about scope, users, goals, or release behavior |
 
 For MCP client configuration and requirements integration, see [Advanced Configuration](#advanced-configuration).
 
@@ -1222,6 +1332,7 @@ bck-nd scan . --no-cache
 | **API Contract Map** | Heuristic | Matches routes to models by naming/import patterns — not runtime validation |
 | **Security audit** | Pattern-based | Catches common secret patterns; not a substitute for dedicated SAST tools |
 | **Requirements Intelligence** | Manual authoring | Requires user stories to be defined in your project's requirements file(s); no automatic inference from code |
+| **PRD Intelligence** | Local Markdown and deterministic validation | Human authors must supply product intent; no autonomous PRD generation, cloud sync, visual editor, HTML-portal embedding, or complete code-test traceability |
 
 Parser errors on individual files are collected in `execution_warnings` and do not abort the scan. See [CHANGELOG.md](CHANGELOG.md#200).
 
@@ -1330,12 +1441,14 @@ Backend Helper keeps generated state and user-authored requirements together wit
 .bck-nd/
 ├── cache/
 │   └── delta.json       # Generated; ignored by Git and context output
+├── product/             # Human-authored PRDs; preserved in version control
+│   └── PRD.md
 └── requirements/        # User-authored; preserved in trees and version control
     ├── US-001.md
     └── US-002.json
 ```
 
-The cache directory is created automatically. Requirements remain visible to `bck-nd prompt`, `bck-nd scan`, and MCP clients.
+The cache directory is created automatically. Product and requirement sources remain versionable; product context can be excluded from a prompt with `--no-prd` without deleting its source.
 
 ---
 
@@ -1343,7 +1456,7 @@ The cache directory is created automatically. Requirements remain visible to `bc
 
 ### 🤖 MCP Integration (Claude Desktop / Cursor / Antigravity)
 
-Backend Helper includes a local **Model Context Protocol (MCP)** server with 23 architecture, quality, security, and requirements tools. Claude Desktop, Cursor, and Antigravity can call those tools on demand without copying the entire repository into every conversation.
+Backend Helper includes a local **Model Context Protocol (MCP)** server with 24 architecture, quality, security, product, and requirements tools. Claude Desktop, Cursor, and Antigravity can call those tools on demand without copying the entire repository into every conversation.
 
 #### Automatic Installation
 
@@ -1388,7 +1501,7 @@ To verify the integration in Antigravity IDE:
 2. Select **MCP Servers > Manage MCP Servers**.
 3. Refresh the list or restart the IDE.
 4. Confirm that `bck-nd-mcp` is enabled.
-5. Ask the agent to call `get_requirements_summary` or `scan_project` in the active workspace.
+5. Ask the agent to call `get_product_context` before product or release decisions, `get_requirements_summary` for detailed behavior, or `scan_project` for architecture.
 
 If manual configuration is necessary, add this entry under the existing `mcpServers` object without deleting the other entries:
 

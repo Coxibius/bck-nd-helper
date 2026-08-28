@@ -50,7 +50,7 @@ from bck_nd_hlpr.core.analysis import (
 
 app = typer.Typer(
     name="bck-nd",
-    help="Backend Helper: Architecture, requirements, AI context, and MCP tooling.",
+    help="Backend Helper: Product intent, requirements, architecture, AI context, and MCP tooling.",
     add_completion=False,
     rich_markup_mode="rich",
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -59,7 +59,7 @@ app = typer.Typer(
 
 • [cyan]bck-nd scan . --json[/cyan] — Four Pillars scan for CI/CD
 
-• [cyan]bck-nd prompt . --copy[/cyan] — AI context, requirements, and metrics
+• [cyan]bck-nd prompt . --copy[/cyan] — AI context with product intent, requirements, and metrics
 
 • [cyan]bck-nd req init US-001[/cyan] — scaffold a user story
 

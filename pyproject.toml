@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bck-nd-hlpr"
 
-version = "2.4.3"
+version = "2.5.0"
 
 description = "The Backend Helper - Your CLI Context help for AI and Humans"
 
@@ -21,13 +21,12 @@ classifiers = [
     "Topic :: Software Development :: Build Tools",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13"
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "typer",
     "colorama",
@@ -44,7 +43,7 @@ dependencies = [
     "tree-sitter-php",
     "tree-sitter-go",
     "tree-sitter-rust",
-    "mcp",
+    "mcp>=1.28.1,<2",
     "python-dotenv"
 ]
 

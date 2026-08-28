@@ -1410,7 +1410,7 @@ def _get_mcp_cli_help() -> str:
     """Return current command-line help without starting the stdio server."""
     return """Usage: bck-nd-mcp [OPTIONS]
 
-Backend Helper MCP server for local architecture and requirements intelligence.
+Backend Helper MCP server for local product, requirements, and architecture intelligence.
 
 With no options, starts the stdio server for an MCP-compatible client.
 
