@@ -5,6 +5,8 @@ import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
+from bck_nd_hlpr.core.sanitizer import sanitize_text
+
 from .models import (
     DiagnosticSeverity,
     ProductCollectionResult,
@@ -17,6 +19,7 @@ from .models import (
 
 SUPPORTED_SCHEMA_VERSION = 1
 VALID_PRODUCT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+VALID_REQUIREMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 REQUIRED_SECTIONS: Tuple[Tuple[str, str], ...] = (
     ("problem_statement", "Problem Statement"),
@@ -353,13 +356,26 @@ class ProductValidator:
         available_requirement_ids: Optional[Iterable[str]],
     ) -> List[ProductDiagnostic]:
         available = ProductValidator._canonical_ids(available_requirement_ids)
-        if available is None:
-            return []
-
         diagnostics: List[ProductDiagnostic] = []
         for requirement_id in document.requirement_ids:
             reference = requirement_id.strip()
-            if not reference or reference.casefold() in available:
+            if (
+                not reference
+                or VALID_REQUIREMENT_ID.fullmatch(reference) is None
+                or sanitize_text(reference) != reference
+            ):
+                diagnostics.append(
+                    _diagnostic(
+                        ProductDiagnosticCode.REQUIREMENT_ID_INVALID,
+                        DiagnosticSeverity.ERROR,
+                        "A referenced requirement ID has an invalid format.",
+                        _source(document),
+                        field="requirement_ids",
+                        reference="<invalid-requirement-id>",
+                    )
+                )
+                continue
+            if available is None or reference.casefold() in available:
                 continue
             diagnostics.append(
                 _diagnostic(

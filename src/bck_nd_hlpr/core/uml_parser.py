@@ -6,6 +6,7 @@ import ast
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Any
+from bck_nd_hlpr.core.utils.cache import FileCache
 
 class UMLClassInfo:
     """Estructura de datos para almacenar info de una clase."""
@@ -86,8 +87,7 @@ class UMLExtractor(ast.NodeVisitor):
 def parse_file_for_uml(file_path: Path, root_path: Path) -> List[UMLClassInfo]:
     """Helper para parsear un archivo único y retornar sus clases."""
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        content = FileCache.read_project_file(root_path, file_path)
         
         tree = ast.parse(content)
         rel_path = file_path.relative_to(root_path)

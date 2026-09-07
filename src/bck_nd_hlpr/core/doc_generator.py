@@ -1,5 +1,4 @@
 import html
-import os
 import re
 from pathlib import Path
 
@@ -16,6 +15,28 @@ from bck_nd_hlpr.core.scanner import ProjectScanner
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
 from bck_nd_hlpr.core.context_dumper import ContextDumper
 from bck_nd_hlpr.core.requirements import RequirementsParser
+from bck_nd_hlpr.core.utils.secure_write import (
+    SecureWriteError,
+    atomic_write_explicit_output,
+    ensure_safe_explicit_directory,
+)
+
+
+DOC_GENERATOR_MARKER = b"<!-- bck-nd-hlpr generated documentation -->\n"
+_LEGACY_DOC_FINGERPRINTS = (
+    b"<title>Project Documentation</title>",
+    b'id="copy-ai-context-btn"',
+    b'id="ai-context-content"',
+    b'data-renderer="offline-svg"',
+    b"navigator.clipboard.writeText",
+)
+
+
+def _is_backend_helper_document(content: bytes) -> bool:
+    return content.startswith(DOC_GENERATOR_MARKER) or (
+        content.lstrip().startswith(b"<!DOCTYPE html>")
+        and all(fingerprint in content for fingerprint in _LEGACY_DOC_FINGERPRINTS)
+    )
 
 
 def _offline_svg_preview(source: str, title: str) -> str:
@@ -696,46 +717,43 @@ class DocGenerator:
         # 6. AI Context dump (LLM-optimized XML) for clipboard copy
         try:
             ai_context = ContextDumper(path=root_path).build()
-        except Exception as e:
-            ai_context = f"<!-- Failed to generate AI context: {e} -->"
+        except Exception:
+            ai_context = "<!-- AI context unavailable safely. -->"
         ai_context_escaped = html.escape(ai_context)
 
         # Single-pass substitution prevents project content that resembles a
         # placeholder from being interpreted as another template directive.
-        html_content = _render_template(
-            HTML_TEMPLATE,
-            {
-                "{project_tree}": html.escape(project_tree),
-                "{infra_diagram}": html.escape(infra_diagram),
-                "{sequence_diagram}": html.escape(sequence_diagram),
-                "{uml_diagram}": html.escape(uml_diagram),
-                "{er_diagram}": html.escape(er_diagram),
-                "{infra_fallback_svg}": fallback_svgs["infra"],
-                "{sequence_fallback_svg}": fallback_svgs["sequence"],
-                "{uml_fallback_svg}": fallback_svgs["uml"],
-                "{er_fallback_svg}": fallback_svgs["er"],
-                "{requirements_nav}": requirements_nav,
-                "{requirements_section}": requirements_section,
-                "{todos_table}": todos_table,
-                "{ai_context}": ai_context_escaped,
-            },
-        )
-
-        # Write to file
         try:
-            Path(output_dir).mkdir(parents=True, exist_ok=True)
-            output_file = os.path.join(output_dir, "index.html")
-            
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(html_content)
-                
-            return output_file
-        except OSError as e:
-            print(f"Error creating output directory or writing HTML file: {e}")
+            html_content = _render_template(
+                HTML_TEMPLATE,
+                {
+                    "{project_tree}": html.escape(project_tree),
+                    "{infra_diagram}": html.escape(infra_diagram),
+                    "{sequence_diagram}": html.escape(sequence_diagram),
+                    "{uml_diagram}": html.escape(uml_diagram),
+                    "{er_diagram}": html.escape(er_diagram),
+                    "{infra_fallback_svg}": fallback_svgs["infra"],
+                    "{sequence_fallback_svg}": fallback_svgs["sequence"],
+                    "{uml_fallback_svg}": fallback_svgs["uml"],
+                    "{er_fallback_svg}": fallback_svgs["er"],
+                    "{requirements_nav}": requirements_nav,
+                    "{requirements_section}": requirements_section,
+                    "{todos_table}": todos_table,
+                    "{ai_context}": ai_context_escaped,
+                },
+            )
+            rendered = DOC_GENERATOR_MARKER + html_content.encode("utf-8")
+        except Exception:
             return None
-        except UnicodeEncodeError as e:
-            print(f"Encoding error while writing HTML file: {e}")
-            return None
-        except Exception as e:
-            print(f"Unexpected error generating documentation: {e}")
+
+        requested_output = Path(output_dir) / "index.html"
+        try:
+            safe_output_dir = ensure_safe_explicit_directory(output_dir)
+            atomic_write_explicit_output(
+                safe_output_dir / "index.html",
+                rendered,
+                existing_validator=_is_backend_helper_document,
+            )
+            return str(requested_output)
+        except SecureWriteError:
             return None

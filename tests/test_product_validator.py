@@ -244,6 +244,50 @@ def test_missing_requirement_reference_is_error():
     assert missing[0].severity is DiagnosticSeverity.ERROR
 
 
+@pytest.mark.parametrize(
+    "requirement_id",
+    ["REQ-123", "US_001", "HU01", "PAYMENTS.V2"],
+)
+def test_professional_requirement_ids_are_valid(requirement_id):
+    document = valid_document(requirement_ids=[requirement_id])
+
+    diagnostics = ProductValidator.validate_document(
+        document,
+        available_requirement_ids={requirement_id},
+    )
+
+    assert findings(
+        diagnostics,
+        ProductDiagnosticCode.REQUIREMENT_ID_INVALID,
+    ) == []
+
+
+@pytest.mark.parametrize(
+    "requirement_id",
+    [
+        "REQ 123",
+        "../REQ-123",
+        r"folder\REQ-123",
+        "folder/REQ-123",
+        "token=credential-value-123456",
+        "secret: credential-value-123456",
+        "ghp_abcdefghijklmnopqrstuvwxyz123456",
+    ],
+)
+def test_unsafe_requirement_ids_are_rejected_without_echo(requirement_id):
+    document = valid_document(requirement_ids=[requirement_id])
+
+    diagnostics = ProductValidator.validate_document(document)
+    invalid = findings(
+        diagnostics,
+        ProductDiagnosticCode.REQUIREMENT_ID_INVALID,
+    )
+
+    assert len(invalid) == 1
+    assert invalid[0].severity is DiagnosticSeverity.ERROR
+    assert requirement_id not in repr(invalid[0].to_dict())
+
+
 def test_orphan_requirement_is_collection_warning():
     document = valid_document(requirement_ids=["US-001"])
 

@@ -250,9 +250,13 @@ def test_go_and_rust_models_flow_into_asg():
     assert nodes["OrderRepository"].kind == NodeKind.INTERFACE
 
 
-def test_mcp_asg_graph_includes_compiled_models(tmp_path: Path):
+def test_mcp_asg_graph_includes_compiled_models(
+    tmp_path: Path,
+    monkeypatch,
+):
     from bck_nd_hlpr.cli.mcp_server import get_asg_graph
 
+    monkeypatch.setenv("BCK_ND_MCP_ALLOWED_ROOTS", str(tmp_path))
     (tmp_path / "service.go").write_text(GO_SOURCE, encoding="utf-8")
     (tmp_path / "orders.rs").write_text(RUST_SOURCE, encoding="utf-8")
 

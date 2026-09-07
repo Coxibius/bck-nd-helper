@@ -244,7 +244,11 @@ def test_prompt_rejects_product_budget_below_minimum(tmp_path):
     assert "256" in (result.stdout + result.stderr)
 
 
-def test_mcp_product_tool_matches_renderer_and_does_not_modify_sources(tmp_path):
+def test_mcp_product_tool_matches_renderer_and_does_not_modify_sources(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BCK_ND_MCP_ALLOWED_ROOTS", str(tmp_path))
     source = write_product(tmp_path)
     before = source.read_bytes()
 
@@ -259,7 +263,44 @@ def test_mcp_product_tool_matches_renderer_and_does_not_modify_sources(tmp_path)
     assert source.read_bytes() == before
 
 
-def test_mcp_product_tool_handles_absence_scope_and_budget(tmp_path):
+def test_repository_secret_is_redacted_consistently_across_all_product_outputs(
+    tmp_path,
+    monkeypatch,
+):
+    secret = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+    source = write_product(
+        tmp_path,
+        padding=f"\nAPI credential for local testing: {secret}",
+    )
+    original = source.read_bytes()
+    monkeypatch.setenv("BCK_ND_MCP_ALLOWED_ROOTS", str(tmp_path))
+
+    canonical = build_product_context(tmp_path)
+    dumper_context = ContextDumper(path=str(tmp_path)).get_product_context()
+    mcp_context = mcp_module.get_product_context(project_path=str(tmp_path))
+
+    output = tmp_path / "prompt.txt"
+    result = runner.invoke(
+        cli_module.app,
+        ["prompt", str(tmp_path), "--tree", "--output", str(output)],
+    )
+    prompt_context = output.read_text(encoding="utf-8")
+
+    assert result.exit_code == 0, result.exception
+    assert canonical == dumper_context == mcp_context
+    assert all(
+        secret not in value
+        for value in (canonical, dumper_context, mcp_context, prompt_context)
+    )
+    assert all(
+        "***REDACTED***" in value
+        for value in (canonical, dumper_context, mcp_context, prompt_context)
+    )
+    assert source.read_bytes() == original
+
+
+def test_mcp_product_tool_handles_absence_scope_and_budget(tmp_path, monkeypatch):
+    monkeypatch.setenv("BCK_ND_MCP_ALLOWED_ROOTS", str(tmp_path))
     assert mcp_module.get_product_context(str(tmp_path)) == ""
 
     (tmp_path / "frontend").mkdir()
@@ -289,7 +330,11 @@ def test_mcp_product_tool_handles_absence_scope_and_budget(tmp_path):
     assert "PRD-BACKEND" not in context
 
 
-def test_mcp_product_tool_rejects_unsafe_target_without_leaking_it(tmp_path):
+def test_mcp_product_tool_rejects_unsafe_target_without_leaking_it(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BCK_ND_MCP_ALLOWED_ROOTS", str(tmp_path))
     unsafe = "file:///C:/Users/Private/secret"
 
     result = mcp_module.get_product_context(

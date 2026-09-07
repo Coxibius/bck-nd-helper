@@ -1,11 +1,14 @@
 """Tests for the reusable local PRD application service."""
 
 import os
+import stat
 from pathlib import Path
 
 import pytest
 
 import bck_nd_hlpr.core.product.service as service_module
+from bck_nd_hlpr.core.product.renderer import build_product_context
+from bck_nd_hlpr.core.requirements import RequirementsParser
 from bck_nd_hlpr.core.product import (
     DiagnosticSeverity,
     ProductCollectionResult,
@@ -220,6 +223,54 @@ def test_full_validation_reports_orphan_requirement(tmp_path):
         if item.code == ProductDiagnosticCode.REQUIREMENT_ORPHAN
     ]
     assert [item.reference for item in orphan] == ["US-ORPHAN"]
+
+
+def test_unsafe_requirement_never_resolves_product_link_or_leaks_content(
+    tmp_path,
+    monkeypatch,
+):
+    write_prd(
+        tmp_path,
+        "PRD-REQ.md",
+        complete_prd("PRD-REQ", requirements=["US-SECRET"]),
+    )
+    requirements_dir = tmp_path / ".bck-nd" / "requirements"
+    requirements_dir.mkdir(parents=True)
+    unsafe = requirements_dir / "US-SECRET.md"
+    secret = "EXTERNAL-LINKED-REQUIREMENT-SECRET"
+    unsafe.write_text(
+        f"# US-SECRET [DONE] - {secret}\n",
+        encoding="utf-8",
+    )
+    unsafe_size = unsafe.stat().st_size
+    original = RequirementsParser._is_link_or_reparse
+
+    monkeypatch.setattr(
+        RequirementsParser,
+        "_is_link_or_reparse",
+        staticmethod(
+            lambda path_stat: (
+                stat.S_ISREG(path_stat.st_mode)
+                and path_stat.st_size == unsafe_size
+            )
+            or original(path_stat)
+        ),
+    )
+
+    report = ProductService(tmp_path).validate_documents()
+    rendered = build_product_context(tmp_path)
+
+    assert any(
+        diagnostic.code == ProductDiagnosticCode.REQUIREMENTS_UNAVAILABLE
+        and diagnostic.severity is DiagnosticSeverity.ERROR
+        for diagnostic in report.diagnostics
+    )
+    assert not any(
+        diagnostic.code == ProductDiagnosticCode.REQUIREMENT_MISSING
+        for diagnostic in report.diagnostics
+    )
+    assert secret not in repr(report.to_dict())
+    assert secret not in rendered
 
 
 def test_validation_report_is_deterministic_and_exposes_relative_paths(tmp_path):
@@ -613,6 +664,67 @@ def test_update_status_blocks_missing_requirement(tmp_path):
         for item in captured.value.diagnostics
     )
     assert target.read_bytes() == original
+
+
+def test_rejected_requirements_add_one_stable_product_trust_error(tmp_path, monkeypatch):
+    write_prd(tmp_path, "PRD-REQ.md", complete_prd("PRD-REQ", status="APPROVED"))
+    requirements_dir = tmp_path / ".bck-nd" / "requirements"
+    requirements_dir.mkdir(parents=True)
+    (requirements_dir / "US-DUP.json").write_bytes(
+        b'{"story":{"id":"US-DUP","status":"TODO","status":"DONE"}}'
+    )
+    calls = {"count": 0}
+    original_load = RequirementsParser.load_collection
+
+    def tracked_load(project_path):
+        calls["count"] += 1
+        return original_load(project_path)
+
+    monkeypatch.setattr(RequirementsParser, "load_collection", tracked_load)
+
+    report = ProductService(tmp_path).validate_documents()
+
+    assert calls["count"] == 1
+    unavailable = [
+        item
+        for item in report.diagnostics
+        if item.code == ProductDiagnosticCode.REQUIREMENTS_UNAVAILABLE
+    ]
+    assert len(unavailable) == 1
+    assert unavailable[0].severity is DiagnosticSeverity.ERROR
+    assert str(tmp_path) not in unavailable[0].message
+
+
+def test_rejected_requirements_block_review_but_allow_draft_and_archived(tmp_path):
+    review_target = write_prd(tmp_path, "review.md", complete_prd("PRD-REVIEW"))
+    draft_target = write_prd(
+        tmp_path, "draft.md", complete_prd("PRD-DRAFT", status="REVIEW")
+    )
+    archived_target = write_prd(
+        tmp_path, "archived.md", complete_prd("PRD-ARCHIVED")
+    )
+    requirements_dir = tmp_path / ".bck-nd" / "requirements"
+    requirements_dir.mkdir(parents=True)
+    (requirements_dir / "US-DUP.json").write_bytes(
+        b'{"story":{"id":"US-DUP","status":"TODO","status":"DONE"}}'
+    )
+
+    with pytest.raises(ProductTransitionBlockedError) as captured:
+        ProductService(tmp_path).update_status("PRD-REVIEW", "REVIEW")
+    assert any(
+        item.code == ProductDiagnosticCode.REQUIREMENTS_UNAVAILABLE
+        for item in captured.value.diagnostics
+    )
+    assert review_target.read_text(encoding="utf-8").find("status: DRAFT") >= 0
+
+    draft_result = ProductService(tmp_path).update_status("PRD-DRAFT", "DRAFT")
+    archived_result = ProductService(tmp_path).update_status(
+        "PRD-ARCHIVED", "ARCHIVED"
+    )
+    assert draft_result.new_status == "DRAFT"
+    assert archived_result.new_status == "ARCHIVED"
+    assert "status: DRAFT" in draft_target.read_text(encoding="utf-8")
+    assert "status: ARCHIVED" in archived_target.read_text(encoding="utf-8")
 
 
 def test_update_status_blocks_open_questions_for_approved(tmp_path):

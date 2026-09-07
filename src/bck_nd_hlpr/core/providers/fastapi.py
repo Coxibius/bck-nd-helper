@@ -1,12 +1,10 @@
 """
 FastAPI architecture provider.
 """
-import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider
-from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 
 
 class FastApiProvider(BaseArchitectureProvider):
@@ -27,43 +25,26 @@ class FastApiProvider(BaseArchitectureProvider):
 
         # 1. Check dependency files
         for dep_file in ("requirements.txt", "Pipfile"):
-            path = root / dep_file
-            if path.exists():
-                try:
-                    content = path.read_text(encoding="utf-8", errors="ignore").lower()
-                    if "fastapi" in content:
-                        return True
-                except Exception:
-                    pass
+            path = self._file(root, dep_file)
+            if path is not None:
+                content = self._read(root, path)
+                if content is not None and "fastapi" in content.lower():
+                    return True
 
         # 2. Check pyproject.toml
-        pyproject = root / "pyproject.toml"
-        if pyproject.exists():
-            try:
-                content = pyproject.read_text(encoding="utf-8", errors="ignore").lower()
-                if "fastapi" in content:
-                    return True
-            except Exception:
-                pass
+        pyproject = self._file(root, "pyproject.toml")
+        if pyproject is not None:
+            content = self._read(root, pyproject)
+            if content is not None and "fastapi" in content.lower():
+                return True
 
         # 3. Scan .py files for fastapi imports (limited depth)
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith(".")]
-            # Limit scan depth to 3 levels
-            rel = Path(root_dir).relative_to(root)
-            if len(rel.parts) > 3:
-                dirs.clear()
-                continue
-            for f in files:
-                if f.endswith(".py"):
-                    try:
-                        content = (Path(root_dir) / f).read_text(
-                            encoding="utf-8", errors="ignore"
-                        )
-                        if "from fastapi import" in content or "import fastapi" in content:
-                            return True
-                    except Exception:
-                        continue
+        for path in self._files(root, suffixes=(".py",), max_depth=3):
+            content = self._read(root, path)
+            if content is not None and (
+                "from fastapi import" in content or "import fastapi" in content
+            ):
+                return True
         return False
 
     # -- Metadata -------------------------------------------------------------
@@ -90,12 +71,11 @@ class FastApiProvider(BaseArchitectureProvider):
         """Inspect dependency files to determine the ORM in use."""
         dep_content = ""
         for dep_file in ("requirements.txt", "Pipfile", "pyproject.toml"):
-            path = root / dep_file
-            if path.exists():
-                try:
-                    dep_content += path.read_text(encoding="utf-8", errors="ignore").lower()
-                except Exception:
-                    pass
+            path = self._file(root, dep_file)
+            if path is not None:
+                content = self._read(root, path)
+                if content is not None:
+                    dep_content += content.lower()
 
         if "sqlalchemy" in dep_content or "sqlmodel" in dep_content:
             return "SQLAlchemy"
@@ -107,28 +87,19 @@ class FastApiProvider(BaseArchitectureProvider):
 
     def find_model_files(self, root_path: Path) -> List[Path]:
         root = Path(root_path)
-        results: List[Path] = []
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith(".")]
-            for f in files:
-                if f.endswith(".py"):
-                    fpath = Path(root_dir) / f
-                    name_lower = f.lower()
-                    if "model" in name_lower or "schema" in name_lower or "entity" in name_lower:
-                        results.append(fpath)
-        return sorted(results)
+        return [
+            path
+            for path in self._files(root, suffixes=(".py",))
+            if any(token in path.name.lower() for token in ("model", "schema", "entity"))
+        ]
 
     def find_route_files(self, root_path: Path) -> List[Path]:
         root = Path(root_path)
-        results: List[Path] = []
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith(".")]
-            for f in files:
-                if f.endswith(".py"):
-                    name_lower = f.lower()
-                    if "route" in name_lower or "router" in name_lower or "endpoint" in name_lower:
-                        results.append(Path(root_dir) / f)
-        return sorted(results)
+        return [
+            path
+            for path in self._files(root, suffixes=(".py",))
+            if any(token in path.name.lower() for token in ("route", "router", "endpoint"))
+        ]
 
     def find_main_app_file(self, root_path: Path) -> Optional[Path]:
         """Locate ``main.py`` or a Python file instantiating ``FastAPI()``.
@@ -139,27 +110,12 @@ class FastApiProvider(BaseArchitectureProvider):
         """
         root = Path(root_path)
         # Fast path: main.py at project root
-        main_py = root / "main.py"
-        if main_py.exists():
+        main_py = self._file(root, "main.py")
+        if main_py is not None:
             return main_py
         # Walk up to depth 3 looking for FastAPI() instantiation
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith(".")]
-            try:
-                depth = len(Path(root_dir).relative_to(root).parts)
-            except ValueError:
-                depth = 0
-            if depth > 3:
-                dirs.clear()
-                continue
-            for f in files:
-                if not f.endswith(".py"):
-                    continue
-                fpath = Path(root_dir) / f
-                try:
-                    content = fpath.read_text(encoding="utf-8", errors="ignore")
-                    if "FastAPI()" in content or "FastAPI(" in content:
-                        return fpath
-                except Exception:
-                    continue
+        for path in self._files(root, suffixes=(".py",), max_depth=3):
+            content = self._read(root, path)
+            if content is not None and "FastAPI(" in content:
+                return path
         return None

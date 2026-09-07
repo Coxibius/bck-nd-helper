@@ -5,12 +5,20 @@ from pathlib import Path
 
 import pytest
 
+import bck_nd_hlpr.core.product.renderer as renderer_module
+
 from bck_nd_hlpr.core.product import (
     DEFAULT_PRODUCT_CONTEXT_CHARS,
     MIN_PRODUCT_CONTEXT_CHARS,
+    DiagnosticSeverity,
     ProductContextBudgetError,
     ProductContextPathError,
+    ProductCollectionResult,
+    ProductDiagnostic,
+    ProductDiagnosticCode,
+    ProductParser,
     ProductService,
+    ProductValidationReport,
     build_product_context,
 )
 
@@ -144,6 +152,32 @@ def test_valid_draft_produces_canonical_strict_context(tmp_path):
     assert document["validation"] == "VALID"
     assert "Niñas" in document["sections"]["problem_statement"]
     assert payload["truncated"] is False
+
+
+@pytest.mark.parametrize("status", ["APPROVED", "SHIPPED"])
+def test_rejected_requirements_remove_product_trust_and_narrative(tmp_path, status):
+    write_product(
+        tmp_path,
+        "trust.md",
+        product_document("PRD-TRUST", status=status),
+    )
+    requirements_dir = tmp_path / ".bck-nd" / "requirements"
+    requirements_dir.mkdir(parents=True)
+    (requirements_dir / "US-DUP.json").write_bytes(
+        b'{"story":{"id":"US-DUP","status":"TODO","status":"DONE"}}'
+    )
+
+    payload = payload_from_block(build_product_context(tmp_path))
+    document = payload["documents"][0]
+
+    assert document["status"] == status
+    assert document["approved"] is False
+    assert document["validation"] == "INVALID"
+    assert document["sections"] == {}
+    assert any(
+        item["code"] == "PRD_REQUIREMENTS_UNAVAILABLE"
+        for item in payload["diagnostics"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -727,3 +761,326 @@ def test_scope_keeps_global_orphan_requirement_diagnostic(tmp_path):
         item["code"] == "PRD_REQUIREMENT_ORPHAN"
         for item in payload["diagnostics"]
     )
+
+
+def test_product_narrative_redacts_high_confidence_secrets_without_mutation(
+    tmp_path,
+):
+    secrets = [
+        "correct-horse-battery-staple",
+        "super-secret-value",
+        "api-key-material-123456",
+        "bearer-token-value-1234567890",
+        "database-password-123",
+        "AKIAABCDEFGHIJKLMNOP",
+        "aws-secret-access-value-1234567890",
+        "ghp_abcdefghijklmnopqrstuvwxyz123456",
+        "glpat-abcdefghijklmnopqrstuvwxyz123456",
+                "xoxb-" + "-".join(("123456789012", "123456789012", "a" * 24)),
+        "sk_" + "live_" + ("a" * 24),
+        "npm_abcdefghijklmnopqrstuvwxyz123456",
+        "PRIVATEKEYBODYSHOULDVANISH",
+    ]
+    narrative = "\n".join(
+        [
+            "Normal product prose about token budgets remains unchanged.",
+            f"password: {secrets[0]}",
+            f"secret={secrets[1]}",
+            f"api_key: {secrets[2]}",
+            f"Authorization: Bearer {secrets[3]}",
+            f"postgresql://product:{secrets[4]}@database.local/app",
+            secrets[5],
+            f"aws_secret_access_key={secrets[6]}",
+            secrets[7],
+            secrets[8],
+            secrets[9],
+            secrets[10],
+            secrets[11],
+            "-----BEGIN RSA PRIVATE KEY-----\n"
+            f"{secrets[12]}\n"
+            "-----END RSA PRIVATE KEY-----",
+        ]
+    )
+    content = product_document("PRD-SECRETS", problem=narrative)
+    content = content.replace(
+        "- None\n\n## Supporting Notes\nSupporting prose has the lowest priority.",
+        "- token: open-question-secret-123456\n\n"
+        "## Supporting Notes\napi_key: supporting-secret-123456",
+    )
+    write_product(tmp_path, "secrets.md", content)
+
+    collection = ProductService(tmp_path).load_documents()
+    original = collection.documents[0]
+    original_problem = original.problem_statement
+    original_questions = list(original.open_questions)
+    original_extras = dict(original.extra_sections)
+    renderer_module._document_narrative(original)
+
+    first = build_product_context(tmp_path)
+    second = build_product_context(tmp_path)
+    payload = payload_from_block(first)
+    serialized = repr(payload)
+
+    assert first == second
+    assert "***REDACTED***" in serialized
+    assert "Normal product prose about token budgets remains unchanged." in serialized
+    assert all(secret not in first for secret in secrets)
+    assert "open-question-secret-123456" not in first
+    assert "supporting-secret-123456" not in first
+    assert "PRIVATEKEYBODYSHOULDVANISH" not in first
+    assert original.problem_statement == original_problem
+    assert original.open_questions == original_questions
+    assert original.extra_sections == original_extras
+
+
+def test_minimum_budget_preserves_compact_critical_diagnostic_summary(tmp_path):
+    write_product(tmp_path, "broken.md", "# Missing front matter\n")
+
+    block = build_product_context(tmp_path, max_chars=256)
+    payload = payload_from_block(block)
+
+    assert len(block) <= 256
+    assert payload["diagnostic_summary"] == {
+        "first_error_code": "PRD_PARSE_ERROR",
+    }
+    assert payload["omitted_diagnostics"] == 1
+    assert payload["diagnostics"] == []
+    assert list(payload) == [
+        "truncated",
+        "documents",
+        "diagnostics",
+        "omitted_sections",
+        "omitted_document_ids",
+        "omitted_diagnostics",
+        "diagnostic_summary",
+    ]
+    assert block == build_product_context(tmp_path, max_chars=256)
+
+
+def test_collection_limit_code_fits_the_complete_contract_at_256(tmp_path):
+    product_dir = tmp_path / ".bck-nd" / "product"
+    product_dir.mkdir(parents=True)
+    for index in range(129):
+        (product_dir / f"{index:03d}.md").touch()
+
+    block = build_product_context(tmp_path, max_chars=256)
+    payload = payload_from_block(block)
+
+    assert len(block) <= 256
+    assert payload["diagnostic_summary"] == {
+        "first_error_code": "PRD_COLLECTION_LIMIT",
+    }
+    assert list(payload) == [
+        "truncated",
+        "documents",
+        "diagnostics",
+        "omitted_sections",
+        "omitted_document_ids",
+        "omitted_diagnostics",
+        "diagnostic_summary",
+    ]
+    assert block == build_product_context(tmp_path, max_chars=256)
+
+
+def test_longest_public_diagnostic_code_fits_at_256(tmp_path, monkeypatch):
+    longest_code = max(
+        ProductDiagnosticCode,
+        key=lambda item: len(item.value),
+    )
+    diagnostic = ProductDiagnostic(
+        code=longest_code,
+        severity=DiagnosticSeverity.ERROR,
+        message="Controlled validation failure.",
+    )
+    collection = ProductCollectionResult(diagnostics=[diagnostic])
+    report = ProductValidationReport(
+        diagnostics=[diagnostic],
+        project_root=tmp_path,
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "load_documents",
+        lambda self: collection,
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "validate_documents",
+        lambda self, product_id=None, *, collection=None: report,
+    )
+
+    block = build_product_context(tmp_path, max_chars=256)
+    payload = payload_from_block(block)
+
+    assert len(block) <= 256
+    assert payload["diagnostic_summary"] == {
+        "first_error_code": longest_code.value,
+    }
+    assert len(payload) == 7
+
+
+def test_minimum_budget_without_errors_uses_null_summary(tmp_path):
+    write_product(tmp_path, "a.md", product_document("PRD-A"))
+    write_product(tmp_path, "b.md", product_document("PRD-B"))
+
+    block = build_product_context(tmp_path, max_chars=256)
+    payload = payload_from_block(block)
+
+    assert len(block) <= 256
+    assert payload["diagnostic_summary"] == {"first_error_code": None}
+    assert len(payload) == 7
+
+
+def test_diagnostic_summary_reflects_scope_filtered_findings(tmp_path):
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "backend").mkdir()
+    write_product(
+        tmp_path,
+        "frontend.md",
+        product_document("PRD-FRONTEND", applies_to="frontend"),
+    )
+    write_product(
+        tmp_path,
+        "backend.md",
+        product_document(
+            "PRD-BACKEND",
+            applies_to="backend",
+            title="",
+        ),
+    )
+
+    frontend = payload_from_block(
+        build_product_context(tmp_path, target_path="frontend")
+    )
+    backend = payload_from_block(
+        build_product_context(tmp_path, target_path="backend")
+    )
+
+    assert frontend["diagnostic_summary"]["first_error_code"] is None
+    assert backend["diagnostic_summary"]["first_error_code"] is not None
+
+
+def test_repository_controlled_provenance_is_sanitized_without_model_mutation(
+    tmp_path,
+):
+    secrets = {
+        "product": "product-credential-123456",
+        "scope": "scope-credential-123456",
+        "requirement": "requirement-credential-123456",
+        "source": "source-credential-123456",
+    }
+    content = product_document(
+        f"token={secrets['product']}",
+        applies_to=f"secret={secrets['scope']}",
+        requirements=[f"api_key={secrets['requirement']}"],
+    )
+    write_product(
+        tmp_path,
+        f"token={secrets['source']}.md",
+        content,
+    )
+    service = ProductService(tmp_path)
+    collection = service.load_documents()
+    original = collection.documents[0]
+    original_state = original.to_dict()
+
+    first = build_product_context(tmp_path)
+    second = build_product_context(tmp_path)
+    payload = payload_from_block(first)
+
+    assert first == second
+    assert "***REDACTED***" in first
+    assert all(secret not in first for secret in secrets.values())
+    assert payload["documents"][0]["validation"] == "INVALID"
+    assert original.to_dict() == original_state
+
+
+def test_every_repository_controlled_diagnostic_string_is_sanitized():
+    secret = "diagnostic-credential-123456"
+    diagnostic = ProductDiagnostic(
+        code=ProductDiagnosticCode.PARSE_ERROR,
+        severity=DiagnosticSeverity.ERROR,
+        message=f"password={secret}",
+        source_path=f"token={secret}.md",
+        field=f"secret={secret}",
+        section=f"api_key={secret}",
+        reference=f"bearer={secret}",
+    )
+
+    payload = renderer_module._diagnostic_payload(diagnostic)
+    serialized = json.dumps(payload, ensure_ascii=False)
+
+    assert secret not in serialized
+    assert serialized.count("***REDACTED***") == 5
+
+
+def test_redacted_extra_section_name_collisions_keep_both_deterministically():
+    parsed = ProductParser.parse_markdown(
+        product_document("PRD-COLLISION").replace(
+            "## Supporting Notes\nSupporting prose has the lowest priority.",
+            "## secret=first-sensitive-value\nFirst section.\n\n"
+            "## secret=second-sensitive-value\nSecond section.",
+        )
+    )
+    assert parsed.document is not None
+
+    narrative = renderer_module._document_narrative(parsed.document)
+    extra_keys = [
+        item.key
+        for item in narrative
+        if item.key.startswith("extra:secret=")
+    ]
+
+    assert extra_keys == [
+        "extra:secret=***REDACTED***",
+        "extra:secret=***REDACTED***#2",
+    ]
+    assert "first-sensitive-value" not in repr(narrative)
+    assert "second-sensitive-value" not in repr(narrative)
+
+
+def test_redacted_identifiers_receive_stable_non_secret_collision_suffixes(
+    tmp_path,
+):
+    write_product(
+        tmp_path,
+        "a.md",
+        product_document("token=first-collision-secret"),
+    )
+    write_product(
+        tmp_path,
+        "b.md",
+        product_document("token=second-collision-secret"),
+    )
+
+    first = build_product_context(tmp_path)
+    second = build_product_context(tmp_path)
+    identifiers = [item["id"] for item in payload_from_block(first)["documents"]]
+
+    assert first == second
+    assert identifiers == ["token=***REDACTED***", "token=***REDACTED***#2"]
+    assert "first-collision-secret" not in first
+    assert "second-collision-secret" not in first
+
+
+def test_outer_schema_keys_never_disappear_as_budget_grows(tmp_path):
+    write_product(tmp_path, "broken.md", "# Missing front matter\n")
+    expected_keys = {
+        "truncated",
+        "documents",
+        "diagnostics",
+        "omitted_sections",
+        "omitted_document_ids",
+        "omitted_diagnostics",
+        "diagnostic_summary",
+    }
+
+    previous = None
+    for budget in (256, 300, 500, 1000):
+        block = build_product_context(tmp_path, max_chars=budget)
+        payload = payload_from_block(block)
+        assert len(block) <= budget
+        assert set(payload) == expected_keys
+        if previous is not None:
+            assert payload["diagnostic_summary"] == previous["diagnostic_summary"]
+            assert len(payload["diagnostics"]) >= len(previous["diagnostics"])
+        previous = payload

@@ -1,6 +1,10 @@
 import os
 from bck_nd_hlpr.core.sanitizer import sanitize_text
-from bck_nd_hlpr.core.ai_providers import get_provider, NoAPIKeyError
+from bck_nd_hlpr.core.ai_providers import (
+    AI_PROVIDER_ERROR,
+    NoAPIKeyError,
+    get_provider,
+)
 
 
 class Narrator:
@@ -53,16 +57,24 @@ class Narrator:
         persona_prompt = self.PROMPTS.get(style, self.PROMPTS["pro"])
 
         # Construimos el prompt final combinando la personalidad + los datos
-        full_prompt = f"{persona_prompt}\n\nAnalyze the following file topology and explain what this project does:\n"
+        full_prompt = sanitize_text(
+            f"{persona_prompt}\n\n"
+            "Analyze the following file topology and explain what this project does:\n"
+        )
 
         # SANITIZACIÓN DE SEGURIDAD (CRÍTICO)
         # Limpiamos tanto el texto de topología como cualquier contexto extra que venga
         safe_topology = sanitize_text(topology_text)
 
         try:
-            return self.provider.generate(system_prompt=full_prompt, user_prompt=safe_topology)
-        except Exception as e:
-            return f"Connection error: {e}"
+            return sanitize_text(
+                self.provider.generate(
+                    system_prompt=full_prompt,
+                    user_prompt=safe_topology,
+                )
+            )
+        except Exception:
+            return AI_PROVIDER_ERROR
 
     def chat_turn(self, system_context: str, history_text: str, style: str = "pro") -> str:
         """
@@ -74,9 +86,19 @@ class Narrator:
         persona_prompt = self.PROMPTS.get(style, self.PROMPTS["pro"])
 
         # El system_prompt contiene la personalidad y el mega-contexto (diagramas, topología)
-        full_system_prompt = f"{persona_prompt}\n\nProject Architecture Context:\n{system_context}\n\nRespond to the user's last question based on the project context and previous conversation."
+        full_system_prompt = sanitize_text(
+            f"{persona_prompt}\n\nProject Architecture Context:\n{system_context}\n\n"
+            "Respond to the user's last question based on the project context "
+            "and previous conversation."
+        )
+        safe_history = sanitize_text(history_text)
 
         try:
-            return self.provider.generate(system_prompt=full_system_prompt, user_prompt=history_text)
-        except Exception as e:
-            return f"Connection error: {e}"
+            return sanitize_text(
+                self.provider.generate(
+                    system_prompt=full_system_prompt,
+                    user_prompt=safe_history,
+                )
+            )
+        except Exception:
+            return AI_PROVIDER_ERROR

@@ -26,6 +26,14 @@ from .models import (
 
 SUPPORTED_SCHEMA_VERSION = 1
 SUPPORTED_EXTENSIONS = frozenset({".md", ".markdown"})
+MAX_PRD_SOURCE_BYTES = 1024 * 1024
+MAX_PRD_YAML_BYTES = 128 * 1024
+MAX_PRD_YAML_DEPTH = 64
+MAX_PRD_YAML_NODES = 10_000
+MAX_PRODUCT_DOCUMENTS = 128
+MAX_PRODUCT_COLLECTION_BYTES = 8 * 1024 * 1024
+MAX_PRODUCT_COLLECTION_YAML_NODES = 50_000
+MAX_PRODUCT_DIRECTORY_ENTRIES = 4_096
 
 CANONICAL_SECTIONS: Dict[str, str] = {
     "problem statement": "problem_statement",
@@ -71,6 +79,10 @@ class _YamlDuplicateKey(yaml.YAMLError):
         self.location = location
 
 
+class _YamlComplexityLimit(yaml.YAMLError):
+    """Internal signal raised before YAML objects exceed canonical limits."""
+
+
 class ProductSourceReadError(Exception):
     """Safe internal failure raised by the shared descriptor-based reader."""
 
@@ -90,12 +102,30 @@ class ProductSourceReadError(Exception):
 class _ProductSafeLoader(yaml.SafeLoader):
     """SafeLoader variant that rejects aliases before object construction."""
 
+    def __init__(self, stream: Any) -> None:
+        super().__init__(stream)
+        self._product_yaml_depth = 0
+        self._product_yaml_nodes = 0
+
     def compose_node(self, parent: Any, index: Any) -> Any:
         if self.check_event(AliasEvent):
             event = self.peek_event()
             anchor = str(getattr(event, "anchor", "") or "<unknown>")
             raise _YamlAliasUnsupported(anchor)
-        return super().compose_node(parent, index)
+        self._product_yaml_depth += 1
+        self._product_yaml_nodes += 1
+        try:
+            if self._product_yaml_depth > MAX_PRD_YAML_DEPTH:
+                raise _YamlComplexityLimit(
+                    "YAML front matter exceeds the maximum nesting depth."
+                )
+            if self._product_yaml_nodes > MAX_PRD_YAML_NODES:
+                raise _YamlComplexityLimit(
+                    "YAML front matter exceeds the maximum node count."
+                )
+            return super().compose_node(parent, index)
+        finally:
+            self._product_yaml_depth -= 1
 
 
 def canonical_metadata_key(value: Any) -> str:
@@ -232,6 +262,29 @@ class ProductParser:
                 ]
             )
 
+        try:
+            content_size = len(content.encode("utf-8"))
+        except UnicodeEncodeError:
+            return ProductParseResult(
+                diagnostics=[
+                    _diagnostic(
+                        "PRD content cannot be encoded as UTF-8.",
+                        source,
+                    )
+                ]
+            )
+        if content_size > MAX_PRD_SOURCE_BYTES:
+            return ProductParseResult(
+                diagnostics=[
+                    _diagnostic(
+                        "PRD source exceeds the 1 MiB safety limit.",
+                        source,
+                        code=ProductDiagnosticCode.SOURCE_TOO_LARGE,
+                        field="source_path",
+                    )
+                ]
+            )
+
         text = content.lstrip("\ufeff")
         lines = text.splitlines()
         if not lines or lines[0].strip() != "---":
@@ -262,8 +315,21 @@ class ProductParser:
             )
 
         yaml_text = "\n".join(lines[1:closing_index])
+        if len(yaml_text.encode("utf-8")) > MAX_PRD_YAML_BYTES:
+            return ProductParseResult(
+                diagnostics=[
+                    _diagnostic(
+                        "PRD YAML front matter exceeds the 128 KiB safety limit.",
+                        source,
+                        code=ProductDiagnosticCode.YAML_COMPLEXITY_LIMIT,
+                        field="front_matter",
+                    )
+                ]
+            )
+        loader = _ProductSafeLoader(yaml_text)
         try:
-            loaded_metadata = yaml.load(yaml_text, Loader=_ProductSafeLoader)
+            loaded_metadata = loader.get_single_data()
+            yaml_node_count = loader._product_yaml_nodes
         except _YamlAliasUnsupported as exc:
             return ProductParseResult(
                 diagnostics=[
@@ -277,7 +343,9 @@ class ProductParser:
                         field="front_matter",
                         reference=exc.anchor,
                     )
-                ]
+                ],
+                source_size_bytes=content_size,
+                yaml_node_count=loader._product_yaml_nodes,
             )
         except _YamlDuplicateKey as exc:
             return ProductParseResult(
@@ -292,7 +360,22 @@ class ProductParser:
                         field="front_matter",
                         reference=exc.key,
                     )
-                ]
+                ],
+                source_size_bytes=content_size,
+                yaml_node_count=loader._product_yaml_nodes,
+            )
+        except _YamlComplexityLimit:
+            return ProductParseResult(
+                diagnostics=[
+                    _diagnostic(
+                        "YAML front matter exceeds the safe complexity limit.",
+                        source,
+                        code=ProductDiagnosticCode.YAML_COMPLEXITY_LIMIT,
+                        field="front_matter",
+                    )
+                ],
+                source_size_bytes=content_size,
+                yaml_node_count=loader._product_yaml_nodes,
             )
         except RecursionError:
             return ProductParseResult(
@@ -302,7 +385,9 @@ class ProductParser:
                         source,
                         field="front_matter",
                     )
-                ]
+                ],
+                source_size_bytes=content_size,
+                yaml_node_count=loader._product_yaml_nodes,
             )
         except yaml.YAMLError as exc:
             return ProductParseResult(
@@ -312,8 +397,12 @@ class ProductParser:
                         source,
                         field="front_matter",
                     )
-                ]
+                ],
+                source_size_bytes=content_size,
+                yaml_node_count=loader._product_yaml_nodes,
             )
+        finally:
+            loader.dispose()
 
         if not isinstance(loaded_metadata, Mapping):
             return ProductParseResult(
@@ -323,7 +412,9 @@ class ProductParser:
                         source,
                         field="front_matter",
                     )
-                ]
+                ],
+                source_size_bytes=content_size,
+                yaml_node_count=yaml_node_count,
             )
 
         metadata: Dict[str, Any] = {}
@@ -397,7 +488,12 @@ class ProductParser:
             _present_sections=present_sections,
             _section_markdown=dict(section_content),
         )
-        return ProductParseResult(document=document, diagnostics=diagnostics)
+        return ProductParseResult(
+            document=document,
+            diagnostics=diagnostics,
+            source_size_bytes=content_size,
+            yaml_node_count=yaml_node_count,
+        )
 
     @classmethod
     def parse_file(
@@ -409,7 +505,15 @@ class ProductParser:
         project_root: Optional[Union[str, Path]] = None,
     ) -> ProductParseResult:
         path = Path(file_path)
-        source = _source_text(source_path if source_path is not None else path)
+        expected_product_dir = Path(product_directory or path.parent)
+        expected_project_root = Path(project_root or expected_product_dir)
+        if source_path is not None:
+            source = _source_text(source_path)
+        else:
+            try:
+                source = _source_text(path.relative_to(expected_project_root))
+            except ValueError:
+                source = "<outside-project>"
 
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             return ProductParseResult(
@@ -422,8 +526,6 @@ class ProductParser:
                 ]
             )
 
-        expected_product_dir = Path(product_directory or path.parent)
-        expected_project_root = Path(project_root or expected_product_dir)
         try:
             raw_content, _ = cls.read_verified_source(
                 path,
@@ -461,9 +563,12 @@ class ProductParser:
                         source,
                         field="source_path",
                     )
-                ]
+                ],
+                source_size_bytes=len(raw_content),
             )
-        return cls.parse_markdown(content, source_path=source)
+        parsed = cls.parse_markdown(content, source_path=source)
+        parsed.source_size_bytes = len(raw_content)
+        return parsed
 
     @classmethod
     def read_verified_source(
@@ -520,6 +625,11 @@ class ProductParser:
         if not stat.S_ISREG(path_stat.st_mode):
             raise ProductSourceReadError(
                 "PRD source file does not exist or is not a regular file."
+            )
+        if path_stat.st_size > MAX_PRD_SOURCE_BYTES:
+            raise ProductSourceReadError(
+                "PRD source exceeds the 1 MiB safety limit.",
+                code=ProductDiagnosticCode.SOURCE_TOO_LARGE,
             )
 
         try:
@@ -578,12 +688,25 @@ class ProductParser:
                     ),
                     path_error=True,
                 )
+            if opened_stat.st_size > MAX_PRD_SOURCE_BYTES:
+                raise ProductSourceReadError(
+                    "PRD source exceeds the 1 MiB safety limit.",
+                    code=ProductDiagnosticCode.SOURCE_TOO_LARGE,
+                )
 
             chunks: List[bytes] = []
+            total_bytes = 0
             while True:
-                chunk = os.read(descriptor, 64 * 1024)
+                remaining = MAX_PRD_SOURCE_BYTES - total_bytes
+                chunk = os.read(descriptor, min(64 * 1024, remaining + 1))
                 if not chunk:
                     break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_PRD_SOURCE_BYTES:
+                    raise ProductSourceReadError(
+                        "PRD source exceeds the 1 MiB safety limit.",
+                        code=ProductDiagnosticCode.SOURCE_TOO_LARGE,
+                    )
                 chunks.append(chunk)
             raw_content = b"".join(chunks)
             verified_descriptor_stat = os.fstat(descriptor)
@@ -745,15 +868,25 @@ class ProductParser:
             )
             return result
 
+        files: List[Path] = []
+        aggregate_declared_bytes = 0
         try:
-            files = sorted(
-                (
-                    item
-                    for item in product_dir.iterdir()
-                    if item.suffix.lower() in SUPPORTED_EXTENSIONS
-                ),
-                key=lambda item: (item.name.casefold(), item.name),
-            )
+            with os.scandir(str(product_dir)) as entries:
+                for entry_index, entry in enumerate(entries, start=1):
+                    if entry_index > MAX_PRODUCT_DIRECTORY_ENTRIES:
+                        return cls._collection_limit_result(product_dir)
+                    if Path(entry.name).suffix.lower() not in SUPPORTED_EXTENSIONS:
+                        continue
+                    files.append(product_dir / entry.name)
+                    if len(files) > MAX_PRODUCT_DOCUMENTS:
+                        return cls._collection_limit_result(product_dir)
+                    try:
+                        entry_stat = entry.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    aggregate_declared_bytes += max(0, entry_stat.st_size)
+                    if aggregate_declared_bytes > MAX_PRODUCT_COLLECTION_BYTES:
+                        return cls._collection_limit_result(product_dir)
         except OSError as exc:
             result.diagnostics.append(
                 _diagnostic(
@@ -764,7 +897,11 @@ class ProductParser:
             )
             return result
 
+        files.sort(key=lambda item: (item.name.casefold(), item.name))
+
         seen_ids: Dict[str, ProductRequirementDocument] = {}
+        aggregate_read_bytes = 0
+        aggregate_yaml_nodes = 0
         for file_path in files:
             source = cls._relative_source(file_path, project_root, product_dir)
             parsed = cls.parse_file(
@@ -773,6 +910,13 @@ class ProductParser:
                 product_directory=product_dir,
                 project_root=project_root,
             )
+            aggregate_read_bytes += parsed.source_size_bytes
+            aggregate_yaml_nodes += parsed.yaml_node_count
+            if (
+                aggregate_read_bytes > MAX_PRODUCT_COLLECTION_BYTES
+                or aggregate_yaml_nodes > MAX_PRODUCT_COLLECTION_YAML_NODES
+            ):
+                return cls._collection_limit_result(product_dir)
             result.diagnostics.extend(parsed.diagnostics)
             if parsed.document is None:
                 continue
@@ -801,6 +945,21 @@ class ProductParser:
             )
 
         return result
+
+    @staticmethod
+    def _collection_limit_result(product_dir: Path) -> ProductCollectionResult:
+        """Return one deterministic failure without partial collection data."""
+        return ProductCollectionResult(
+            source_directory=product_dir,
+            diagnostics=[
+                _diagnostic(
+                    "Product collection exceeds the configured safety limits.",
+                    "",
+                    code=ProductDiagnosticCode.COLLECTION_LIMIT,
+                    field="collection",
+                )
+            ],
+        )
 
     @staticmethod
     def _resolve_product_directory(

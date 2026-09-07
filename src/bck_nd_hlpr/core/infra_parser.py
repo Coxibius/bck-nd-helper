@@ -8,12 +8,18 @@ showing service dependencies and relationships.
 import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from bck_nd_hlpr.core.utils.cache import FileCache
+from bck_nd_hlpr.core.utils.indexer import FileIndex, FileSystemIndexer
 
 # Database image keywords for shape detection
 DB_IMAGES = ['postgres', 'mysql', 'redis', 'mongo', 'mariadb', 'cassandra', 'mongodb', 'elasticsearch']
 
 
-def parse_infra(root_path: str) -> Optional[str]:
+def parse_infra(
+    root_path: str,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> Optional[str]:
     """
     Scans for docker-compose files in the root directory.
     
@@ -33,15 +39,25 @@ def parse_infra(root_path: str) -> Optional[str]:
         'compose.yaml'
     ]
     
+    try:
+        snapshot = file_index or FileSystemIndexer(str(root)).build()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+    indexed = {path.name: path for path in snapshot.all_files if path.parent == snapshot.root}
     for filename in compose_files:
-        compose_path = root / filename
-        if compose_path.exists() and compose_path.is_file():
+        compose_path = indexed.get(filename)
+        if compose_path is not None:
             return str(compose_path)
     
     return None
 
 
-def parse_docker_compose(file_path: str) -> Dict[str, Any]:
+def parse_docker_compose(
+    file_path: str,
+    *,
+    project_root: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Parses docker-compose YAML file and extracts services.
     
@@ -52,20 +68,16 @@ def parse_docker_compose(file_path: str) -> Dict[str, Any]:
         Dictionary of services from the compose file
     """
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            compose_data = yaml.safe_load(f)
-        
+        root = Path(project_root) if project_root is not None else Path(file_path).parent
+        compose_data = yaml.safe_load(FileCache.read_project_file(root, file_path))
+
         # Return services dictionary, or empty dict if not found
-        return compose_data.get('services', {})
-    
-    except yaml.YAMLError as e:
-        print(f"Error parsing YAML: {e}")
-        return {}
-    except FileNotFoundError:
-        print(f"File not found: {file_path}")
-        return {}
-    except Exception as e:
-        print(f"Unexpected error: {e}")
+        if not isinstance(compose_data, dict):
+            return {}
+        services = compose_data.get('services', {})
+        return services if isinstance(services, dict) else {}
+
+    except (OSError, UnicodeError, yaml.YAMLError, TypeError, ValueError):
         return {}
 
 
@@ -163,7 +175,11 @@ def generate_mermaid_infra(services: Dict[str, Any]) -> str:
     return '\n'.join(lines)
 
 
-def scan_infra(root_path: str) -> Optional[str]:
+def scan_infra(
+    root_path: str,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> Optional[str]:
     """
     Complete workflow: finds docker-compose, parses it, and generates Mermaid diagram.
     
@@ -173,10 +189,10 @@ def scan_infra(root_path: str) -> Optional[str]:
     Returns:
         Mermaid graph code, or None if no compose file found
     """
-    compose_file = parse_infra(root_path)
+    compose_file = parse_infra(root_path, file_index=file_index)
     
     if not compose_file:
         return None
     
-    services = parse_docker_compose(compose_file)
+    services = parse_docker_compose(compose_file, project_root=root_path)
     return generate_mermaid_infra(services)

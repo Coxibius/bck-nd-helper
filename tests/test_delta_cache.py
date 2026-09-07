@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 import pytest
 
+import bck_nd_hlpr.core.utils.delta_cache as delta_module
 from bck_nd_hlpr.core.utils.delta_cache import DeltaCacheManager
 from bck_nd_hlpr.core.orchestrator import ScannerOrchestrator, OrchestratorConfig
 from bck_nd_hlpr.core.context_dumper import ContextDumper
@@ -112,11 +113,89 @@ class TestDeltaCacheManager:
         assert cache_file.parent.is_dir()
         assert len(cache.signatures) == 0
 
-    def test_cache_directory_is_created_on_initialization(self, temp_project):
+    def test_cache_directory_is_created_only_when_persisting(self, temp_project):
         cache = DeltaCacheManager(temp_project)
 
         assert cache.cache_path == temp_project / ".bck-nd" / "cache" / "delta.json"
+        assert not cache.cache_path.parent.exists()
+        assert cache.save_cache() is True
         assert cache.cache_path.parent.is_dir()
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param(b"{not-json", id="invalid-json"),
+            pytest.param(b"\xff\xfe\xfa", id="invalid-utf8"),
+            pytest.param(
+                b'{"signatures":[],"metadata":{}}',
+                id="incompatible-structure",
+            ),
+        ],
+    )
+    def test_safe_invalid_cache_can_be_repaired_or_cleared(self, tmp_path, payload):
+        cache_dir = tmp_path / ".bck-nd" / "cache"
+        cache_dir.mkdir(parents=True)
+        cache_file = cache_dir / "delta.json"
+        cache_file.write_bytes(payload)
+
+        manager = DeltaCacheManager(tmp_path)
+        assert manager.load_cache() is False
+        assert manager.signatures == {}
+        assert manager.metadata == {}
+        assert manager._loaded_cache_content == payload
+        assert manager.save_cache() is True
+
+        repaired = json.loads(cache_file.read_text(encoding="utf-8"))
+        assert repaired["signatures"] == {}
+        assert repaired["metadata"] == {}
+        reloaded = DeltaCacheManager(tmp_path)
+        assert reloaded.load_cache() is True
+
+        cache_file.write_bytes(payload)
+        clear_manager = DeltaCacheManager(tmp_path)
+        assert clear_manager.load_cache() is False
+        clear_manager.clear()
+        assert not cache_file.exists()
+        assert (cache_dir / ".delta.lock").exists()
+        assert not list(cache_dir.glob(".*.tmp"))
+
+    def test_corrupt_cache_race_and_oversized_source_remain_fail_closed(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        cache_dir = tmp_path / ".bck-nd" / "cache"
+        cache_dir.mkdir(parents=True)
+        cache_file = cache_dir / "delta.json"
+        corrupt = b"{broken-cache"
+        cache_file.write_bytes(corrupt)
+
+        manager = DeltaCacheManager(tmp_path)
+        assert manager.load_cache() is False
+        concurrent = b'{"concurrent":"winner"}\n'
+        cache_file.write_bytes(concurrent)
+
+        assert manager.save_cache() is False
+        assert cache_file.read_bytes() == concurrent
+        manager.clear()
+        assert cache_file.read_bytes() == concurrent
+
+        oversized_root = tmp_path / "oversized"
+        oversized_dir = oversized_root / ".bck-nd" / "cache"
+        oversized_dir.mkdir(parents=True)
+        oversized_file = oversized_dir / "delta.json"
+        oversized_payload = b"x" * 512
+        oversized_file.write_bytes(oversized_payload)
+        monkeypatch.setattr(delta_module, "MAX_DELTA_CACHE_BYTES", 128)
+
+        oversized = DeltaCacheManager(oversized_root)
+        assert len(oversized._serialize_cache()) < 128
+        assert oversized.load_cache() is False
+        assert oversized._loaded_cache_content is None
+        assert oversized.save_cache() is False
+        oversized.clear()
+        assert oversized_file.read_bytes() == oversized_payload
+        assert not list(oversized_dir.glob(".*.tmp"))
 
 
 class TestOrchestratorCacheIntegration:

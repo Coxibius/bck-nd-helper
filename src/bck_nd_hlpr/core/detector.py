@@ -9,8 +9,10 @@ import re
 import os
 import json
 from pathlib import Path
-from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 from typing import Dict, List, Set, Any, Optional
+from bck_nd_hlpr.core.utils.cache import FileCache
+from bck_nd_hlpr.core.utils.gitignore_parser import GitIgnoreMatcher
+from bck_nd_hlpr.core.utils.indexer import FileIndex, FileSystemIndexer
 try:
     import tomllib as toml # Python 3.11+
 except ImportError:
@@ -50,16 +52,16 @@ class ArchitectureDetector:
         self.config = self.DEFAULT_CONFIG.copy()
         # Provider pattern — populated by _detect_framework()
         self._matched_provider: Optional[object] = None
+        self._file_index: Optional[FileIndex] = None
 
     def _load_config(self, root: Path):
         """Loads configuration from pyproject.toml if it exists."""
-        config_file = root / "pyproject.toml"
-        if not config_file.exists() or toml is None:
+        config_file = self._indexed_file(root, "pyproject.toml")
+        if config_file is None or toml is None:
             return
 
         try:
-            with open(config_file, "rb") as f:
-                data = toml.load(f)
+            data = toml.loads(FileCache.read_project_file(root, config_file))
             
             # Look for [tool.bck-nd] section
             tool_config = data.get("tool", {}).get("bck-nd", {})
@@ -71,32 +73,74 @@ class ArchitectureDetector:
                         self.config[key] = tool_config[key]
                         # Normalize to lowercase
                         self.config[key] = [x.lower() for x in self.config[key]]
-        except Exception:
+        except (OSError, UnicodeError, TypeError, ValueError):
             pass # If reading config fails, silently use defaults
         
     def _safe_walk(self, root: Path, extension: str = None):
-        """Safely iterates over files respecting GLOBAL_IGNORE_DIRS."""
-        for root_dir, dirs, files in os.walk(root):
-            # Filter directories in-place to prevent descending into them
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-            
-            for file in files:
-                if extension:
-                    if file.endswith(extension):
-                        yield Path(root_dir) / file
-                else:
-                    yield Path(root_dir) / file
+        """Yield deterministic candidates exclusively from the trusted snapshot."""
+        if self._file_index is None:
+            return
+        for file_path in self._file_index.all_files:
+            try:
+                file_path.relative_to(root)
+            except ValueError:
+                continue
+            if extension is None or file_path.name.endswith(extension):
+                yield file_path
 
-    def detect(self, root_path: str) -> Dict:
+    @staticmethod
+    def _is_path_below(path: Path, directory: Path) -> bool:
+        try:
+            path.relative_to(directory)
+            return True
+        except ValueError:
+            return False
+
+    def _indexed_file(self, root: Path, relative_path: str) -> Optional[Path]:
+        expected = relative_path.replace("\\", "/").strip("/").casefold()
+        for path in self._safe_walk(root):
+            try:
+                relative = path.relative_to(root).as_posix().casefold()
+            except ValueError:
+                continue
+            if relative == expected:
+                return path
+        return None
+
+    def _indexed_directory(self, root: Path, relative_path: str) -> bool:
+        candidate = root / Path(relative_path)
+        if any(self._is_path_below(path, candidate) for path in self._safe_walk(root)):
+            return True
+        if not FileCache.is_project_directory(root, candidate):
+            return False
+        try:
+            return not GitIgnoreMatcher(root).matches(candidate, is_dir=True)
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+    def detect(
+        self,
+        root_path: str,
+        *,
+        file_index: Optional[FileIndex] = None,
+    ) -> Dict:
         """Analyzes the project and returns architectural information."""
-        root = Path(root_path).resolve()
-        if not root.is_dir():
+        raw_root = Path(os.path.abspath(str(root_path)))
+        try:
+            if not FileCache.is_project_directory(raw_root, raw_root):
+                raise OSError
+            root = raw_root.resolve(strict=True)
+            snapshot = file_index or FileSystemIndexer(
+                str(root), max_depth=None
+            ).build()
+        except (OSError, RuntimeError):
             return {
                 'framework': 'Unknown',
                 'architecture': 'Single File',
                 'features': [],
-                'summary': f"Single file: {root.name}"
+                'summary': "Unable to establish a trusted project snapshot."
             }
+        self._file_index = snapshot
 
         # A detector instance may be reused by API consumers.  Reset all mutable
         # state so results from a previous project cannot leak into this scan.
@@ -146,17 +190,18 @@ class ArchitectureDetector:
 
         for relative_name in self.MONOREPO_SUBPROJECTS:
             subproject = root.joinpath(*relative_name.split("/"))
-            if not subproject.is_dir():
+            if not any(
+                self._is_path_below(path, subproject)
+                for path in (self._file_index.all_files if self._file_index else [])
+            ):
                 continue
-            try:
-                resolved = subproject.resolve()
-            except Exception:
-                resolved = subproject
+            resolved = subproject
             if resolved in seen_paths:
                 continue
             seen_paths.add(resolved)
 
             child = ArchitectureDetector()
+            child._file_index = self._file_index
             child._load_config(subproject)
             framework = child._detect_framework(subproject)
             if framework == "Unknown":
@@ -188,7 +233,7 @@ class ArchitectureDetector:
         try:
             from bck_nd_hlpr.core.providers.registry import ProviderRegistry, GenericProvider
             registry = ProviderRegistry.get_instance()
-            provider = registry.detect_provider(root)
+            provider = registry.detect_provider(root, file_index=self._file_index)
             if not isinstance(provider, GenericProvider):
                 self._matched_provider = provider
                 try:
@@ -207,7 +252,7 @@ class ArchitectureDetector:
         # Python Web Frameworks
         for py_file in self._safe_walk(root, ".py"):
             try:
-                content = py_file.read_text(encoding='utf-8', errors='ignore')
+                content = FileCache.read_project_file(root, py_file)
                 
                 # Flask
                 if 'from flask import' in content or 'import flask' in content:
@@ -225,14 +270,14 @@ class ArchitectureDetector:
                 if 'from quart import' in content:
                     return 'Quart'
                     
-            except:
+            except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
                 continue
         
         # Node.js Frameworks
-        package_json = root / "package.json"
-        if package_json.exists():
+        package_json = self._indexed_file(root, "package.json")
+        if package_json is not None:
             try:
-                data = json.loads(package_json.read_text())
+                data = json.loads(FileCache.read_project_file(root, package_json))
                 deps = {**data.get('dependencies', {}), **data.get('devDependencies', {})}
                 
                 if 'next' in deps:
@@ -245,72 +290,72 @@ class ArchitectureDetector:
                     return 'Koa'
                 if 'nest' in deps or '@nestjs/core' in deps:
                     return 'NestJS'
-            except:
+            except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
                 pass
         
         # Go
-        go_mod = root / "go.mod"
-        if go_mod.exists():
+        go_mod = self._indexed_file(root, "go.mod")
+        if go_mod is not None:
             try:
-                content = go_mod.read_text()
+                content = FileCache.read_project_file(root, go_mod)
                 if 'gin-gonic/gin' in content:
                     return 'Gin (Go)'
                 if 'gofiber/fiber' in content:
                     return 'Fiber (Go)'
                 return 'Go'
-            except:
+            except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
                 pass
         
         # Rust
-        cargo_toml = root / "Cargo.toml"
-        if cargo_toml.exists():
+        cargo_toml = self._indexed_file(root, "Cargo.toml")
+        if cargo_toml is not None:
             try:
-                content = cargo_toml.read_text()
+                content = FileCache.read_project_file(root, cargo_toml)
                 if 'actix-web' in content:
                     return 'Actix-web (Rust)'
                 if 'rocket' in content:
                     return 'Rocket (Rust)'
                 return 'Rust'
-            except:
+            except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
                 pass
                 
         # PHP
-        composer_json = root / "composer.json"
-        if composer_json.exists():
+        composer_json = self._indexed_file(root, "composer.json")
+        if composer_json is not None:
             try:
-                data = json.loads(composer_json.read_text())
+                data = json.loads(FileCache.read_project_file(root, composer_json))
                 deps = {**data.get('require', {}), **data.get('require-dev', {})}
                 
                 if 'laravel/framework' in deps:
                     return 'Laravel'
                 return 'PHP'
-            except:
+            except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
                 pass
                 
         # Java
-        pom_xml = root / "pom.xml"
-        if pom_xml.exists():
+        pom_xml = self._indexed_file(root, "pom.xml")
+        if pom_xml is not None:
             try:
-                content = pom_xml.read_text()
+                content = FileCache.read_project_file(root, pom_xml)
                 if 'spring-boot' in content:
                     return 'Spring Boot'
                 return 'Java (Maven)'
-            except:
+            except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
                 pass
         
-        build_gradle = root / "build.gradle"
-        if build_gradle.exists():
+        build_gradle = self._indexed_file(root, "build.gradle")
+        if build_gradle is not None:
             try:
-                content = build_gradle.read_text()
+                content = FileCache.read_project_file(root, build_gradle)
                 if 'spring-boot' in content:
                     return 'Spring Boot'
                 return 'Java (Gradle)'
-            except:
+            except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
                 pass
                 
         # C# / .NET
-        for file in root.iterdir():
-            if file.suffix == '.csproj' or file.suffix == '.sln':
+        for file in self._safe_walk(root):
+            if file.parent == root and file.suffix in {'.csproj', '.sln'}:
                 return '.NET Core / C#'
         
         return 'Unknown'
@@ -318,9 +363,9 @@ class ArchitectureDetector:
     def _detect_architecture_type(self, root: Path) -> str:
         """Detects the architectural pattern."""
         if self.framework == 'Next.js':
-            if (root / 'app').exists() or (root / 'src' / 'app').exists():
+            if self._indexed_directory(root, 'app') or self._indexed_directory(root, 'src/app'):
                 return 'Next.js App Router'
-            elif (root / 'pages').exists() or (root / 'src' / 'pages').exists():
+            elif self._indexed_directory(root, 'pages') or self._indexed_directory(root, 'src/pages'):
                 return 'Next.js Pages Router'
             return 'Next.js Project'
 
@@ -331,40 +376,45 @@ class ArchitectureDetector:
         has_docker = False
         has_microservices = False
         
-        # Use os.walk to safely iterate directories
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-            
-            # Check current directory names
-            for dir_name in dirs:
-                name_lower = dir_name.lower()
-                
-                if name_lower in self.config['controllers']:
-                    has_controllers = True
-                if name_lower in self.config['models']:
-                    has_models = True
-                if name_lower in self.config['services']:
-                    has_services = True
-                if name_lower in self.config['routes']:
-                    has_routes = True
+        directory_names = {
+            part.casefold()
+            for path in self._safe_walk(root)
+            for part in path.relative_to(root).parent.parts
+        }
+        has_controllers = bool(directory_names & set(self.config['controllers'])) or any(
+            self._indexed_directory(root, name)
+            for name in self.config['controllers']
+        )
+        has_models = bool(directory_names & set(self.config['models'])) or any(
+            self._indexed_directory(root, name)
+            for name in self.config['models']
+        )
+        has_services = bool(directory_names & set(self.config['services'])) or any(
+            self._indexed_directory(root, name)
+            for name in self.config['services']
+        )
+        has_routes = bool(directory_names & set(self.config['routes'])) or any(
+            self._indexed_directory(root, name)
+            for name in self.config['routes']
+        )
         
         # Detect Docker
         if (
-            (root / 'docker-compose.yml').exists()
-            or (root / 'docker-compose.yaml').exists()
-            or (root / 'Dockerfile').exists()
+            self._indexed_file(root, 'docker-compose.yml') is not None
+            or self._indexed_file(root, 'docker-compose.yaml') is not None
+            or self._indexed_file(root, 'Dockerfile') is not None
         ):
             has_docker = True
             
         # Detect microservices (multiple services in docker-compose)
-        docker_compose = root / 'docker-compose.yml'
-        if docker_compose.exists():
+        docker_compose = self._indexed_file(root, 'docker-compose.yml')
+        if docker_compose is not None:
             try:
-                content = docker_compose.read_text()
+                content = FileCache.read_project_file(root, docker_compose)
                 service_count = content.count('image:') + content.count('build:')
                 if service_count > 2:
                     has_microservices = True
-            except:
+            except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
                 pass
         
         # Determine type
@@ -395,15 +445,18 @@ class ArchitectureDetector:
                 break
         
         # Docker
-        if (root / 'Dockerfile').exists():
+        if self._indexed_file(root, 'Dockerfile') is not None:
             self.features.add('Docker')
-        if (root / 'docker-compose.yml').exists() or (root / 'docker-compose.yaml').exists():
+        if (
+            self._indexed_file(root, 'docker-compose.yml') is not None
+            or self._indexed_file(root, 'docker-compose.yaml') is not None
+        ):
             self.features.add('Docker Compose')
         
         # CI/CD
-        if (root / '.github' / 'workflows').exists():
+        if self._indexed_directory(root, '.github/workflows'):
             self.features.add('GitHub Actions')
-        if (root / '.gitlab-ci.yml').exists():
+        if self._indexed_file(root, '.gitlab-ci.yml') is not None:
             self.features.add('GitLab CI')
         
         # Testing
@@ -415,7 +468,7 @@ class ArchitectureDetector:
         # API Docs & Auth & ORM (Single Pass)
         for py_file in self._safe_walk(root, ".py"):
             try:
-                content = py_file.read_text(encoding='utf-8', errors='ignore')
+                content = FileCache.read_project_file(root, py_file)
                 
                 if '@swagger' in content or 'swagger' in content.lower():
                     self.features.add('Swagger/OpenAPI')
@@ -427,7 +480,7 @@ class ArchitectureDetector:
                     self.features.add('SQLAlchemy ORM')
                 if 'django.db' in content:
                     self.features.add('Django ORM')
-            except:
+            except (OSError, UnicodeError):
                 continue
 
         # Polyglot feature pass.  This intentionally uses conservative tokens
@@ -448,10 +501,8 @@ class ArchitectureDetector:
             if source_file.suffix.lower() not in text_extensions:
                 continue
             try:
-                if source_file.stat().st_size > 2_000_000:
-                    continue
-                content = source_file.read_text(encoding='utf-8', errors='ignore')
-            except Exception:
+                content = FileCache.read_project_file(root, source_file)
+            except (OSError, UnicodeError):
                 continue
             lowered = content.lower()
             if any(token in lowered for token in database_tokens):

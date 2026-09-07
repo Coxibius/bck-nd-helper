@@ -1,5 +1,6 @@
 """Tests for safe PRD Markdown parsing and deterministic discovery."""
 
+import json
 import os
 from pathlib import Path
 
@@ -89,6 +90,14 @@ def create_symlink_or_skip(link: Path, target: Path, *, directory: bool = False)
         pytest.skip(f"Symbolic links are not supported in this environment: {exc}")
 
 
+def write_product_source(project: Path, name: str, content: str) -> Path:
+    product_dir = project / ".bck-nd" / "product"
+    product_dir.mkdir(parents=True, exist_ok=True)
+    target = product_dir / name
+    target.write_text(content, encoding="utf-8")
+    return target
+
+
 def test_parse_complete_prd_preserves_domain_content_and_extras():
     result = ProductParser.parse_markdown(
         complete_prd(),
@@ -155,6 +164,114 @@ def test_level_three_subsections_do_not_start_new_main_sections():
     assert result.document is not None
     assert "### Secondary Goal\nKeep subsections" in result.document.goals
     assert "Secondary Goal" not in result.document.extra_sections
+
+
+def test_collection_accepts_exact_document_limit_deterministically(tmp_path):
+    for index in range(parser_module.MAX_PRODUCT_DOCUMENTS):
+        write_product_source(
+            tmp_path,
+            f"{index:03d}.md",
+            complete_prd(f"PRD-{index:03d}"),
+        )
+
+    first = ProductParser.load_from_directory(tmp_path)
+    second = ProductParser.load_from_directory(tmp_path)
+
+    assert len(first.documents) == parser_module.MAX_PRODUCT_DOCUMENTS
+    assert diagnostic_codes(first) == []
+    assert [item.id for item in first.documents] == [
+        item.id for item in second.documents
+    ]
+
+
+def test_collection_rejects_129_documents_without_partial_results(tmp_path):
+    for index in range(parser_module.MAX_PRODUCT_DOCUMENTS + 1):
+        write_product_source(
+            tmp_path,
+            f"{index:03d}.md",
+            complete_prd(f"PRD-{index:03d}"),
+        )
+
+    first = ProductParser.load_from_directory(tmp_path)
+    second = ProductParser.load_from_directory(tmp_path)
+
+    assert first.documents == []
+    assert diagnostic_codes(first) == ["PRD_COLLECTION_LIMIT"]
+    assert first.to_dict() == second.to_dict()
+    assert ".md" not in repr(first.diagnostics[0].to_dict())
+
+
+def test_collection_rejects_aggregate_bytes_before_parsing(tmp_path, monkeypatch):
+    base = complete_prd("PRD-BYTES")
+    target_size = 950 * 1024
+    for index in range(9):
+        content = base.replace("PRD-BYTES", f"PRD-BYTES-{index}")
+        raw = content.encode("utf-8")
+        raw += b"x" * (target_size - len(raw))
+        path = tmp_path / ".bck-nd" / "product" / f"{index}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+
+    def must_not_parse(*args, **kwargs):
+        raise AssertionError("aggregate byte overflow must abort before parsing")
+
+    monkeypatch.setattr(ProductParser, "parse_file", must_not_parse)
+    result = ProductParser.load_from_directory(tmp_path)
+
+    assert result.documents == []
+    assert diagnostic_codes(result) == ["PRD_COLLECTION_LIMIT"]
+
+
+def test_collection_accepts_exact_aggregate_byte_limit(tmp_path):
+    per_file = parser_module.MAX_PRD_SOURCE_BYTES
+    for index in range(8):
+        content = complete_prd(f"PRD-EXACT-{index}")
+        raw = content.encode("utf-8")
+        raw += b"x" * (per_file - len(raw))
+        product_dir = tmp_path / ".bck-nd" / "product"
+        product_dir.mkdir(parents=True, exist_ok=True)
+        (product_dir / f"{index}.md").write_bytes(raw)
+
+    result = ProductParser.load_from_directory(tmp_path)
+
+    assert len(result.documents) == 8
+    assert "PRD_COLLECTION_LIMIT" not in diagnostic_codes(result)
+
+
+def test_collection_rejects_excess_directory_entries_before_parsing(
+    tmp_path,
+    monkeypatch,
+):
+    product_dir = tmp_path / ".bck-nd" / "product"
+    product_dir.mkdir(parents=True)
+    for index in range(parser_module.MAX_PRODUCT_DIRECTORY_ENTRIES + 1):
+        (product_dir / f"entry-{index:04d}.txt").touch()
+
+    def must_not_parse(*args, **kwargs):
+        raise AssertionError("entry overflow must abort before parsing")
+
+    monkeypatch.setattr(ProductParser, "parse_file", must_not_parse)
+    result = ProductParser.load_from_directory(tmp_path)
+
+    assert result.documents == []
+    assert diagnostic_codes(result) == ["PRD_COLLECTION_LIMIT"]
+
+
+def test_collection_rejects_aggregate_yaml_nodes_without_partial_results(tmp_path):
+    for index in range(7):
+        content = complete_prd(f"PRD-NODES-{index}").replace(
+            "custom_flag: true",
+            "custom_nodes:\n" + "".join(f"  - value-{item}\n" for item in range(8000)),
+        )
+        write_product_source(tmp_path, f"{index}.md", content)
+
+    first = ProductParser.load_from_directory(tmp_path)
+    second = ProductParser.load_from_directory(tmp_path)
+
+    assert first.documents == []
+    assert diagnostic_codes(first) == ["PRD_COLLECTION_LIMIT"]
+    assert json.dumps(first.to_dict(), allow_nan=False, sort_keys=True)
+    assert first.to_dict() == second.to_dict()
 
 
 def test_unknown_sections_are_preserved():
@@ -546,3 +663,73 @@ def test_path_containment_logic_is_cross_platform(tmp_path):
 
     assert ProductParser._is_path_within(inside, project_root) is True
     assert ProductParser._is_path_within(outside, project_root) is False
+
+
+def test_product_source_limits_accept_below_and_reject_above_one_mib(tmp_path):
+    product_dir = tmp_path / ".bck-nd" / "product"
+    product_dir.mkdir(parents=True)
+    base = complete_prd("PRD-LIMIT")
+    padding = parser_module.MAX_PRD_SOURCE_BYTES - len(base.encode("utf-8")) - 1
+    accepted = base + ("x" * padding)
+    accepted_path = product_dir / "accepted.md"
+    accepted_path.write_bytes(accepted.encode("utf-8"))
+
+    accepted_result = ProductParser.parse_file(accepted_path)
+    assert accepted_result.document is not None
+    assert accepted_path.stat().st_size < parser_module.MAX_PRD_SOURCE_BYTES
+
+    oversized_path = product_dir / "oversized.md"
+    oversized_path.write_bytes(b"x" * (parser_module.MAX_PRD_SOURCE_BYTES + 1))
+    oversized_result = ProductParser.parse_file(oversized_path)
+
+    assert oversized_result.document is None
+    assert diagnostic_codes(oversized_result) == ["PRD_SOURCE_TOO_LARGE"]
+    assert str(oversized_path) not in oversized_result.diagnostics[0].message
+    assert oversized_result.diagnostics[0].source_path == "oversized.md"
+
+
+def test_product_source_growth_is_bounded_during_descriptor_read(
+    tmp_path,
+    monkeypatch,
+):
+    product_dir = tmp_path / ".bck-nd" / "product"
+    product_dir.mkdir(parents=True)
+    target = product_dir / "growing.md"
+    target.write_text(complete_prd("PRD-GROW"), encoding="utf-8")
+    real_read = parser_module.os.read
+    first = True
+
+    def oversized_read(descriptor, amount):
+        nonlocal first
+        if first:
+            first = False
+            return b"x" * (parser_module.MAX_PRD_SOURCE_BYTES + 1)
+        return real_read(descriptor, amount)
+
+    monkeypatch.setattr(parser_module.os, "read", oversized_read)
+    result = ProductParser.parse_file(target)
+
+    assert result.document is None
+    assert diagnostic_codes(result) == ["PRD_SOURCE_TOO_LARGE"]
+
+
+@pytest.mark.parametrize(
+    "yaml_value",
+    [
+        "[" * (parser_module.MAX_PRD_YAML_DEPTH + 2)
+        + "0"
+        + "]" * (parser_module.MAX_PRD_YAML_DEPTH + 2),
+        "[" + ",".join("0" for _ in range(parser_module.MAX_PRD_YAML_NODES + 1)) + "]",
+    ],
+    ids=["depth", "nodes"],
+)
+def test_yaml_complexity_limits_are_controlled_and_deterministic(yaml_value):
+    content = f"---\nid: PRD-COMPLEX\nextra: {yaml_value}\n---\n# PRD-COMPLEX\n"
+
+    first = ProductParser.parse_markdown(content).to_dict()
+    second = ProductParser.parse_markdown(content).to_dict()
+
+    assert first == second
+    assert first["document"] is None
+    assert first["diagnostics"][0]["code"] == "PRD_YAML_COMPLEXITY_LIMIT"
+    assert json.dumps(first, allow_nan=False)

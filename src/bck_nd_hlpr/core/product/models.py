@@ -31,8 +31,10 @@ class ProductDiagnosticCode(str, Enum):
     PARSE_ERROR = "PRD_PARSE_ERROR"
     SOURCE_SYMLINK = "PRD_SOURCE_SYMLINK"
     SOURCE_OUTSIDE_ROOT = "PRD_SOURCE_OUTSIDE_ROOT"
+    SOURCE_TOO_LARGE = "PRD_SOURCE_TOO_LARGE"
     YAML_ALIAS_UNSUPPORTED = "PRD_YAML_ALIAS_UNSUPPORTED"
     YAML_DUPLICATE_KEY = "PRD_YAML_DUPLICATE_KEY"
+    YAML_COMPLEXITY_LIMIT = "PRD_YAML_COMPLEXITY_LIMIT"
     ID_MISSING = "PRD_ID_MISSING"
     ID_INVALID = "PRD_ID_INVALID"
     ID_DUPLICATE = "PRD_ID_DUPLICATE"
@@ -42,11 +44,14 @@ class ProductDiagnosticCode(str, Enum):
     SECTION_MISSING = "PRD_SECTION_MISSING"
     SECTION_PLACEHOLDER = "PRD_SECTION_PLACEHOLDER"
     REQUIREMENT_MISSING = "PRD_REQUIREMENT_MISSING"
+    REQUIREMENT_ID_INVALID = "PRD_REQUIREMENT_ID_INVALID"
     REQUIREMENT_ORPHAN = "PRD_REQUIREMENT_ORPHAN"
+    REQUIREMENTS_UNAVAILABLE = "PRD_REQUIREMENTS_UNAVAILABLE"
     APPLIES_TO_INVALID = "PRD_APPLIES_TO_INVALID"
     APPLIES_TO_MISSING = "PRD_APPLIES_TO_MISSING"
     OPEN_QUESTIONS_PRESENT = "PRD_OPEN_QUESTIONS_PRESENT"
     OPEN_QUESTIONS_BLOCKING = "PRD_OPEN_QUESTIONS_BLOCKING"
+    COLLECTION_LIMIT = "PRD_COLLECTION_LIMIT"
 
 
 class ProductSerializationError(ValueError):
@@ -268,6 +273,8 @@ class ProductParseResult:
 
     document: Optional[ProductRequirementDocument] = None
     diagnostics: List[ProductDiagnostic] = field(default_factory=list)
+    source_size_bytes: int = field(default=0, repr=False, compare=False)
+    yaml_node_count: int = field(default=0, repr=False, compare=False)
 
     @property
     def has_errors(self) -> bool:

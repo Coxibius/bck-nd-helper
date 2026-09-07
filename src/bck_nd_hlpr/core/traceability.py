@@ -1,8 +1,8 @@
 import ast
-import os
 from pathlib import Path
 from typing import List, Dict, Set, Tuple, Optional
-from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.utils.cache import FileCache
+from bck_nd_hlpr.core.utils.indexer import FileIndex, FileSystemIndexer
 
 class TraceNode:
     def __init__(self, route_method: str, route_path: str, handler_name: str, handler_file: str):
@@ -95,33 +95,41 @@ class TraceabilityScanner(ast.NodeVisitor):
                     
         self.generic_visit(node)
 
-def parse_project_traceability(root_path: str, max_depth: Optional[int] = 3) -> List[TraceNode]:
+def parse_project_traceability(
+    root_path: str,
+    max_depth: Optional[int] = 3,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> List[TraceNode]:
     all_traces = []
     root = Path(root_path)
     
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
+    try:
+        snapshot = file_index or FileSystemIndexer(
+            str(root), max_depth=max_depth
+        ).build()
+    except (OSError, RuntimeError, ValueError):
+        return all_traces
+
+    for file_path in snapshot.python_files:
         try:
-            current_depth = len(Path(root_dir).relative_to(root).parts)
+            relative = file_path.relative_to(root)
+            current_depth = len(relative.parent.parts)
         except ValueError:
-            current_depth = 0
+            continue
             
         if max_depth is not None and current_depth > max_depth:
             continue
             
-        for file in files:
-            if file.endswith(".py"):
-                file_path = Path(root_dir) / file
-                display_name = str(file_path.relative_to(root)).replace("\\", "/")
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
-                    
-                    scanner = TraceabilityScanner(display_name, content)
-                    scanner.visit(scanner.tree)
-                    all_traces.extend(scanner.traces)
-                except Exception:
-                    continue
+        display_name = str(relative).replace("\\", "/")
+        try:
+            content = FileCache.read_project_file(root, file_path)
+
+            scanner = TraceabilityScanner(display_name, content)
+            scanner.visit(scanner.tree)
+            all_traces.extend(scanner.traces)
+        except (OSError, SyntaxError, ValueError, TypeError):
+            continue
                     
     return all_traces
 

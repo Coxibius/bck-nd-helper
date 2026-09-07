@@ -11,6 +11,7 @@ Uso independiente:
 Parte del ecosistema bck-nd-hlpr.
 """
 import os
+import stat
 from pathlib import Path
 from typing import List, Optional
 
@@ -23,7 +24,37 @@ from bck_nd_hlpr.core.constants import (
     SKIP_EXTENSIONS,
     SKIP_FILES,
 )
-from bck_nd_hlpr.core.utils.gitignore_parser import parse_gitignore, matches_gitignore
+from bck_nd_hlpr.core.utils.gitignore_parser import GitIgnoreMatcher
+
+
+def _is_link_or_reparse(path_stat: os.stat_result) -> bool:
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return stat.S_ISLNK(path_stat.st_mode) or bool(
+        getattr(path_stat, "st_file_attributes", 0) & reparse_flag
+    )
+
+
+def _safe_path_kind(path: Path) -> Optional[str]:
+    try:
+        path_stat = path.lstat()
+    except OSError:
+        return None
+    if _is_link_or_reparse(path_stat):
+        return None
+    if stat.S_ISDIR(path_stat.st_mode):
+        return "directory"
+    if stat.S_ISREG(path_stat.st_mode):
+        return "file"
+    return None
+
+
+def _is_within(candidate: Path, root: Path) -> bool:
+    try:
+        root_text = os.path.normcase(os.path.abspath(str(root)))
+        candidate_text = os.path.normcase(os.path.abspath(str(candidate)))
+        return os.path.commonpath([root_text, candidate_text]) == root_text
+    except (OSError, ValueError):
+        return False
 
 
 def generate_project_tree(
@@ -31,6 +62,7 @@ def generate_project_tree(
     depth: Optional[int] = None,
     output_file: Optional[str] = None,
     extra_ignores: Optional[List[str]] = None,
+    gitignore_matcher: Optional[GitIgnoreMatcher] = None,
 ) -> str:
     """
     Genera un árbol ASCII limpio del proyecto.
@@ -45,14 +77,15 @@ def generate_project_tree(
     Returns:
         String con el árbol completo listo para imprimir o incrustar.
     """
-    root = Path(root_path).resolve()
-    if not root.exists():
-        return f"Error: Path '{root_path}' does not exist."
-    if not root.is_dir():
-        return f"Error: Path '{root_path}' is not a directory."
+    root_candidate = Path(os.path.abspath(str(root_path)))
+    if _safe_path_kind(root_candidate) != "directory":
+        return "Error: Project tree root is unavailable."
+    try:
+        root = root_candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return "Error: Project tree root is unavailable."
 
-    # Parsear .gitignore una sola vez al inicio
-    gitignore_patterns = parse_gitignore(root)
+    matcher = gitignore_matcher or GitIgnoreMatcher(root)
 
     # Resolver nombre del archivo de output a excluir
     resolved_output = output_file or DEFAULT_OUTPUT_FILE
@@ -65,7 +98,7 @@ def generate_project_tree(
         root, root,
         prefix="", current_depth=0, max_depth=depth,
         lines=lines,
-        gitignore_patterns=gitignore_patterns,
+        gitignore_matcher=matcher,
         output_file=resolved_output,
         extra_ignores=extra_set,
     )
@@ -79,7 +112,7 @@ def _walk_tree(
     current_depth: int,
     max_depth: Optional[int],
     lines: List[str],
-    gitignore_patterns: List[str],
+    gitignore_matcher: GitIgnoreMatcher,
     output_file: str,
     extra_ignores: set,
 ) -> None:
@@ -87,32 +120,58 @@ def _walk_tree(
     if max_depth is not None and current_depth >= max_depth:
         return
 
+    if _safe_path_kind(current) != "directory":
+        return
     try:
+        canonical_current = current.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return
+    if not _is_within(canonical_current, root):
+        return
+
+    gitignore_matcher.load_directory(current)
+    try:
+        classified_children = []
+        for child in current.iterdir():
+            kind = _safe_path_kind(child)
+            if kind is not None:
+                classified_children.append((child, kind))
         children = sorted(
-            current.iterdir(),
-            key=lambda p: (p.is_file(), p.name.lower()),
+            classified_children,
+            key=lambda item: (
+                0 if item[1] == "directory" else 1,
+                item[0].name.casefold(),
+                item[0].name,
+            ),
         )
     except OSError:
         return
 
     # Filtrar directorios/archivos ignorados
     visible = [
-        c for c in children
-        if not _should_ignore(c, root, gitignore_patterns, output_file, extra_ignores)
+        (child, kind) for child, kind in children
+        if not _should_ignore(
+            child,
+            kind == "directory",
+            root,
+            gitignore_matcher,
+            output_file,
+            extra_ignores,
+        )
     ]
 
-    for i, child in enumerate(visible):
+    for i, (child, kind) in enumerate(visible):
         is_last = i == len(visible) - 1
         connector = "└── " if is_last else "├── "
         extension = "    " if is_last else "│   "
 
-        if child.is_dir():
+        if kind == "directory":
             lines.append(f"{prefix}{connector}{child.name}/")
             _walk_tree(
                 child, root,
                 prefix + extension, current_depth + 1, max_depth,
                 lines,
-                gitignore_patterns, output_file, extra_ignores,
+                gitignore_matcher, output_file, extra_ignores,
             )
         else:
             lines.append(f"{prefix}{connector}{child.name}")
@@ -120,8 +179,9 @@ def _walk_tree(
 
 def _should_ignore(
     path: Path,
+    is_directory: bool,
     root: Path,
-    gitignore_patterns: List[str],
+    gitignore_matcher: GitIgnoreMatcher,
     output_file: str,
     extra_ignores: set,
 ) -> bool:
@@ -133,8 +193,11 @@ def _should_ignore(
     except ValueError:
         rel_parts = path.parts
 
-    # `.bck-nd/requirements/` is user-authored project context and remains
-    # visible. Only the generated cache subtree is hidden.
+    # Hide only Backend Helper's legacy and current generated cache roots.
+    # Generic `cache/` directories and user-authored `.bck-nd/product/` and
+    # `.bck-nd/requirements/` remain visible.
+    if rel_parts and rel_parts[0] == ".bck-nd-cache":
+        return True
     if len(rel_parts) >= 2 and rel_parts[:2] == (
         BCK_ND_DIRECTORY,
         BCK_ND_CACHE_DIRECTORY,
@@ -142,7 +205,7 @@ def _should_ignore(
         return True
 
     # ── 0. Excluir el propio archivo de output ──
-    if not path.is_dir() and name == output_file:
+    if not is_directory and name == output_file:
         return True
 
     # ── 0b. Excluir ignores extra ──
@@ -150,7 +213,7 @@ def _should_ignore(
         return True
 
     # ── 1. Reglas estáticas (constantes) ──
-    if path.is_dir():
+    if is_directory:
         # Ignorar carpetas de la lista negra global o skip_dirs
         if name in GLOBAL_IGNORE_DIRS or name in SKIP_DIRS:
             return True
@@ -164,7 +227,7 @@ def _should_ignore(
                 return True
 
         # Ignorar carpetas/archivos que empiezan con punto (excepto archivos config comunes)
-        if name.startswith(".") and name != BCK_ND_DIRECTORY and path.is_dir():
+        if name.startswith(".") and name != BCK_ND_DIRECTORY:
             return True
 
         # Ignorar carpetas que terminan en .egg-info
@@ -181,7 +244,11 @@ def _should_ignore(
             return True
 
     # ── 2. Reglas dinámicas (.gitignore) ──
-    if gitignore_patterns and matches_gitignore(path, root, gitignore_patterns):
+    if gitignore_matcher.matches(
+        path,
+        is_dir=is_directory,
+        load_parents=False,
+    ):
         return True
 
     return False

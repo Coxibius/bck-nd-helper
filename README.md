@@ -25,12 +25,13 @@ The release adds a local-first PRD Intelligence layer that keeps human-authored 
 - **Context controls:** `--max-product-chars` defaults to 6000 characters with a public minimum of 256.
 - **Read-only MCP:** `get_product_context` exposes the same canonical scoped representation without modifying product sources.
 - **Backward compatibility:** repositories without `.bck-nd/product/` preserve their previous prompt behavior without empty product tags.
-- **Context fidelity fixes:** UML/ER discovery consistently honors `.gitignore`, `<core_files>` uses dependency impact plus architectural priorities, and Windows clipboard export preserves Unicode through UTF-16LE.
-- **Local security boundaries:** project-contained paths, safe YAML, strict deterministic serialization, sanitized exposed paths, and minimal atomic status updates with concurrent-modification detection.
+- **Context fidelity fixes:** UML/ER discovery loads root and nested `.gitignore` rules incrementally, prunes ignored directories before descent, and uses pathname-aware wildcards with Git-compatible trailing-space and character-class semantics. Incomplete, oversized, unreadable, or linked ignore policies block only their governed scope instead of applying a partial policy. `<core_files>` uses dependency impact plus architectural priorities, and Windows clipboard export preserves Unicode through UTF-16LE.
+- **Local security boundaries:** project-contained paths, bounded safe YAML, strict deterministic serialization, verified product/requirements reads, and minimal atomic status updates with concurrent-modification detection. Project indexing, tree rendering, and final cached reads reject symlinks, junctions, reparse points, and non-regular entries before repository content reaches an AI context.
+- **Unified credential hygiene:** one high-confidence credential registry drives both redaction and audit detection. Core files, requirements summaries, prompt output, security reports, JSON, and MCP responses replace detected credential values with `***REDACTED***` without modifying source files. This is output hygiene, not a secret manager.
 
 PRD Intelligence structures and delivers decisions written by humans; it does not generate or approve product intent autonomously.
 
-**Release verification:** 575 tests passed and the only 2 skips were the known Windows symlink-permission cases.
+**Release verification:** 749 tests passed and the only 2 skips were the known Windows symlink-permission cases.
 
 **Runtime compatibility:** v2.5.0 requires Python `>=3.10`. Its declared support classifiers cover Python 3.10–3.13, and final local release verification ran on Windows with Python 3.13; newer Python versions can satisfy `Requires-Python` but are not yet part of this release's verified support matrix. Backend Helper uses the maintained official MCP SDK 1.x API through `mcp>=1.28.1,<2`, preventing fresh installations from resolving the incompatible MCP 2.x API. MCP SDK 2.x support requires an explicit later migration and is not claimed by this release.
 
@@ -136,7 +137,7 @@ bck-nd req status US-001 IN_PROGRESS
 bck-nd req discover US-001
 
 # Connect to Claude Desktop / Cursor / Antigravity IDE
-bck-nd-mcp --install
+bck-nd-mcp --install --allowed-root /absolute/path/to/project
 ```
 
 ## 🧭 When to Use What
@@ -162,7 +163,7 @@ bck-nd-mcp --install
 - 🏭 **Architecture Recognition**: MVC, Microservices, Layered Architecture patterns
 - 🌍 **Polyglot Ready**: C#, Python, JS/TS, Java, PHP, Go, Rust, Docker, Terraform, Prisma, SQL migrations
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
-- 📄 **Automatic `.gitignore` Support**: Excludes ignored files from scans and context dumps
+- 📄 **Hierarchical `.gitignore` Support**: Applies root and nested rules relative to their directories, including deterministic `!` negation, before files reach scans or context dumps
 - 📱 **Expo/React Native Detection**: Appropriate diagramming for mobile projects
 
 ### Speed & Structure
@@ -315,6 +316,9 @@ bck-nd prompt . --no-prd
 - An applicable `DRAFT` may appear, always with a visible non-approved trust notice.
 - `--no-prd` prevents loading and including product context, including in focused prompt modes.
 - Exposed paths are project-relative or the sentinel `<outside-project>`.
+- High-confidence credential shapes in PRD narrative are replaced with `***REDACTED***` before budgeting and serialization. This is output hygiene, not a secret manager or enterprise governance control.
+- Every payload includes a compact `diagnostic_summary`; an applicable error code remains visible even when the 256-character minimum budget cannot include the full diagnostic.
+- PRD sources are limited to 1 MiB. YAML front matter is limited to 128 KiB, 64 levels, and 10,000 composed nodes before Python objects are constructed.
 - When no product directory exists, Backend Helper emits no empty product block and preserves the previous context behavior.
 
 PRD content remains repository data, not instructions to Backend Helper itself. The feature is local and deterministic: it does not call an AI model, cloud service, Jira, or Confluence, and it does not add PRD nodes to the ASG or the offline HTML portal.
@@ -367,6 +371,8 @@ bck-nd req set-status US-042 DONE
 ```
 
 JSON stories may store `status` inside `story` or at the document root. Markdown stories use `# US-042 [IN_PROGRESS] - Title`; all sections below that header remain untouched.
+
+Status writers are serialized with the persistent `.bck-nd/requirements/.bck-nd-status.lock`, then re-read and atomically replaced under that lock. The lock coordinates cooperative Backend Helper writers, while final revalidation detects observable changes made before replacement. A minimal interval necessarily remains between that last check and the atomic replacement syscall, so this is not protection against malicious, privileged, or non-cooperating processes with the same filesystem permissions. It is also not an operating-system sandbox, RBAC system, or secret manager.
 
 ### `bck-nd req discover [story_id]`
 
@@ -829,6 +835,7 @@ bck-nd scan . --audit
 - Scans for hardcoded secrets, keys, and dangerous config
 - Reports "Critical" risks like AWS Keys or Private PEMs
 - Reports "High/Warning" risks like DB passwords or hardcoded IPs
+- Uses the same bounded, high-confidence credential registry as AI-context sanitization; findings preserve file, line, type, severity, and category but never retain the matched credential value
 - Essential for pre-commit checks
 
 ##### 10. **Dependency Heatmap**
@@ -1153,7 +1160,7 @@ Backend Helper automatically detects:
 - API Documentation (Swagger/OpenAPI)
 - CI/CD (GitHub Actions, GitLab CI)
 - Unit Tests
-- **Security**: Auto-redaction of secrets in output (Sanitizer)
+- **Security**: Deterministic redaction of high-confidence credential patterns in sanitized output; this is not exhaustive secret management
 
 ### **Configuration**
 
@@ -1218,16 +1225,20 @@ bck-nd scan . --ai --provider ollama
 Backend Helper includes an MCP server exposing **24 local architecture, product, and requirements tools** directly inside Claude Desktop, Cursor, and Antigravity IDE, including:
 
 ```bash
-bck-nd-mcp --install
+bck-nd-mcp --install --allowed-root /absolute/path/to/project
 ```
 
-The installer detects the current `antigravity-ide` launcher and safely merges Backend Helper into Antigravity's global MCP configuration without removing GitHub, Supabase, or any other configured server.
+The installer requires at least one explicit absolute project root and injects it into Claude Desktop, Cursor, and Antigravity as `BCK_ND_MCP_ALLOWED_ROOTS`. Repeat `--allowed-root` to authorize more than one root. It detects the current `antigravity-ide` launcher and safely merges Backend Helper into Antigravity's global MCP configuration without removing GitHub, Supabase, or any other configured server. Invalid JSON, duplicate keys at any depth, or an invalid `mcpServers` shape is rejected without changing the original bytes. Valid updates serialize Backend Helper writers with a small persistent system lock, use a verified backup, retain atomic replacement and revalidation, and abort if a non-cooperating process changes the file concurrently. Persistent `.lock` files are deliberate; these advisory locks prevent accidental cooperative races, not privileged or adversarial writes.
 
 | Tool | Introduced | What it returns |
 | --- | --- | --- |
 | `get_asg_graph` | v2.4.1 | The Abstract Semantic Graph (Pillar 3) — the full normalized architecture IR, queryable by the AI |
 | `get_requirements_summary` | v2.4.1 | Live user stories, statuses, acceptance criteria, and business rules from the Requirements Intelligence Layer |
 | `get_product_context` | v2.5.0 | Read-only canonical product context for `project_path`, safe `target_path`, and `max_chars`; consult it before decisions about scope, users, goals, or release behavior |
+
+All 23 MCP tools that access the filesystem enforce the same fail-closed local boundary. No project is authorized implicitly: if `BCK_ND_MCP_ALLOWED_ROOTS` is missing, empty, relative, or contains any invalid entry, filesystem access is denied. With exactly one configured root, `.` and other relative project paths are interpreted from that root—not from the MCP process working directory. With multiple roots, the agent must provide an absolute project path contained in one of them. Explicit roots are separated by the platform's path separator (`;` on Windows, `:` on macOS/Linux). Canonical containment checks reject traversal, external absolute paths, UNC/drive escapes, and symlink or junction escapes; rejection messages do not echo the requested path.
+
+Generated artifacts have an additional write boundary. AI context may be created only as project-root `ai_context.txt` or a `.txt` file below `.bck-nd/generated/contexts/`; HTML may be published only to `docs/index.html` or `.bck-nd/generated/docs/index.html`. Existing files are replaced only when they carry Backend Helper's marker. HTML generation is staged outside the project, while HTML, context, CI workflow, and minimal `.gitignore` changes are verified and atomically published. This protects unrelated files but is not an operating-system sandbox.
 
 For MCP client configuration and requirements integration, see [Advanced Configuration](#advanced-configuration).
 
@@ -1332,7 +1343,7 @@ bck-nd scan . --no-cache
 | **API Contract Map** | Heuristic | Matches routes to models by naming/import patterns — not runtime validation |
 | **Security audit** | Pattern-based | Catches common secret patterns; not a substitute for dedicated SAST tools |
 | **Requirements Intelligence** | Manual authoring | Requires user stories to be defined in your project's requirements file(s); no automatic inference from code |
-| **PRD Intelligence** | Local Markdown and deterministic validation | Human authors must supply product intent; no autonomous PRD generation, cloud sync, visual editor, HTML-portal embedding, or complete code-test traceability |
+| **PRD Intelligence** | Local Markdown and deterministic validation | Human authors must supply product intent; high-confidence redaction reduces accidental credential exposure but is not a secret manager; no autonomous PRD generation, cloud sync, visual editor, HTML-portal embedding, or complete code-test traceability |
 
 Parser errors on individual files are collected in `execution_warnings` and do not abort the scan. See [CHANGELOG.md](CHANGELOG.md#200).
 
@@ -1464,7 +1475,19 @@ Install or update Backend Helper, then run the one-command client installer:
 
 ```bash
 pip install -U bck-nd-hlpr
-bck-nd-mcp --install
+bck-nd-mcp --install --allowed-root /absolute/path/to/project
+```
+
+On Windows, for example:
+
+```powershell
+bck-nd-mcp --install --allowed-root C:\projects\my-api
+```
+
+Repeat the option to authorize separate workspaces. CLI roots take priority over an existing environment value, are canonicalized and deduplicated, and are stored using the platform path separator:
+
+```powershell
+bck-nd-mcp --install --allowed-root C:\projects\frontend --allowed-root D:\work\backend
 ```
 
 The installer:
@@ -1472,11 +1495,34 @@ The installer:
 - registers Backend Helper with Claude Desktop;
 - updates detected Cursor profiles;
 - detects the current `antigravity-ide` launcher and updates Antigravity IDE/CLI;
+- stores the validated explicit roots in each client's `BCK_ND_MCP_ALLOWED_ROOTS` environment;
 - preserves every unrelated MCP server already present, including GitHub MCP;
 - replaces legacy Backend Helper keys with the canonical `bck-nd-mcp` entry;
-- creates a `.bak` copy before changing an existing JSON configuration.
+- creates a `.bak` copy from verified original bytes before changing an existing JSON configuration;
+- refuses malformed JSON, duplicate keys at any depth, non-object roots, or non-object `mcpServers` without overwriting the file;
+- holds a bounded persistent system lock across verified read, backup, atomic replacement, and directory sync, while retaining final content revalidation for non-cooperating changes.
 
 Restart the client or use its MCP **Refresh** action after installation.
+
+#### MCP project filesystem boundary
+
+All MCP architecture, product, requirements, quality, and generation tools that access files use one fail-closed local containment policy. The process working directory never grants access or acts as a resolution base. With one configured root, `.` selects that root and relative project paths resolve beneath it. With multiple configured roots, relative paths are ambiguous and rejected, so the client must send an authorized absolute project path. Without a completely valid explicit root list, every filesystem-backed tool denies access. The installer writes the list automatically; for a manual client configuration, set the server environment:
+
+```text
+# Windows
+BCK_ND_MCP_ALLOWED_ROOTS=C:\projects\frontend;D:\work\backend
+
+# macOS/Linux
+BCK_ND_MCP_ALLOWED_ROOTS=/srv/projects/frontend:/work/backend
+```
+
+Every configured root must be absolute, already exist, and be a directory. If any configured entry is invalid, the complete authorization list is rejected rather than partially accepted. Each requested project must remain canonically contained in one configured root. Traversal and link/reparse escapes are rejected with path-neutral errors. Secondary inputs such as `changed_file` must remain inside that authorized project.
+
+Repository-controlled links are also excluded after authorization: the filesystem index, project tree, and final file cache inspect pathnames without following symlinks, junctions, or reparse points. Credential-shaped text in requirements summaries and other AI-facing context is sanitized again at the output boundary. These controls reduce accidental disclosure; they do not replace dedicated secret scanning, rotation, or operating-system isolation.
+
+`.gitignore` loading is incremental and fail-closed. Root and nested policies retain Git-style negation, escaped trailing spaces, ranges, and pathname-aware `*`/`**` behavior. If a policy source is unsafe, unreadable, exceeds 10,000 actionable rules, or contains an actionable pattern over 4,096 characters, Backend Helper excludes that policy's subtree and exposes only a neutral relative-scope diagnostic; it never applies a silently truncated prefix.
+
+MCP-generated files are narrower still: context output is limited to `ai_context.txt` or `.bck-nd/generated/contexts/*.txt`, documentation to `docs/index.html` or `.bck-nd/generated/docs/index.html`, and CI setup to the known Backend Helper workflow plus minimal `.gitignore` rules. Existing context, portal, or workflow files without a recognized Backend Helper marker are preserved. Publications use same-directory temporary files, flush and synchronization where supported, verified atomic replacement, and temporary cleanup. These are application-level local containment and cooperative race protections—not an operating-system sandbox, accounts, RBAC, enterprise authorization, or protection against privileged processes that bypass the checks.
 
 #### Antigravity IDE and Agent
 
@@ -1563,6 +1609,8 @@ my-project/
 ```
 
 > **Note:** If both `US-001.json` and `US-001.md` exist, only the first encountered (sorted by stem then suffix) is loaded — duplicates by Story ID are deduplicated automatically.
+
+Requirements loading is deliberately bounded and fail-closed: each supported source may be at most **1 MiB**, a collection may contain at most **512** supported sources and **8 MiB** of verified source bytes in total, and JSON is limited to **64 nesting levels** and **10,000 nodes**. The AI and MCP Requirements renderers share a deterministic **12,000-character** budget, sanitize detected credentials before measuring, preserve story provenance first, and include an explicit marker if details must be truncated. A missing requirements directory remains an ordinary empty result; a collection rejected by a safety limit is reported separately without exposing paths or source content.
 
 #### Supported File Formats
 

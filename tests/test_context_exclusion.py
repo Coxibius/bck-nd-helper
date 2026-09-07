@@ -13,9 +13,17 @@ import os
 import pytest
 from pathlib import Path
 
+import bck_nd_hlpr.core.utils.gitignore_parser as gitignore_parser_module
+import bck_nd_hlpr.core.utils.indexer as indexer_module
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
 from bck_nd_hlpr.core.context_dumper import ContextDumper
-from bck_nd_hlpr.core.utils.gitignore_parser import parse_gitignore, matches_gitignore
+from bck_nd_hlpr.core.utils.gitignore_parser import (
+    GitIgnorePolicyError,
+    GitIgnoreMatcher,
+    matches_gitignore,
+    parse_gitignore,
+)
+from bck_nd_hlpr.core.utils.indexer import FileSystemIndexer
 
 
 # ═══════════════════════════════════════════════════════════
@@ -80,6 +88,36 @@ class TestSkipDirsExclusion:
         tree_lines = tree.split("\n")[1:]
         assert not any("venv" in line for line in tree_lines)
         assert not any("__pycache__" in line for line in tree_lines)
+
+    def test_backend_helper_cache_roots_are_hidden_but_generic_cache_is_visible(self, tmp_path):
+        _create_project(tmp_path, {
+            ".bck-nd-cache/": {"delta.json": "{}"},
+            ".bck-nd/": {"cache/": {"delta.json": "{}"}},
+            "cache/": {"application.txt": "visible"},
+        })
+
+        tree = generate_project_tree(str(tmp_path))
+
+        assert ".bck-nd-cache" not in tree
+        assert "delta.json" not in tree
+        assert "cache/" in tree
+        assert "application.txt" in tree
+
+    def test_backend_helper_product_and_requirements_remain_visible(self, tmp_path):
+        _create_project(tmp_path, {
+            ".bck-nd/": {
+                "product/": {"PRD-250.md": "# Product"},
+                "requirements/": {"HU05.md": "# Story"},
+            },
+        })
+
+        tree = generate_project_tree(str(tmp_path))
+
+        assert ".bck-nd/" in tree
+        assert "product/" in tree
+        assert "PRD-250.md" in tree
+        assert "requirements/" in tree
+        assert "HU05.md" in tree
 
 
 # ═══════════════════════════════════════════════════════════
@@ -297,11 +335,11 @@ class TestGitignoreParserUnit:
         patterns = parse_gitignore(tmp_path)
         assert patterns == ["foo", "bar"]
 
-    def test_parse_ignores_negation(self, tmp_path):
+    def test_parse_preserves_negation_for_last_rule_wins(self, tmp_path):
         (tmp_path / ".gitignore").write_text("dist\n!dist/important\n", encoding="utf-8")
         patterns = parse_gitignore(tmp_path)
         assert "dist" in patterns
-        assert "!dist/important" not in patterns
+        assert "!dist/important" in patterns
 
     def test_matches_dir_only_pattern(self, tmp_path):
         """'build/' solo matchea directorios, no archivos."""
@@ -363,6 +401,199 @@ class TestGitignoreParserUnit:
         no_slash_patterns = ["dist"]
         assert matches_gitignore(dist_dir, tmp_path, no_slash_patterns) is True
         assert matches_gitignore(real_dist_file, tmp_path, no_slash_patterns) is True
+
+    def test_nested_gitignore_rules_are_relative_and_deterministic(self, tmp_path):
+        frontend = tmp_path / "frontend"
+        source = frontend / "src"
+        source.mkdir(parents=True)
+        (tmp_path / ".gitignore").write_text("*.log\n", encoding="utf-8")
+        (frontend / ".gitignore").write_text(
+            "/ignored-generated/\n*.generated\n!important.generated\n",
+            encoding="utf-8",
+        )
+        ignored_dir = frontend / "ignored-generated"
+        ignored_dir.mkdir()
+        ignored = ignored_dir / "secret.py"
+        ignored.write_text("SECRET = True\n", encoding="utf-8")
+        generated = source / "cache.generated"
+        generated.write_text("generated", encoding="utf-8")
+        important = source / "important.generated"
+        important.write_text("keep", encoding="utf-8")
+        root_log = tmp_path / "root.log"
+        root_log.write_text("ignored", encoding="utf-8")
+
+        first = GitIgnoreMatcher(tmp_path)
+        second = GitIgnoreMatcher(tmp_path)
+
+        for matcher in (first, second):
+            assert matcher.matches(ignored_dir) is True
+            assert matcher.matches(ignored) is True
+            assert matcher.matches(generated) is True
+            assert matcher.matches(important) is False
+            assert matcher.matches(root_log) is True
+
+    def test_link_or_reparse_gitignore_is_not_read(self, tmp_path, monkeypatch):
+        nested = tmp_path / "frontend"
+        nested.mkdir()
+        gitignore = nested / ".gitignore"
+        gitignore.write_text("secret.py\n", encoding="utf-8")
+        secret = nested / "secret.py"
+        secret.write_text("VALUE = 1\n", encoding="utf-8")
+        original = gitignore_parser_module._is_link_or_reparse
+
+        monkeypatch.setattr(
+            gitignore_parser_module,
+            "_is_link_or_reparse",
+            lambda path: path == gitignore or original(path),
+        )
+
+        matcher = GitIgnoreMatcher(tmp_path)
+        indexed = FileSystemIndexer(str(tmp_path), max_depth=3).build()
+        tree = generate_project_tree(str(tmp_path), depth=3)
+
+        assert matcher.matches(nested, is_dir=True) is False
+        assert matcher.matches(secret, is_dir=False) is True
+        assert secret not in indexed.all_files
+        assert "frontend/" in tree
+        assert "secret.py" not in tree
+        assert [diagnostic.code for diagnostic in matcher.diagnostics] == [
+            "GITIGNORE_SOURCE_UNSAFE"
+        ]
+        assert matcher.diagnostics[0].scope == "frontend"
+        with pytest.raises(GitIgnorePolicyError) as error:
+            parse_gitignore(nested)
+        assert error.value.code == "GITIGNORE_SOURCE_UNSAFE"
+
+    def test_single_star_is_pathname_aware_and_double_star_crosses_directories(
+        self,
+        tmp_path,
+    ):
+        (tmp_path / ".gitignore").write_text(
+            "*.pem\n!safe/*.pem\nbuild/\nsrc/**/generated/\n"
+            "*.json\n!important/config.json\n",
+            encoding="utf-8",
+        )
+        paths = {
+            "safe_direct": tmp_path / "safe" / "direct.pem",
+            "safe_nested": tmp_path / "safe" / "nested" / "secret.pem",
+            "other": tmp_path / "other" / "secret.pem",
+            "build": tmp_path / "build",
+            "generated_direct": tmp_path / "src" / "generated",
+            "generated_nested": tmp_path / "src" / "a" / "b" / "generated",
+            "important": tmp_path / "important" / "config.json",
+            "other_json": tmp_path / "other" / "config.json",
+        }
+        for name, path in paths.items():
+            if name in {"build", "generated_direct", "generated_nested"}:
+                path.mkdir(parents=True, exist_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fixture", encoding="utf-8")
+
+        matcher = GitIgnoreMatcher(tmp_path)
+
+        assert matcher.matches(paths["safe_direct"], is_dir=False) is False
+        assert matcher.matches(paths["safe_nested"], is_dir=False) is True
+        assert matcher.matches(paths["other"], is_dir=False) is True
+        assert matcher.matches(paths["build"], is_dir=True) is True
+        assert matcher.matches(paths["generated_direct"], is_dir=True) is True
+        assert matcher.matches(paths["generated_nested"], is_dir=True) is True
+        assert matcher.matches(paths["important"], is_dir=False) is False
+        assert matcher.matches(paths["other_json"], is_dir=False) is True
+
+    def test_escaped_leading_markers_are_literal(self, tmp_path):
+        (tmp_path / ".gitignore").write_text(
+            "\\!important.txt\n\\#generated.txt\n",
+            encoding="utf-8",
+        )
+        bang = tmp_path / "!important.txt"
+        hash_file = tmp_path / "#generated.txt"
+        bang.touch()
+        hash_file.touch()
+
+        matcher = GitIgnoreMatcher(tmp_path)
+
+        assert matcher.matches(bang, is_dir=False) is True
+        assert matcher.matches(hash_file, is_dir=False) is True
+
+    def test_constructor_is_incremental_and_directory_cache_prevents_rereads(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        nested = tmp_path / "frontend" / "src"
+        sibling = tmp_path / "backend"
+        nested.mkdir(parents=True)
+        sibling.mkdir()
+        (tmp_path / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+        (tmp_path / "frontend" / ".gitignore").write_text(
+            "*.generated\n",
+            encoding="utf-8",
+        )
+        (sibling / ".gitignore").write_text("secret.py\n", encoding="utf-8")
+        target = nested / "cache.generated"
+        target.touch()
+        calls = []
+        original = gitignore_parser_module._read_patterns
+
+        def tracked(path):
+            calls.append(Path(path))
+            return original(path)
+
+        monkeypatch.setattr(gitignore_parser_module, "_read_patterns", tracked)
+        matcher = GitIgnoreMatcher(tmp_path)
+
+        assert calls == [tmp_path / ".gitignore"]
+        assert matcher.matches(target, is_dir=False) is True
+        calls_after_first = list(calls)
+        assert matcher.matches(target, is_dir=False) is True
+        assert calls == calls_after_first
+        assert sibling / ".gitignore" not in calls
+
+    def test_parent_ignored_directories_are_pruned_without_enumeration(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        ignored_names = {"cuarentena_env", "large_dataset", "generated"}
+        (tmp_path / ".gitignore").write_text(
+            "".join(f"{name}/\n" for name in sorted(ignored_names)),
+            encoding="utf-8",
+        )
+        for name in ignored_names:
+            hidden = tmp_path / name
+            hidden.mkdir()
+            (hidden / "secret.py").write_text("SECRET = True\n", encoding="utf-8")
+            (hidden / ".gitignore").write_text("!secret.py\n", encoding="utf-8")
+        visible = tmp_path / "visible"
+        visible.mkdir()
+        (visible / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+        scandir_calls = []
+        real_scandir = indexer_module.os.scandir
+
+        def tracked_scandir(path):
+            scandir_calls.append(Path(path))
+            return real_scandir(path)
+
+        monkeypatch.setattr(indexer_module.os, "scandir", tracked_scandir)
+        indexed = FileSystemIndexer(str(tmp_path), max_depth=5).build()
+
+        assert visible / "app.py" in indexed.all_files
+        assert not any(path.name in ignored_names for path in scandir_calls)
+
+        iterdir_calls = []
+        real_iterdir = Path.iterdir
+
+        def tracked_iterdir(path):
+            iterdir_calls.append(path)
+            return real_iterdir(path)
+
+        monkeypatch.setattr(Path, "iterdir", tracked_iterdir)
+        tree = generate_project_tree(str(tmp_path), depth=5)
+
+        assert "app.py" in tree
+        assert not any(path.name in ignored_names for path in iterdir_calls)
 
 
 # ═══════════════════════════════════════════════════════════

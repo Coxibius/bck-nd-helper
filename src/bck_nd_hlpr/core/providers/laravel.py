@@ -2,7 +2,6 @@
 Laravel architecture provider.
 """
 import json
-import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -26,25 +25,28 @@ class LaravelProvider(BaseArchitectureProvider):
         root = Path(root_path)
 
         # 1. artisan CLI file is the strongest signal
-        if (root / "artisan").exists():
+        if self._file(root, "artisan") is not None:
             return True
 
         # 2. composer.json listing laravel/framework
-        composer = root / "composer.json"
-        if composer.exists():
+        composer = self._file(root, "composer.json")
+        if composer is not None:
             try:
-                data = json.loads(composer.read_text(encoding="utf-8", errors="ignore"))
+                content = self._read(root, composer)
+                if content is None:
+                    return False
+                data = json.loads(content)
                 deps = {
                     **data.get("require", {}),
                     **data.get("require-dev", {}),
                 }
                 if "laravel/framework" in deps:
                     return True
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 pass
 
         # 3. Conventional app/Models directory
-        if (root / "app" / "Models").is_dir():
+        if self._has_directory(root, "app/Models"):
             return True
 
         return False
@@ -59,13 +61,13 @@ class LaravelProvider(BaseArchitectureProvider):
         orm = "Eloquent"
 
         # Detect some common Laravel features
-        if (root / "routes" / "api.php").exists():
+        if self._file(root, "routes/api.php") is not None:
             features.append("API Routes")
-        if (root / "routes" / "web.php").exists():
+        if self._file(root, "routes/web.php") is not None:
             features.append("Web Routes")
-        if (root / "database" / "migrations").is_dir():
+        if self._has_directory(root, "database/migrations"):
             features.append("Migrations")
-        if (root / "app" / "Http" / "Middleware").is_dir():
+        if self._has_directory(root, "app/Http/Middleware"):
             features.append("Middleware")
 
         return {
@@ -80,24 +82,30 @@ class LaravelProvider(BaseArchitectureProvider):
 
     def find_model_files(self, root_path: Path) -> List[Path]:
         root = Path(root_path)
-        models_dir = root / "app" / "Models"
-        if models_dir.is_dir():
-            return sorted(models_dir.glob("*.php"))
+        models = [
+            path
+            for path in self._files(root, suffixes=(".php",))
+            if path.parent.relative_to(root).as_posix().casefold() == "app/models"
+        ]
+        if models:
+            return models
         # Older Laravel (<8) stored models directly in app/
-        app_dir = root / "app"
-        if app_dir.is_dir():
-            return sorted(
-                p for p in app_dir.glob("*.php")
-                if p.name not in ("Kernel.php", "Providers")
-            )
+        legacy = [
+            path
+            for path in self._files(root, suffixes=(".php",))
+            if path.parent.relative_to(root).as_posix().casefold() == "app"
+            and path.name not in ("Kernel.php", "Providers")
+        ]
+        if legacy:
+            return legacy
         return []
 
     def find_route_files(self, root_path: Path) -> List[Path]:
         root = Path(root_path)
         routes: List[Path] = []
         for name in ("web.php", "api.php", "channels.php", "console.php"):
-            route_file = root / "routes" / name
-            if route_file.exists():
+            route_file = self._file(root, f"routes/{name}")
+            if route_file is not None:
                 routes.append(route_file)
         return routes
 
@@ -109,5 +117,4 @@ class LaravelProvider(BaseArchitectureProvider):
         callers (e.g. CI generators, route scanners) can locate it without
         duplicating the root-level file probe.
         """
-        artisan = Path(root_path) / "artisan"
-        return artisan if artisan.exists() else None
+        return self._file(Path(root_path), "artisan")

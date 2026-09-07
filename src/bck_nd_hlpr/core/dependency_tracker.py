@@ -1,26 +1,37 @@
 import re
-from pathlib import Path
-from typing import List, Dict, Set
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Dict, List, Optional, Set
 from collections import defaultdict
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
-from bck_nd_hlpr.core.utils.indexer import FileSystemIndexer
+from bck_nd_hlpr.core.utils.cache import FileCache
+from bck_nd_hlpr.core.utils.indexer import FileIndex, FileSystemIndexer
 
 class DependencyTracker:
-    def __init__(self, root_path: str):
-        self.root = Path(root_path).resolve()
+    def __init__(self, root_path: str, *, file_index: Optional[FileIndex] = None):
+        self.root = file_index.root if file_index is not None else Path(root_path).absolute()
+        self.file_index = file_index
         # Map: File -> Set of Files that import it (In-degree)
         self.usage_map: Dict[str, Set[str]] = {}
         # Map: File -> Set of Files that it imports (Out-degree)
         self.imports_map: Dict[str, Set[str]] = defaultdict(set)
         self.all_files: Set[str] = set()
+        self._indexed_paths: Dict[str, Path] = {}
 
     def scan_dependencies(self):
         """Builds the dependency graph."""
         self.usage_map = {}
         self.imports_map = defaultdict(set)
         self.all_files = set()
+        self._indexed_paths = {}
 
-        file_index = FileSystemIndexer(str(self.root), max_depth=None).build()
+        try:
+            file_index = self.file_index or FileSystemIndexer(
+                str(self.root), max_depth=None
+            ).build()
+        except (OSError, RuntimeError, ValueError):
+            return
+        self.file_index = file_index
+        self.root = file_index.root
         indexed_files = []
         for file_path in file_index.all_files:
             try:
@@ -28,6 +39,7 @@ class DependencyTracker:
             except ValueError:
                 continue
             self.all_files.add(rel_file_path)
+            self._indexed_paths[rel_file_path] = file_path
             indexed_files.append((file_path, rel_file_path))
 
         # Resolve imports only after the complete, ignore-filtered file set is known.
@@ -37,8 +49,12 @@ class DependencyTracker:
 
     def _analyze_file_imports(self, file_path: Path, rel_source_path: str):
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
+            content = FileCache.read_project_file(
+                self.root,
+                file_path,
+                encoding='utf-8',
+                errors='ignore',
+            )
 
             # PATTERNS
             
@@ -75,79 +91,86 @@ class DependencyTracker:
                     self.usage_map[target_file].add(rel_source_path)
                     self.imports_map[rel_source_path].add(target_file)
 
-        except Exception:
+        except (OSError, UnicodeError, ValueError, TypeError):
             pass
 
     def _resolve_module_to_file(self, module: str, source_file: Path) -> str:
         """Attempts to resolve an import string to a relative file path in the project."""
-        # Simple heuristic resolution.
-        
-        # 1. Check relative imports (starts with .)
+        if not isinstance(module, str) or not module.strip():
+            return None
+        module = module.strip()
+        if PureWindowsPath(module).is_absolute() or PurePosixPath(
+            module.replace("\\", "/")
+        ).is_absolute():
+            return None
+
+        # 1. Resolve relative imports lexically against the indexed source.
         if module.startswith('.'):
-            # JS/TS or Python relative
-            # Resolve relative to source_file parent
-            base = source_file.parent
-            # . means current dir, .. means parent
-            
-            # Naive resolution: join paths
-            try:
-                candidate = (base / module).resolve()
-                # Try extensions
-                for ext in ['.py', '.js', '.ts', '', '.jsx', '.tsx']:
-                    test = candidate.with_suffix(candidate.suffix + ext) if ext == '' else candidate.with_suffix(ext)
-                    # Wait, with_suffix replaces. 
-                    # If module is relative './utils', candidate is .../utils
-                    # tests: .../utils.py, .../utils.js
-                    
-                    # Correct logic:
-                    # If module ends with extension, maintain it.
-                    # Else try appending extensions.
-                    
-                    possible_paths = []
-                    name = candidate.name
-                    parent = candidate.parent
-                    
-                    possible_paths.append(parent / (name + ".py"))
-                    possible_paths.append(parent / (name + ".js"))
-                    possible_paths.append(parent / (name + ".ts"))
-                    possible_paths.append(parent / name / "index.js") # JS index
-                    possible_paths.append(parent / name / "index.ts")
-                    possible_paths.append(parent / name / "__init__.py") # Python package
-                    
-                    for p in possible_paths:
-                        if p.exists() and self._is_within_root(p):
-                            rel_path = str(p.relative_to(self.root)).replace("\\", "/")
-                            if rel_path in self.all_files:
-                                return rel_path
-                            
-            except Exception:
-                pass
+            source_relative = source_file.relative_to(self.root).as_posix()
+            source_parent = PurePosixPath(source_relative).parent
+            if module.startswith("./") or module.startswith("../"):
+                module_path = module
+            else:
+                dot_count = len(module) - len(module.lstrip("."))
+                base_parts = list(source_parent.parts)
+                if dot_count > len(base_parts) + 1:
+                    return None
+                for _ in range(max(0, dot_count - 1)):
+                    if not base_parts:
+                        return None
+                    base_parts.pop()
+                remainder = module[dot_count:].replace(".", "/")
+                module_path = "/".join([*base_parts, remainder]).strip("/")
+                return self._first_indexed_candidate(module_path)
+
+            normalized = self._normalize_relative_module(source_parent, module_path)
+            if normalized is None:
+                return None
+            return self._first_indexed_candidate(normalized)
         
         # 2. Check absolute imports (from root)
         # e.g., 'bck_nd_hlpr.scanner' -> src/bck_nd_hlpr/scanner.py
-        parts = module.replace(".", "/").split("/")
-        
-        # Try to find this path relative to Root or Source Root (src)
-        candidates = [
-            self.root / "/".join(parts),
-            self.root / "src" / "/".join(parts)
-        ]
-        
-        for cand in candidates:
-            # Try extensions
-            possible_paths = [
-                cand.with_suffix(".py"),
-                cand.with_suffix(".js"),
-                cand.with_suffix(".ts"),
-                cand / "__init__.py",
-                cand / "index.js"
-            ]
-            for p in possible_paths:
-                if p.exists() and self._is_within_root(p):
-                    rel_path = str(p.relative_to(self.root)).replace("\\", "/")
-                    if rel_path in self.all_files:
-                        return rel_path
+        normalized = module.replace(".", "/").replace("\\", "/").strip("/")
+        for base in (normalized, f"src/{normalized}"):
+            matched = self._first_indexed_candidate(base)
+            if matched:
+                return matched
 
+        return None
+
+    @staticmethod
+    def _normalize_relative_module(
+        source_parent: PurePosixPath,
+        module: str,
+    ) -> Optional[str]:
+        parts = list(source_parent.parts)
+        for part in module.replace("\\", "/").split("/"):
+            if part in {"", "."}:
+                continue
+            if part == "..":
+                if not parts:
+                    return None
+                parts.pop()
+            else:
+                parts.append(part)
+        return "/".join(parts)
+
+    def _first_indexed_candidate(self, base: str) -> Optional[str]:
+        candidates = (
+            base,
+            f"{base}.py",
+            f"{base}.js",
+            f"{base}.ts",
+            f"{base}.jsx",
+            f"{base}.tsx",
+            f"{base}/index.js",
+            f"{base}/index.ts",
+            f"{base}/__init__.py",
+        )
+        for candidate in candidates:
+            normalized = PurePosixPath(candidate).as_posix()
+            if normalized in self.all_files:
+                return normalized
         return None
 
     def _is_within_root(self, path: Path) -> bool:
@@ -166,10 +189,9 @@ class DependencyTracker:
         if not self.all_files:
             self.scan_dependencies()
             
-        try:
-            rel_changed = str(Path(changed_file).resolve().relative_to(self.root)).replace("\\", "/")
-        except ValueError:
-            return {"changed_file": changed_file, "affected_files": []}
+        rel_changed = self._safe_changed_file(changed_file)
+        if rel_changed is None or rel_changed not in self.all_files:
+            return {"changed_file": "<outside-project>", "affected_files": []}
 
         affected = []
         visited = set()
@@ -188,9 +210,27 @@ class DependencyTracker:
         affected.sort(key=lambda x: x["depth"])
         
         return {
-            "changed_file": changed_file,
+            "changed_file": rel_changed,
             "affected_files": [item["file"] for item in affected]
         }
+
+    def _safe_changed_file(self, changed_file: str) -> Optional[str]:
+        text = str(changed_file).strip()
+        if not text:
+            return None
+        normalized = text.replace("\\", "/")
+        pure = PurePosixPath(normalized)
+        if ".." in pure.parts:
+            return None
+        windows = PureWindowsPath(text)
+        native = Path(text)
+        if windows.is_absolute() and not native.is_absolute():
+            return None
+        candidate = native if native.is_absolute() else self.root / native
+        try:
+            return candidate.relative_to(self.root).as_posix()
+        except ValueError:
+            return None
 
     def get_onboarding_path(self) -> list:
         """Generates a structured pedagogical reading path based on in/out degrees."""
@@ -290,8 +330,10 @@ class DependencyTracker:
         """
         pass
 
-def analyze_impact(root_path: str):
-    tracker = DependencyTracker(root_path)
+def analyze_impact(
+    root_path: str, *, file_index: Optional[FileIndex] = None
+):
+    tracker = DependencyTracker(root_path, file_index=file_index)
     tracker.scan_dependencies()
     return tracker.usage_map
 

@@ -1,4 +1,5 @@
 import shutil
+import shlex
 import subprocess
 import sys
 import json
@@ -39,7 +40,18 @@ from bck_nd_hlpr.core.product.renderer import (
     DEFAULT_PRODUCT_CONTEXT_CHARS,
     MIN_PRODUCT_CONTEXT_CHARS,
 )
+from bck_nd_hlpr.core.requirements.renderer import (
+    MAX_REQUIREMENTS_CONTEXT_CHARS,
+    MIN_REQUIREMENTS_CONTEXT_CHARS,
+    REQUIREMENTS_TRUNCATION_MARKER,
+)
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
+from bck_nd_hlpr.core.utils.secure_write import (
+    ArtifactAlreadyExistsError,
+    SecureWriteError,
+    atomic_create_project_artifact,
+    atomic_write_explicit_output,
+)
 from bck_nd_hlpr.core.analysis import (
     ScanContext,
     get_analyzer,
@@ -62,6 +74,14 @@ app = typer.Typer(
 • [cyan]bck-nd prompt . --copy[/cyan] — AI context with product intent, requirements, and metrics
 
 • [cyan]bck-nd req init US-001[/cyan] — scaffold a user story
+
+• [cyan]bck-nd req list .[/cyan] — browse all story briefs
+
+• [cyan]bck-nd req show HU05 .[/cyan] — inspect one complete story
+
+• [cyan]bck-nd req validate .[/cyan] — diagnose requirement files
+
+• [cyan]bck-nd req locations .[/cyan] — find Requirements collections and scope conflicts
 
 • [cyan]bck-nd req status US-001 DONE[/cyan] — update story status
 
@@ -105,11 +125,10 @@ def save_or_print(content: str, output_path: Optional[str], title: str = "OUTPUT
     """Helper to handle output persistence."""
     if output_path:
         try:
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(content)
+            atomic_write_explicit_output(output_path, content.encode("utf-8"))
             typer.secho(f"💾 Output saved to: {output_path}", fg=typer.colors.GREEN, bold=True)
-        except Exception as e:
-            typer.secho(f"❌ Error saving file: {e}", fg=typer.colors.RED)
+        except SecureWriteError:
+            typer.secho("❌ Error saving file safely.", fg=typer.colors.RED)
     else:
         # Standard stdout behavior
         if "graph" in title or "diagram" in title.lower():
@@ -136,9 +155,14 @@ def copy_to_clipboard(text: str) -> bool:
 
     for command in commands:
         try:
-            subprocess.run(command, input=encoded, check=True)
+            subprocess.run(command, input=encoded, check=True, timeout=5)
             return True
-        except (FileNotFoundError, OSError, subprocess.CalledProcessError):
+        except (
+            FileNotFoundError,
+            OSError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+        ):
             continue
     return False
 
@@ -172,6 +196,209 @@ def _print_context_metrics(
         fg=typer.colors.CYAN,
         bold=True,
         err=err,
+    )
+
+
+def _requirements_counts(specifications: Any) -> dict[str, Any]:
+    """Return deterministic public metrics for an already-loaded collection."""
+    specs = list(specifications or [])
+    statuses: dict[str, int] = {}
+    for spec in specs:
+        story = getattr(spec, "story", None)
+        status = str(getattr(story, "status", "TODO") or "TODO").upper()
+        statuses[status] = statuses.get(status, 0) + 1
+    return {
+        "stories": len(specs),
+        "criteria": sum(len(getattr(spec, "acceptance_criteria", []) or []) for spec in specs),
+        "rules": sum(len(getattr(spec, "business_rules", []) or []) for spec in specs),
+        "open_questions": sum(len(getattr(spec, "open_questions", []) or []) for spec in specs),
+        "statuses": statuses,
+    }
+
+
+def _count_label(count: int, singular: str, plural: Optional[str] = None) -> str:
+    return f"{count} {singular if count == 1 else (plural or singular + 's')}"
+
+
+def _requirements_directory_exists(project_path: str) -> bool:
+    return (Path(project_path) / ".bck-nd" / "requirements").is_dir()
+
+
+def _format_cli_path_argument(project_path: Any) -> str:
+    """Format a project path for copy-paste into the current platform's shell."""
+    text = str(project_path)
+    if text == "." or not any(character.isspace() for character in text):
+        return text
+    if sys.platform.startswith("win"):
+        return subprocess.list2cmdline([text])
+    return shlex.quote(text)
+
+
+def _discover_requirements_scope(project_path: str, current_result: Any) -> Any:
+    """Discover descendant collections while reusing the selected load."""
+    from bck_nd_hlpr.core.requirements import discover_requirements_locations
+
+    return discover_requirements_locations(
+        project_path,
+        current_result=current_result,
+    )
+
+
+def _print_requirements_scope(report: Any) -> None:
+    """Print the explicit project-relative Requirements scope."""
+    typer.echo("Requirements scope: .")
+    typer.echo("Source: .bck-nd/requirements")
+
+
+def _print_requirements_scope_warning(
+    report: Any,
+    project_path: str,
+    *,
+    story_id: Optional[str] = None,
+) -> None:
+    """Warn about independently discovered collections without merging them."""
+    if report is None:
+        return
+    nested = tuple(getattr(report, "nested_locations", ()) or ())
+    conflicts = tuple(getattr(report, "conflicting_ids", ()) or ())
+    if nested:
+        count = len(nested)
+        noun = "collection was" if count == 1 else "collections were"
+        typer.echo(f"\nWARNING: {count} nested Requirements {noun} omitted.")
+        if conflicts:
+            typer.echo("Conflicting IDs: " + ", ".join(conflicts))
+        typer.echo(
+            "Run: bck-nd req locations "
+            + _format_cli_path_argument(project_path)
+        )
+    if story_id and nested:
+        normalized = story_id.strip().casefold()
+        matching_roots = [
+            location.relative_root
+            for location in nested
+            if any(item.strip().casefold() == normalized for item in location.ids)
+        ]
+        if matching_roots:
+            typer.echo("\nDisplayed from current scope only.")
+            typer.echo(f"{story_id.strip()} also exists in:")
+            for root in matching_roots:
+                typer.echo(f"  {root}")
+    if getattr(report, "truncated", False):
+        typer.echo("\nWARNING: Requirements location discovery was truncated safely.")
+
+
+def _print_requirements_diagnostics(result: Any, project_path: str) -> None:
+    """Render only the parser's public, already-sanitized diagnostics."""
+    from rich.console import Console
+    from rich.markup import escape
+
+    console = Console()
+    console.print("[bold red]Requirements: INVALID[/bold red]")
+    diagnostics = list(getattr(result, "diagnostics", ()) or ())
+    if diagnostics:
+        for diagnostic in diagnostics:
+            code = escape(str(getattr(diagnostic, "code", "REQUIREMENTS_COLLECTION_UNAVAILABLE")))
+            message = escape(str(getattr(diagnostic, "message", "Requirements are unavailable safely.")))
+            source = str(getattr(diagnostic, "source", "") or "")
+            suffix = f" ({escape(source)})" if source else ""
+            console.print(f"[{code}] {message}{suffix}", markup=False)
+    else:
+        console.print("[REQUIREMENTS_COLLECTION_UNAVAILABLE] Requirements are unavailable safely.", markup=False)
+    typer.echo("\nFix the specification and run:")
+    typer.echo(f"  bck-nd req validate {_format_cli_path_argument(project_path)}")
+
+
+def _requirements_prompt_status(dumper: ContextDumper, disabled: bool) -> str:
+    """Build the final prompt-panel status without another collection read."""
+    if disabled:
+        return "[magenta][SKIPPED] Disabled with --no-req[/magenta]"
+    result = dumper.get_requirements_result()
+    report = dumper.get_requirements_location_report()
+    nested_count = len(getattr(report, "nested_locations", ()) or ())
+    suffix = (
+        f" · [yellow]{nested_count} nested collection"
+        f"{'s' if nested_count != 1 else ''} omitted[/yellow]"
+        if nested_count
+        else ""
+    )
+    if result is None or getattr(result, "rejected", False):
+        return "[yellow][WARNING] Invalid or unavailable[/yellow]" + suffix
+    specs = list(getattr(result, "specifications", ()) or ())
+    if not specs:
+        return "[yellow][--] Not initialized[/yellow]" + suffix
+    counts = _requirements_counts(specs)
+    details = (
+        f"{_count_label(counts['stories'], 'story', 'stories')} · "
+        f"{_count_label(counts['criteria'], 'criterion', 'criteria')} · "
+        f"{_count_label(counts['rules'], 'rule')}"
+    )
+    rendered = dumper.get_requirements_context() or ""
+    if REQUIREMENTS_TRUNCATION_MARKER in rendered:
+        return f"[yellow][WARNING] Included with truncation[/yellow] — {details}" + suffix
+    return f"[green][OK] Included[/green] — {details}" + suffix
+
+
+def _print_scan_requirements_summary(
+    result: Any,
+    project_path: str,
+    location_report: Any = None,
+) -> None:
+    """Show Requirements discovery without flooding a general human scan."""
+    if result is None or getattr(result, "rejected", False):
+        typer.secho("Requirements: unavailable", fg=typer.colors.YELLOW, bold=True)
+        typer.echo("Scope: .")
+        typer.echo(f"Run: bck-nd req validate {_format_cli_path_argument(project_path)}")
+        _print_requirements_scope_warning(location_report, project_path)
+        typer.echo(
+            "AI context: bck-nd prompt "
+            + _format_cli_path_argument(project_path)
+            + " --copy"
+        )
+        return
+    specs = list(getattr(result, "specifications", ()) or ())
+    if not specs:
+        typer.secho("Requirements: not initialized", fg=typer.colors.YELLOW, bold=True)
+        typer.echo("Scope: .")
+        typer.echo("Run: bck-nd req init US-001")
+        _print_requirements_scope_warning(location_report, project_path)
+        typer.echo(
+            "AI context: bck-nd prompt "
+            + _format_cli_path_argument(project_path)
+            + " --copy"
+        )
+        return
+    counts = _requirements_counts(specs)
+    statuses = " · ".join(
+        f"{count} {status}"
+        for status, count in sorted(counts["statuses"].items())
+        if count
+    )
+    parts = [
+        _count_label(counts["stories"], "story", "stories"),
+        statuses,
+        _count_label(counts["criteria"], "criterion", "criteria"),
+        _count_label(counts["rules"], "rule"),
+    ]
+    typer.secho(
+        "Requirements: " + " · ".join(part for part in parts if part),
+        fg=typer.colors.CYAN,
+        bold=True,
+    )
+    typer.echo("Scope: .")
+    nested_count = len(getattr(location_report, "nested_locations", ()) or ())
+    if nested_count:
+        typer.echo(f"Nested Requirements collections omitted: {nested_count}")
+        typer.echo(
+            "Run: bck-nd req locations "
+            + _format_cli_path_argument(project_path)
+        )
+    elif getattr(location_report, "truncated", False):
+        typer.echo("Requirements location discovery was truncated safely.")
+    typer.echo(f"Run: bck-nd req list {_format_cli_path_argument(project_path)}")
+    typer.echo(
+        "AI context: bck-nd prompt "
+        + _format_cli_path_argument(project_path)
+        + " --copy"
     )
 
 
@@ -229,8 +456,8 @@ def _emit_scan_json(payload: Any, output: Optional[str]) -> None:
         ensure_ascii=False,
         indent=2,
     )
-    if output:
-        Path(output).write_text(serialized + "\n", encoding="utf-8")
+    if output and output != "-":
+        atomic_write_explicit_output(output, (serialized + "\n").encode("utf-8"))
     else:
         typer.echo(serialized)
 
@@ -255,9 +482,16 @@ def flow(
     try:
         typer.secho("\n📐 GENERATING MANUAL DIAGRAM:", fg=typer.colors.CYAN, bold=True)
         router = Router()
-        router.process(layout)
-    except Exception as e:
-        typer.secho(f"❌ Error: {e}", fg=typer.colors.RED)
+        rendered = router.process(layout)
+        if not rendered or not rendered.strip():
+            typer.secho("Could not render flow diagram safely.", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+        typer.echo(rendered)
+    except typer.Exit:
+        raise
+    except Exception:
+        typer.secho("Could not render flow diagram safely.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
 
 @app.command()
 def scan(
@@ -298,7 +532,7 @@ def scan(
     - Tree, Infra map, Routes (sequence), UML, ER, Technical Debt table, Requirements table.
     - Optional text reports (offline explain) or AI-assisted analysis.
 
-    Exclusive modes (choose one):
+    Views may be requested individually or combined:
     - --uml, --er, --routes, --infra, --tree, --todo, --audit, --impact, --trace, --req
 
     Notable flags:
@@ -316,6 +550,8 @@ def scan(
     - bck-nd scan .
     - bck-nd scan src --depth 5
     - bck-nd scan . --er -o schema.mmd
+    - bck-nd scan . --uml --er
+    - bck-nd scan . --tree --req
     - bck-nd scan . --ai --style hacker
     - bck-nd scan . --impact-radius app/api/users.py
     """
@@ -352,53 +588,54 @@ def scan(
             requested_json_reports.append((output_key, result_attr))
 
     full_json_scan = json_output and not requested_json_reports
+    specialized_scan = any(
+        [
+            uml, er, routes, infra, todo, audit, impact, bool(impact_radius),
+            contract, trace, tree, teach, health, bool(export_dict),
+            datascience, req, ai, explain,
+        ]
+    )
+    general_human_scan = not json_output and not specialized_scan
+    requirements_result = None
+    requirements_location_report = None
+    if req or full_json_scan or general_human_scan:
+        from bck_nd_hlpr.core.requirements import RequirementsParser
 
-    initialized_files = set()
-    if output and not json_output:
-        try:
-            with open(output, "w", encoding="utf-8") as f:
-                f.write("")
-            initialized_files.add(output)
-        except Exception as e:
-            typer.secho(f"❌ Error creating output file: {e}", fg=typer.colors.RED)
+        requirements_result = RequirementsParser.load_collection(path)
+        if not json_output:
+            requirements_location_report = _discover_requirements_scope(
+                path,
+                requirements_result,
+            )
+
+    pending_outputs: dict[str, list[str]] = {}
 
     def output_handler(content: str, context_msg: str):
         is_diagram = content.strip().startswith(("classDiagram", "erDiagram", "sequenceDiagram", "graph"))
-        target_output = output
+        target_output = None if output == "-" else output
         
-        if export_mermaid and is_diagram and not target_output:
+        if export_mermaid and is_diagram and not target_output and output != "-":
             # Auto-generate filename
             clean_name = "".join(c for c in context_msg.lower() if c.isalnum() or c.isspace()).replace(" ", "_")
             target_output = f"{clean_name}.mmd"
 
         if target_output:
             is_mmd_file = target_output.endswith(".mmd")
-            
-            # Truncate if it's an auto-generated file we haven't written to yet
-            if target_output not in initialized_files:
-                try:
-                    with open(target_output, "w", encoding="utf-8") as f:
-                        f.write("")
-                    initialized_files.add(target_output)
-                except Exception as e:
-                    typer.secho(f"❌ Error creating output file: {e}", fg=typer.colors.RED)
-
-            try:
-                with open(target_output, "a", encoding="utf-8") as f:
-                    if context_msg and not is_mmd_file:
-                        f.write(f"\n{'='*60}\n")
-                        f.write(f"  {context_msg}\n")
-                        f.write(f"{'='*60}\n\n")
-                        
-                    if is_mmd_file:
-                        f.write(content.strip())
-                        f.write("\n")
-                    else:
-                        f.write(content)
-                        f.write("\n")
-                typer.secho(f"💾 Result saved to: {target_output}", fg=typer.colors.GREEN, bold=True)
-            except Exception as e:
-                typer.secho(f"❌ Error writing file: {e}", fg=typer.colors.RED)
+            parts = pending_outputs.setdefault(target_output, [])
+            if context_msg and not is_mmd_file:
+                parts.extend(
+                    [
+                        f"\n{'='*60}\n",
+                        f"  {context_msg}\n",
+                        f"{'='*60}\n\n",
+                    ]
+                )
+            if is_mmd_file:
+                parts.append(content.strip())
+                parts.append("\n")
+            else:
+                parts.append(content)
+                parts.append("\n")
         else:
             if context_msg:
                 if is_diagram:
@@ -435,21 +672,21 @@ def scan(
         provider=provider,
         plain=bool(output) or json_output,
         use_cache=not no_cache,
-        requirements=req or full_json_scan,
+        requirements=False,
         asg=full_json_scan,
     )
 
     try:
         result = ScannerOrchestrator.run(config)
-    except Exception as e:
+    except Exception:
         if json_output:
-            try:
-                _emit_scan_json({"error": str(e)}, output)
-            except OSError:
-                typer.echo(json.dumps({"error": str(e)}), err=True)
+            typer.echo(json.dumps({"error": "Scan failed safely."}), err=True)
             raise typer.Exit(code=1)
-        typer.secho(f"❌ Error during orchestrator execution: {e}", fg=typer.colors.RED)
-        return
+        typer.secho("❌ Error during orchestrator execution.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    if requirements_result is not None:
+        result.requirements = list(requirements_result.specifications)
 
     if json_output:
         try:
@@ -474,11 +711,8 @@ def scan(
                     else report_values
                 )
             _emit_scan_json(payload, output)
-        except OSError as e:
-            typer.echo(
-                json.dumps({"error": f"Could not write JSON output: {e}"}),
-                err=True,
-            )
+        except SecureWriteError:
+            typer.echo(json.dumps({"error": "Could not write JSON output safely."}), err=True)
             raise typer.Exit(code=1)
         return
 
@@ -490,6 +724,14 @@ def scan(
         typer.secho(f"✨ Features: {', '.join(result.features)}", fg=typer.colors.YELLOW)
     if result.summary:
         typer.secho(f"\n📝 {result.summary}", fg=typer.colors.WHITE)
+
+    if general_human_scan:
+        typer.echo()
+        _print_scan_requirements_summary(
+            requirements_result,
+            path,
+            requirements_location_report,
+        )
 
     if config.tree and result.tree:
         typer.secho("\n[TREE] 🌳 PROJECT STRUCTURE:", fg=typer.colors.CYAN, bold=True)
@@ -540,14 +782,24 @@ def scan(
                 display_todos_table(result.todos)
 
     if req:
-        specs = result.requirements or []
-        if specs:
+        specs = list(getattr(requirements_result, "specifications", ()) or ())
+        typer.echo("Scope: .")
+        if requirements_result is not None and requirements_result.rejected:
+            typer.echo()
+            _print_requirements_diagnostics(requirements_result, path)
+            _print_requirements_scope_warning(requirements_location_report, path)
+        elif specs:
             typer.secho("\n[REQ] 📋 PROJECT REQUIREMENTS:", fg=typer.colors.CYAN, bold=True)
             if output:
                 table_str = get_requirements_table_string(specs, plain=True)
                 output_handler(table_str, "[REQ] Project Requirements")
             else:
                 display_requirements_table(specs)
+            _print_requirements_scope_warning(requirements_location_report, path)
+        else:
+            typer.secho("\nRequirements: not initialized", fg=typer.colors.YELLOW, bold=True)
+            typer.echo("Run: bck-nd req init US-001")
+            _print_requirements_scope_warning(requirements_location_report, path)
 
     if config.audit and result.security_risks is not None:
         typer.secho("\n🚨 SECURITY AUDIT:", fg=typer.colors.CYAN, bold=True)
@@ -695,9 +947,7 @@ def scan(
 
     if config.export_dict and result.data_dictionary is not None:
         if output:
-            with open(output, "w", encoding="utf-8") as f:
-                f.write(result.data_dictionary)
-            typer.secho(f"✅ Data Dictionary exported to {output}", fg=typer.colors.GREEN)
+            output_handler(result.data_dictionary, "")
         else:
             print(result.data_dictionary)
 
@@ -728,9 +978,11 @@ def scan(
         
         config_full = OrchestratorConfig(
             path=path, depth=depth,
-            tree=True, infra=True, routes=True, uml=True, er=True, todo=True, requirements=True
+            tree=True, infra=True, routes=True, uml=True, er=True, todo=True, requirements=False
         )
         result_full = ScannerOrchestrator.run(config_full)
+        if requirements_result is not None:
+            result_full.requirements = list(requirements_result.specifications)
         
         if result_full.tree:
             typer.secho("\n[TREE] 🌳 PROJECT STRUCTURE:", fg=typer.colors.CYAN, bold=True)
@@ -761,15 +1013,21 @@ def scan(
                 else:
                     display_todos_table(result_full.todos)
 
-        # Requirements
-        specs = result_full.requirements or []
-        if specs:
-            typer.secho("\n[REQ] 📋 PROJECT REQUIREMENTS:", fg=typer.colors.CYAN, bold=True)
-            if output:
-                req_table_str = get_requirements_table_string(specs, plain=True)
-                output_handler(req_table_str, "[REQ] Project Requirements")
-            else:
-                display_requirements_table(specs)
+    if pending_outputs:
+        try:
+            for target_output, parts in pending_outputs.items():
+                atomic_write_explicit_output(
+                    target_output,
+                    "".join(parts).encode("utf-8"),
+                )
+                typer.secho(
+                    f"💾 Result saved to: {target_output}",
+                    fg=typer.colors.GREEN,
+                    bold=True,
+                )
+        except SecureWriteError:
+            typer.secho("❌ Error writing output safely.", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
 
 @app.command()
 def docs(
@@ -798,9 +1056,12 @@ def docs(
     generator = DocGenerator()
     try:
         out_file = generator.generate(path, output)
+        if out_file is None:
+            raise SecureWriteError("Documentation publication was denied safely.")
         typer.secho(f"[OK] Documentation successfully generated at: {out_file}", fg=typer.colors.GREEN, bold=True)
-    except Exception as e:
-        typer.secho(f"[ERROR] Error generating documentation: {e}", fg=typer.colors.RED)
+    except Exception:
+        typer.secho("[ERROR] Error generating documentation safely.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -832,7 +1093,9 @@ def chat(
     path: str = typer.Argument(".", help="Path to the project. Scans architecture to build AI context. Example: bck-nd chat ./my-api"),
     depth: int = typer.Option(3, "--depth", "-d", help="Scan depth for context building (default: 3). Increase for deeply nested projects. Example: bck-nd chat . -d 5"),
     style: str = typer.Option("pro", "--style", "-s", help="AI personality: pro, hacker, soviet, eli5, ramsay, jarvis, corporate, medieval, doom. Example: bck-nd chat . --style jarvis"),
-    provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd chat . --provider openrouter")
+    provider: Optional[str] = typer.Option(None, "--provider", help="Force AI provider: openai, anthropic, gemini, groq, deepseek, openrouter, ollama. Example: bck-nd chat . --provider openrouter"),
+    no_prd: bool = typer.Option(False, "--no-prd", help="Exclude Product Requirements Documents from chat context."),
+    no_req: bool = typer.Option(False, "--no-req", help="Exclude Requirements and scope discovery from chat context."),
 ):
     """
     Interactive AI chat about your codebase (requires API key or Ollama).
@@ -845,7 +1108,31 @@ def chat(
     - bck-nd chat .
     - bck-nd chat . --style hacker
     - bck-nd chat . --provider ollama
+    - bck-nd chat . --no-prd --no-req
     """
+    dumper = ContextDumper(
+        path=path,
+        depth=depth,
+        include_prd=not no_prd,
+        include_requirements=not no_req,
+    )
+    business_context = []
+    if not no_prd:
+        product_context = dumper.get_product_context()
+        if product_context:
+            business_context.append(product_context)
+    if not no_req:
+        requirements_scope = dumper.get_requirements_scope_context()
+        if requirements_scope:
+            business_context.append(requirements_scope)
+        requirements_context = dumper.get_requirements_context()
+        if requirements_context:
+            business_context.append(
+                "<requirements_context>\n"
+                + requirements_context
+                + "\n</requirements_context>"
+            )
+
     scanner = ProjectScanner()
     
     typer.secho(f"🔍 Scanning architecture to initialize context (depth: {depth})...", fg=typer.colors.CYAN, bold=True)
@@ -902,10 +1189,16 @@ def chat(
 
     docs = scanner.get_docs_content(path)
     
+    architecture_context = (
+        "--- ARCHITECTURE ---\n"
+        + flow_string
+        + arch_context
+        + extra_diagrams
+    )
+    context_sections = [*business_context, architecture_context]
     if docs:
-        full_context = flow_string + arch_context + extra_diagrams + "\n\n--- PROJECT DOCUMENTATION ---\n" + docs
-    else:
-        full_context = flow_string + arch_context + extra_diagrams
+        context_sections.append("--- PROJECT DOCUMENTATION ---\n" + docs)
+    full_context = "\n\n".join(context_sections)
         
     narrator = Narrator(force_provider=provider)
     if narrator.provider is None:
@@ -972,16 +1265,23 @@ def prompt_cmd(
     output: str = typer.Option("ai_context.txt", "--output", "-o", help="Output file path/name for the context dump (default adapts to flags). Example: bck-nd prompt . -o context.txt"),
     depth: Optional[int] = typer.Option(None, "--depth", "-d", help="Directory scan depth (default: unlimited). Set a value to cap recursion. Example: bck-nd prompt . --depth 6"),
     max_core_files: Optional[int] = typer.Option(None, "--max-core-files", help="Maximum number of core files to include in the context dump (default: 8 for mobile, 5 for backend)."),
-    uml: bool = typer.Option(False, "--uml", help="Generate product-aware focused context with UML (use --no-prd for strictly technical output)."),
-    er: bool = typer.Option(False, "--er", help="Generate product-aware focused context with ER (use --no-prd for strictly technical output)."),
-    tree: bool = typer.Option(False, "--tree", help="Generate product-aware focused context with project tree (use --no-prd for strictly technical output)."),
+    uml: bool = typer.Option(False, "--uml", help="Generate product- and requirements-aware focused context with UML."),
+    er: bool = typer.Option(False, "--er", help="Generate product- and requirements-aware focused context with ER."),
+    tree: bool = typer.Option(False, "--tree", help="Generate product- and requirements-aware focused context with project tree."),
     copy_to_clipboard: bool = typer.Option(False, "--copy", "-c", help="Automatically copy generated context to system clipboard."),
     no_prd: bool = typer.Option(False, "--no-prd", help="Exclude local PRD product context without modifying its source files."),
+    no_req: bool = typer.Option(False, "--no-req", help="Exclude Requirements context without modifying requirement files."),
     max_product_chars: int = typer.Option(
         DEFAULT_PRODUCT_CONTEXT_CHARS,
         "--max-product-chars",
         min=MIN_PRODUCT_CONTEXT_CHARS,
         help="Maximum characters for the complete product context block.",
+    ),
+    max_requirements_chars: int = typer.Option(
+        MAX_REQUIREMENTS_CONTEXT_CHARS,
+        "--max-requirements-chars",
+        min=MIN_REQUIREMENTS_CONTEXT_CHARS,
+        help="Maximum characters for the Requirements context content.",
     ),
 ):
     """
@@ -997,8 +1297,8 @@ def prompt_cmd(
     - Metrics: estimated tokens, context size, and savings vs raw source
 
     Focused mode (--uml, --er, --tree):
-    - Includes applicable product context plus the requested technical sections.
-    - Use --no-prd for strictly technical requested sections only.
+    - Includes applicable product and Requirements context plus requested technical sections.
+    - Use --no-prd and --no-req together for strictly technical sections only.
     - Default filename adapts: ai_context_uml.txt, ai_context_er.txt, etc.
     - Flags can be combined: --uml --er → ai_context_diagrams.txt
 
@@ -1017,7 +1317,9 @@ def prompt_cmd(
     - bck-nd prompt . --uml --er
     - bck-nd prompt . --copy
     - bck-nd prompt . --no-prd
+    - bck-nd prompt . --no-req
     - bck-nd prompt . --max-product-chars 4000
+    - bck-nd prompt . --max-requirements-chars 6000
     """
     # ── Detect focused mode ──────────────────────────────────────────────
     focused_mode = uml or er or tree
@@ -1047,9 +1349,16 @@ def prompt_cmd(
             max_core_files=max_core_files,
             include_prd=not no_prd,
             max_product_chars=max_product_chars,
+            include_requirements=not no_req,
+            max_requirements_chars=max_requirements_chars,
         )
         if focused_mode:
-            context = dumper.build_focused(include_tree=tree, include_uml=uml, include_er=er)
+            context = dumper.build_focused(
+                include_tree=tree,
+                include_uml=uml,
+                include_er=er,
+                include_requirements=not no_req,
+            )
         else:
             context = dumper.build()
         print(context)
@@ -1090,6 +1399,8 @@ def prompt_cmd(
             max_core_files=max_core_files,
             include_prd=not no_prd,
             max_product_chars=max_product_chars,
+            include_requirements=not no_req,
+            max_requirements_chars=max_requirements_chars,
         )
 
         total_steps = sum([tree, uml, er])
@@ -1112,14 +1423,18 @@ def prompt_cmd(
             typer.secho(f"  [{step}/{total_steps}] Generating ER diagram...", fg=typer.colors.MAGENTA)
             er_result = dumper.get_er_diagram()
 
-        context = dumper.build_focused(include_tree=tree, include_uml=uml, include_er=er)
+        context = dumper.build_focused(
+            include_tree=tree,
+            include_uml=uml,
+            include_er=er,
+            include_requirements=not no_req,
+        )
 
         try:
             output_path = Path(output)
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(context)
-        except Exception as e:
-            typer.secho(f"[ERROR] Could not save file: {e}", fg=typer.colors.RED)
+            atomic_write_explicit_output(output_path, context.encode("utf-8"))
+        except SecureWriteError:
+            typer.secho("[ERROR] Could not save file safely.", fg=typer.colors.RED)
             raise typer.Exit(code=1)
 
         # Summary
@@ -1132,6 +1447,9 @@ def prompt_cmd(
         if er:
             er_status = "[green][OK] Generated[/green]" if er_result else "[yellow][--] No models detected[/yellow]"
             status_lines.append(f"[bold]ER:[/bold]        {er_status}")
+        status_lines.append(
+            f"[bold]Requirements:[/bold] {_requirements_prompt_status(dumper, no_req)}"
+        )
 
         console.print()
         console.print(
@@ -1166,6 +1484,8 @@ def prompt_cmd(
         max_core_files=max_core_files,
         include_prd=not no_prd,
         max_product_chars=max_product_chars,
+        include_requirements=not no_req,
+        max_requirements_chars=max_requirements_chars,
     )
 
     typer.secho("  [1/4] Building directory tree...", fg=typer.colors.CYAN)
@@ -1183,22 +1503,23 @@ def prompt_cmd(
     # Write to disk
     try:
         output_path = Path(output)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(context)
-    except Exception as e:
-        typer.secho(f"[ERROR] Could not save file: {e}", fg=typer.colors.RED)
+        atomic_write_explicit_output(output_path, context.encode("utf-8"))
+    except SecureWriteError:
+        typer.secho("[ERROR] Could not save file safely.", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
     # -- Summary report -------------------------------------------------------
     uml_status  = "[green][OK] Generated[/green]" if uml_out else "[yellow][--] No classes detected[/yellow]"
     er_status   = "[green][OK] Generated[/green]" if er_out  else "[yellow][--] No models detected[/yellow]"
+    requirements_status = _requirements_prompt_status(dumper, no_req)
 
     console.print()
     console.print(
         Panel(
             f"[bold]Project:[/bold]   [cyan]{Path(path).resolve().name}[/cyan]\n"
             f"[bold]UML:[/bold]       {uml_status}\n"
-            f"[bold]ER:[/bold]        {er_status}\n\n"
+            f"[bold]ER:[/bold]        {er_status}\n"
+            f"[bold]Requirements:[/bold] {requirements_status}\n\n"
             f"[bold green]Contexto generado en [underline]{output}[/underline].[/bold green]\n"
             f"[italic]Listo para copiar y pegar en tu IA![/italic]",
             title="[bold cyan]Context Dump Complete[/bold cyan]",
@@ -1533,7 +1854,10 @@ def prd_status(
 
 req_app = typer.Typer(
     name="req",
-    help="Scaffold, list, update, and discover User Stories and requirements.",
+    help=(
+        "Scaffold, browse, validate, update, and discover User Stories, "
+        "requirements, and collection locations."
+    ),
     no_args_is_help=True,
 )
 app.add_typer(req_app, name="req")
@@ -1562,13 +1886,15 @@ def req_init(
         typer.secho("[ERROR] --format must be either 'md' or 'json'.", fg=typer.colors.RED)
         raise typer.Exit(code=2)
 
-    requirements_dir = Path(project_path) / ".bck-nd" / "requirements"
-    requirements_dir.mkdir(parents=True, exist_ok=True)
+    project_root = Path(project_path).absolute()
+    requirements_dir = project_root / ".bck-nd" / "requirements"
     target = requirements_dir / f"{normalized_id}.{normalized_format}"
-
-    if target.exists():
-        typer.secho(f"[ERROR] Requirement file already exists: {target}", fg=typer.colors.RED)
-        raise typer.Exit(code=1)
+    display_target = (
+        Path(project_path)
+        / ".bck-nd"
+        / "requirements"
+        / f"{normalized_id}.{normalized_format}"
+    )
 
     if normalized_format == "md":
         content = f"""# {normalized_id} [TODO] - Story title
@@ -1631,8 +1957,31 @@ def req_init(
             indent=2,
         ) + "\n"
 
-    target.write_text(content, encoding="utf-8")
-    typer.secho(f"[OK] Requirement template created: {target}", fg=typer.colors.GREEN, bold=True)
+    try:
+        atomic_create_project_artifact(
+            project_root,
+            target,
+            content.encode("utf-8"),
+        )
+    except ArtifactAlreadyExistsError:
+        typer.secho(
+            f"[ERROR] Requirement file already exists: {display_target}",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=1)
+    except SecureWriteError:
+        typer.secho(
+            "[ERROR] Requirement template could not be created safely.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(code=1)
+    typer.secho(f"[OK] Requirement template created: {display_target}", fg=typer.colors.GREEN, bold=True)
+    typer.echo(
+        "\nNext:\n"
+        f"  bck-nd req show {normalized_id} {_format_cli_path_argument(project_path)}\n"
+        f"  bck-nd req list {_format_cli_path_argument(project_path)}\n"
+        f"  bck-nd prompt {_format_cli_path_argument(project_path)} -c"
+    )
 
 
 @req_app.command("status")
@@ -1699,6 +2048,74 @@ def req_status(
     )
 
 
+@req_app.command("locations")
+def req_locations(
+    project_path: str = typer.Argument(
+        ".",
+        help="Selected project root from which to find Requirements collections.",
+    ),
+):
+    """Find independent Requirements collections and report scope conflicts."""
+    from bck_nd_hlpr.core.requirements import discover_requirements_locations
+
+    report = discover_requirements_locations(project_path)
+    locations = report.locations
+    typer.secho(
+        f"Requirements Locations ({len(locations)})",
+        fg=typer.colors.CYAN,
+        bold=True,
+    )
+
+    if report.selected_location is None:
+        typer.echo("\nCURRENT")
+        typer.echo("  Root: .")
+        typer.echo("  Source: .bck-nd/requirements")
+        typer.echo("  Status: MISSING")
+
+    for location in locations:
+        typer.echo(f"\n{'CURRENT' if location.selected else 'NESTED'}")
+        typer.echo(f"  Root: {location.relative_root}")
+        typer.echo(f"  Source: {location.source}")
+        if location.rejected:
+            typer.echo(
+                "  Status: INVALID"
+                + (f" ({location.diagnostic_code})" if location.diagnostic_code else "")
+            )
+        else:
+            typer.echo(f"  Stories: {location.story_count}")
+            typer.echo("  IDs: " + (", ".join(location.ids) if location.ids else "(none)"))
+            if location.status_counts:
+                typer.echo(
+                    "  Statuses: "
+                    + ", ".join(
+                        f"{status}={count}"
+                        for status, count in location.status_counts
+                    )
+                )
+
+    if not locations:
+        typer.echo("\nNo Requirements collections found.")
+        typer.echo(
+            "Create one with: bck-nd req init US-001 --path "
+            + _format_cli_path_argument(project_path)
+        )
+
+    if report.conflicting_ids:
+        typer.echo("\nConflicting IDs: " + ", ".join(report.conflicting_ids))
+    if report.nested_locations:
+        typer.echo("Collections were not merged.")
+        for location in report.nested_locations:
+            typer.echo("\nInspect nested collection:")
+            typer.echo(
+                "  bck-nd req list "
+                + _format_cli_path_argument(location.project_root)
+            )
+    if report.truncated:
+        typer.echo("\nWARNING: Requirements location discovery was truncated safely.")
+    for diagnostic in report.diagnostics:
+        typer.echo(f"\nWARNING [{diagnostic.code}]: {diagnostic.message}")
+
+
 @req_app.command("list")
 def req_list(
     project_path: str = typer.Argument(".", help="Path to the project root directory."),
@@ -1706,66 +2123,137 @@ def req_list(
     """
     List all User Stories and specifications found under .bck-nd/requirements/.
     """
+    from bck_nd_hlpr.cli.formatters import display_requirements_table
     from bck_nd_hlpr.core.requirements import RequirementsParser
     from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich import box
 
     console = Console()
-    specs = RequirementsParser.load_from_directory(project_path)
+    result = RequirementsParser.load_collection(project_path)
+    location_report = _discover_requirements_scope(project_path, result)
+    _print_requirements_scope(location_report)
+    if result.rejected:
+        _print_requirements_diagnostics(result, project_path)
+        _print_requirements_scope_warning(location_report, project_path)
+        raise typer.Exit(code=1)
 
+    specs = list(result.specifications)
     if not specs:
-        console.print(
-            Panel(
-                f"[yellow]No requirements found in [bold]{project_path}/.bck-nd/requirements/[/bold][/yellow]\n\n"
-                "[dim]Create JSON specifications under .bck-nd/requirements/ (e.g. HU01.json) to define User Stories.[/dim]",
-                title="[bold yellow]Requirements Not Found[/bold yellow]",
-                border_style="yellow",
-                box=box.ASCII2,
+        if _requirements_directory_exists(project_path):
+            typer.secho(
+                "No requirements found. Requirements collection is empty.",
+                fg=typer.colors.YELLOW,
             )
+        else:
+            typer.secho(
+                "No requirements found. Requirements are not initialized.",
+                fg=typer.colors.YELLOW,
+            )
+        typer.echo("\nCreate your first story:")
+        typer.echo(
+            f"  bck-nd req init US-001 --path {_format_cli_path_argument(project_path)}"
         )
+        _print_requirements_scope_warning(location_report, project_path)
         return
 
-    table = Table(
-        title=f"Project Requirements & User Stories ({len(specs)} found)",
-        box=box.ROUNDED,
-        header_style="bold cyan",
+    display_requirements_table(specs, console)
+    first_id = str(specs[0].story.id)
+    console.print("\n[bold]View complete story:[/bold]")
+    typer.echo(f"  bck-nd req show {first_id} {_format_cli_path_argument(project_path)}")
+    _print_requirements_scope_warning(location_report, project_path)
+
+
+@req_app.command("show")
+def req_show(
+    story_id: str = typer.Argument(..., help="Story identifier to inspect."),
+    project_path: str = typer.Argument(".", help="Path to the project root directory."),
+):
+    """Show one complete User Story and every Requirements section."""
+    from bck_nd_hlpr.cli.formatters import display_requirement_detail
+    from bck_nd_hlpr.core.requirements import RequirementsParser
+    from rich.console import Console
+
+    console = Console()
+    result = RequirementsParser.load_collection(project_path)
+    location_report = _discover_requirements_scope(project_path, result)
+    _print_requirements_scope(location_report)
+    if result.rejected:
+        _print_requirements_diagnostics(result, project_path)
+        _print_requirements_scope_warning(location_report, project_path)
+        raise typer.Exit(code=1)
+
+    normalized_id = story_id.strip().casefold()
+    matches = [
+        spec
+        for spec in result.specifications
+        if str(getattr(spec.story, "id", "")).strip().casefold() == normalized_id
+    ]
+    if len(matches) > 1:
+        console.print(f"[bold red]Requirement ID is ambiguous: {story_id.strip()}[/bold red]")
+        console.print(f"Run: bck-nd req validate {_format_cli_path_argument(project_path)}")
+        _print_requirements_scope_warning(location_report, project_path)
+        raise typer.Exit(code=1)
+    if not matches:
+        available = [str(spec.story.id) for spec in result.specifications if spec.story.id]
+        console.print(f"[bold red]Requirement not found: {story_id.strip()}[/bold red]")
+        console.print("\nAvailable stories:")
+        if available:
+            for available_id in available:
+                console.print(f"  {available_id}")
+        else:
+            console.print("  (none)")
+        if not result.specifications and not _requirements_directory_exists(project_path):
+            console.print(
+                "\nRequirements are not initialized.\n"
+                "Create one with: bck-nd req init US-001 --path "
+                f"{_format_cli_path_argument(project_path)}"
+            )
+        _print_requirements_scope_warning(location_report, project_path)
+        raise typer.Exit(code=1)
+
+    display_requirement_detail(matches[0], console)
+    _print_requirements_scope_warning(
+        location_report,
+        project_path,
+        story_id=str(matches[0].story.id),
     )
-    table.add_column("Story ID", style="cyan bold", justify="center")
-    table.add_column("Status", justify="center")
-    table.add_column("Title", style="bold")
-    table.add_column("Role", style="dim")
-    table.add_column("Criteria", justify="right", style="green")
-    table.add_column("Rules", justify="right", style="magenta")
 
-    status_styles = {
-        "TODO": "[bold yellow]TODO[/bold yellow]",
-        "IN_PROGRESS": "[bold blue]IN_PROGRESS[/bold blue]",
-        "TESTING": "[bold magenta]TESTING[/bold magenta]",
-        "DONE": "[bold green]DONE[/bold green]",
-        "BLOCKED": "[bold red]BLOCKED[/bold red]",
-    }
 
-    for spec in specs:
-        story = spec.story
-        raw_status = story.status.upper() if story.status else "TODO"
-        status_display = status_styles.get(raw_status, f"[white]{raw_status}[/white]")
+@req_app.command("validate")
+def req_validate(
+    project_path: str = typer.Argument(".", help="Path to the project root directory."),
+):
+    """Validate the Requirements collection and show public diagnostics."""
+    from bck_nd_hlpr.core.requirements import RequirementsParser
+    from rich.console import Console
 
-        table.add_row(
-            story.id or "N/A",
-            status_display,
-            story.title or "Untitled",
-            story.role or "-",
-            str(len(spec.acceptance_criteria)),
-            str(len(spec.business_rules)),
+    console = Console()
+    result = RequirementsParser.load_collection(project_path)
+    location_report = _discover_requirements_scope(project_path, result)
+    _print_requirements_scope(location_report)
+    if result.rejected:
+        _print_requirements_diagnostics(result, project_path)
+        _print_requirements_scope_warning(location_report, project_path)
+        raise typer.Exit(code=1)
+    specs = list(result.specifications)
+    if not specs:
+        if _requirements_directory_exists(project_path):
+            console.print("[yellow]Requirements collection is empty.[/yellow]")
+        else:
+            console.print("[yellow]Requirements are not initialized.[/yellow]")
+        console.print(
+            "\nCreate your first story:\n"
+            f"  bck-nd req init US-001 --path {_format_cli_path_argument(project_path)}"
         )
+        _print_requirements_scope_warning(location_report, project_path)
+        raise typer.Exit(code=1)
 
-    console.print()
-    console.print(table)
-    console.print(
-        f"[dim]Tip: Run [bold cyan]bck-nd req discover <story_id>[/bold cyan] for discovery guides.[/dim]\n"
-    )
+    counts = _requirements_counts(specs)
+    console.print("[bold green]Requirements: VALID[/bold green]\n")
+    console.print(f"Stories: {counts['stories']}")
+    console.print(f"Acceptance criteria: {counts['criteria']}")
+    console.print(f"Business rules: {counts['rules']}")
+    console.print(f"Open questions: {counts['open_questions']}")
+    _print_requirements_scope_warning(location_report, project_path)
 
 
 @req_app.command("discover")
@@ -1787,23 +2275,32 @@ def req_discover(
 
     console = Console()
 
-    # Handle case where user runs `bck-nd req discover .`
-    if story_id and (story_id == "." or (Path(story_id).is_dir() and not story_id.upper().startswith("HU"))):
+    # Handle the backward-compatible `bck-nd req discover <project-path>` form.
+    if (
+        story_id
+        and project_path == "."
+        and (story_id == "." or (Path(story_id).is_dir() and not story_id.upper().startswith("HU")))
+    ):
         project_path = story_id
         story_id = None
 
-    specs = RequirementsParser.load_from_directory(project_path)
+    result = RequirementsParser.load_collection(project_path)
+    location_report = _discover_requirements_scope(project_path, result)
+    _print_requirements_scope(location_report)
+    if result.rejected:
+        _print_requirements_diagnostics(result, project_path)
+        _print_requirements_scope_warning(location_report, project_path)
+        raise typer.Exit(code=1)
+    specs = list(result.specifications)
 
     if not specs:
+        state = "collection is empty" if _requirements_directory_exists(project_path) else "are not initialized"
+        console.print(f"[yellow]Requirements {state}.[/yellow]")
         console.print(
-            Panel(
-                f"[yellow]No requirements found in [bold]{project_path}/.bck-nd/requirements/[/bold][/yellow]\n\n"
-                "[dim]Create JSON specifications under .bck-nd/requirements/ (e.g. HU01.json).[/dim]",
-                title="[bold yellow]Requirements Not Found[/bold yellow]",
-                border_style="yellow",
-                box=box.ASCII2,
-            )
+            "\nCreate your first story:\n"
+            f"  bck-nd req init US-001 --path {_format_cli_path_argument(project_path)}"
         )
+        _print_requirements_scope_warning(location_report, project_path)
         return
 
     # If no story_id is provided, list available stories
@@ -1821,20 +2318,28 @@ def req_discover(
                 box=box.ASCII2,
             )
         )
+        _print_requirements_scope_warning(location_report, project_path)
         return
 
     # Find matching story
-    target_spec = None
-    for spec in specs:
-        if spec.story.id.upper() == story_id.upper():
-            target_spec = spec
-            break
+    matches = [
+        spec
+        for spec in specs
+        if str(spec.story.id).casefold() == str(story_id).casefold()
+    ]
+    if len(matches) > 1:
+        console.print(f"[bold red]Requirement ID is ambiguous: {story_id}[/bold red]")
+        console.print(f"Run: bck-nd req validate {_format_cli_path_argument(project_path)}")
+        _print_requirements_scope_warning(location_report, project_path)
+        raise typer.Exit(code=1)
+    target_spec = matches[0] if matches else None
 
     if not target_spec:
         avail = ", ".join(s.story.id for s in specs if s.story.id) or "None"
         console.print(
             f"[bold red]Error:[/bold red] Story ID '[bold]{story_id}[/bold]' not found. Available stories: {avail}"
         )
+        _print_requirements_scope_warning(location_report, project_path)
         raise typer.Exit(code=1)
 
     story = target_spec.story
@@ -1919,6 +2424,11 @@ def req_discover(
             border_style="cyan",
             box=box.ASCII2,
         )
+    )
+    _print_requirements_scope_warning(
+        location_report,
+        project_path,
+        story_id=str(story.id),
     )
 
 

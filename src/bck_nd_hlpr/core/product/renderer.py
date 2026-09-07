@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple, Union
+from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple, Union
+
+from bck_nd_hlpr.core.sanitizer import sanitize_text
 
 from .models import (
     DiagnosticSeverity,
@@ -63,6 +65,7 @@ _GLOBAL_DIAGNOSTIC_CODES = frozenset(
         ProductDiagnosticCode.ID_DUPLICATE.value,
         ProductDiagnosticCode.REQUIREMENT_ORPHAN.value,
         ProductDiagnosticCode.APPLIES_TO_INVALID.value,
+        ProductDiagnosticCode.COLLECTION_LIMIT.value,
     }
 )
 
@@ -151,6 +154,7 @@ def build_product_context(
         truncated=False,
         documents=complete_documents,
         diagnostics=diagnostics,
+        diagnostic_summary=_diagnostic_summary(diagnostics),
         omitted_sections=[],
         omitted_document_ids=[],
         omitted_diagnostics=0,
@@ -224,6 +228,7 @@ def _select_documents(
     }
 
     selected: List[_DocumentCandidate] = []
+    used_identifiers: Set[str] = set()
     out_of_scope_sources = set()
     for document in ordered:
         safe_applies: List[str] = []
@@ -241,8 +246,8 @@ def _select_documents(
             _paths_overlap(item, target_components) for item in applies_components
         )
 
-        source_path = service._exposed_path(document.source_path)
-        source_key = source_path.casefold()
+        exposed_source_path = service._exposed_path(document.source_path)
+        source_key = exposed_source_path.casefold()
         if scope_is_valid and not is_applicable:
             out_of_scope_sources.add(source_key)
 
@@ -260,7 +265,7 @@ def _select_documents(
         }
         requirements = [
             {
-                "id": requirement_id,
+                "id": _safe_output_text(requirement_id),
                 "resolution": (
                     "MISSING"
                     if requirement_id.casefold() in missing_ids
@@ -277,13 +282,17 @@ def _select_documents(
             if invalid
             else _TRUST_NOTICES[status]
         )
+        safe_identifier = _unique_safe_identifier(
+            document.id,
+            used_identifiers,
+        )
         provenance: Dict[str, object] = {
-            "id": document.id,
-            "source_path": source_path,
+            "id": safe_identifier,
+            "source_path": _safe_output_text(exposed_source_path),
             "status": status,
             "approved": approved,
             "trust_notice": trust_notice,
-            "applies_to": safe_applies,
+            "applies_to": [_safe_output_text(item) for item in safe_applies],
             "requirement_ids": requirements,
             "validation": validation,
             "sections": {},
@@ -291,7 +300,7 @@ def _select_documents(
         narrative = () if invalid else _document_narrative(document)
         selected.append(
             _DocumentCandidate(
-                identifier=document.id,
+                identifier=safe_identifier,
                 provenance=provenance,
                 narrative=narrative,
             )
@@ -344,19 +353,45 @@ def _document_narrative(
         "risks": document.risks,
         "rollout_plan": document.rollout_plan,
     }
-    result = [
-        _NarrativeSection(key, str(values[key]).strip())
-        for key in _SECTION_PRIORITY
-        if str(values[key]).strip()
-    ]
+    result = []
+    used_keys = set(_SECTION_PRIORITY)
+    for key in _SECTION_PRIORITY:
+        text = _safe_output_text(values[key]).strip()
+        if text:
+            result.append(_NarrativeSection(key, text))
     for section_name, content in sorted(
         document.extra_sections.items(),
         key=lambda item: (item[0].casefold(), item[0]),
     ):
-        text = str(content).strip()
+        text = _safe_output_text(content).strip()
         if text:
-            result.append(_NarrativeSection(f"extra:{section_name}", text))
+            safe_name = _safe_output_text(section_name).strip() or "<redacted-section>"
+            base_key = f"extra:{safe_name}"
+            section_key = base_key
+            suffix = 2
+            while section_key in used_keys:
+                section_key = f"{base_key}#{suffix}"
+                suffix += 1
+            used_keys.add(section_key)
+            result.append(_NarrativeSection(section_key, text))
     return tuple(result)
+
+
+def _safe_output_text(value: object) -> str:
+    """Sanitize one repository-controlled value without mutating its model."""
+    return sanitize_text(str(value))
+
+
+def _unique_safe_identifier(value: object, used: Set[str]) -> str:
+    """Keep redacted identifiers distinct without revealing collision inputs."""
+    base = _safe_output_text(value).strip() or "<redacted-product-id>"
+    candidate = base
+    ordinal = 2
+    while candidate.casefold() in used:
+        candidate = f"{base}#{ordinal}"
+        ordinal += 1
+    used.add(candidate.casefold())
+    return candidate
 
 
 def _diagnostic_payload(diagnostic: ProductDiagnostic) -> Dict[str, object]:
@@ -368,11 +403,39 @@ def _diagnostic_payload(diagnostic: ProductDiagnostic) -> Dict[str, object]:
     return {
         "code": code,
         "severity": diagnostic.severity.value,
-        "message": diagnostic.message,
-        "source_path": str(diagnostic.source_path).replace("\\", "/"),
-        "field": diagnostic.field,
-        "section": diagnostic.section,
-        "reference": diagnostic.reference,
+        "message": _safe_output_text(diagnostic.message),
+        "source_path": _safe_output_text(
+            str(diagnostic.source_path).replace("\\", "/")
+        ),
+        "field": (
+            _safe_output_text(diagnostic.field)
+            if diagnostic.field is not None
+            else None
+        ),
+        "section": (
+            _safe_output_text(diagnostic.section)
+            if diagnostic.section is not None
+            else None
+        ),
+        "reference": (
+            _safe_output_text(diagnostic.reference)
+            if diagnostic.reference is not None
+            else None
+        ),
+    }
+
+
+def _diagnostic_summary(
+    diagnostics: Sequence[Dict[str, object]],
+) -> Dict[str, object]:
+    """Return fixed-size trust metadata for all scope-applicable diagnostics."""
+    first_error_code: Optional[str] = None
+    for diagnostic in diagnostics:
+        severity = str(diagnostic.get("severity") or "").upper()
+        if severity == "ERROR" and first_error_code is None:
+            first_error_code = str(diagnostic.get("code") or "") or None
+    return {
+        "first_error_code": first_error_code,
     }
 
 
@@ -397,6 +460,7 @@ def _payload(
     truncated: bool,
     documents: List[Dict[str, object]],
     diagnostics: List[Dict[str, object]],
+    diagnostic_summary: Dict[str, object],
     omitted_sections: List[str],
     omitted_document_ids: List[str],
     omitted_diagnostics: int,
@@ -408,6 +472,7 @@ def _payload(
         "omitted_sections": omitted_sections,
         "omitted_document_ids": omitted_document_ids,
         "omitted_diagnostics": omitted_diagnostics,
+        "diagnostic_summary": diagnostic_summary,
     }
 
 
@@ -449,12 +514,14 @@ def _render_with_budget(
     omitted_sections: List[str] = []
     included_diagnostics: List[Dict[str, object]] = []
     omitted_diagnostics = len(diagnostics)
+    diagnostic_summary = _diagnostic_summary(diagnostics)
 
     def current_payload() -> Dict[str, object]:
         return _payload(
             truncated=True,
             documents=documents,
             diagnostics=included_diagnostics,
+            diagnostic_summary=diagnostic_summary,
             omitted_sections=omitted_sections,
             omitted_document_ids=omitted_document_ids,
             omitted_diagnostics=omitted_diagnostics,
@@ -481,6 +548,7 @@ def _render_with_budget(
                 truncated=True,
                 documents=documents,
                 diagnostics=trial_diagnostics,
+                diagnostic_summary=diagnostic_summary,
                 omitted_sections=omitted_sections,
                 omitted_document_ids=omitted_document_ids,
                 omitted_diagnostics=omitted_diagnostics - 1,
@@ -491,10 +559,17 @@ def _render_with_budget(
             omitted_diagnostics -= 1
         return True
 
-    if len(_render(current_payload())) > max_chars:
-        raise ProductContextBudgetError(
-            "Product context budget cannot hold the minimum valid envelope."
-        )
+    minimum_payload = current_payload()
+    if len(_render(minimum_payload)) > max_chars:
+        # Omission arrays are informative prefixes.  Their keys are stable,
+        # while tight budgets may require withholding values that do not fit.
+        while omitted_document_ids and len(_render(current_payload())) > max_chars:
+            omitted_document_ids.pop()
+        if len(_render(current_payload())) > max_chars:
+            raise ProductContextBudgetError(
+                "Product context budget cannot hold the minimum valid envelope."
+            )
+        return finish()
 
     for candidate in candidates:
         trial_documents = documents + [_copy_document(candidate.provenance)]
@@ -507,6 +582,7 @@ def _render_with_budget(
             truncated=True,
             documents=trial_documents,
             diagnostics=included_diagnostics,
+            diagnostic_summary=diagnostic_summary,
             omitted_sections=trial_omitted_sections,
             omitted_document_ids=trial_omitted_ids,
             omitted_diagnostics=omitted_diagnostics,
@@ -560,6 +636,7 @@ def _render_with_budget(
             truncated=True,
             documents=trial_documents,
             diagnostics=included_diagnostics,
+            diagnostic_summary=diagnostic_summary,
             omitted_sections=trial_omitted,
             omitted_document_ids=omitted_document_ids,
             omitted_diagnostics=omitted_diagnostics,

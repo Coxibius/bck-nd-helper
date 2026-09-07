@@ -10,6 +10,8 @@ from bck_nd_hlpr.core.uml_parser import UMLClassInfo, UMLExtractor
 from bck_nd_hlpr.core.er_parser import EREntity
 from bck_nd_hlpr.core.base_tree_sitter import walk_source_files
 from bck_nd_hlpr.core.er_parser import ERExtractor
+from bck_nd_hlpr.core.utils.cache import FileCache
+from bck_nd_hlpr.core.utils.indexer import FileIndex
 
 
 class DjangoERExtractor(ERExtractor):
@@ -104,16 +106,23 @@ class DjangoERExtractor(ERExtractor):
                 self.current_entity = None
 
 
-def parse_project_for_django_uml(root_path: str, max_depth: Optional[int] = 4) -> List[UMLClassInfo]:
+def parse_project_for_django_uml(
+    root_path: str,
+    max_depth: Optional[int] = 4,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> List[UMLClassInfo]:
     all_classes = []
-    root = Path(root_path)
+    root = file_index.root if file_index is not None else Path(root_path)
+    candidates = (
+        ((path, path.relative_to(root)) for path in file_index.python_files)
+        if file_index is not None
+        else walk_source_files(str(root), (".py",), max_depth=max_depth)
+    )
 
-    for file_path, rel_path in walk_source_files(
-        str(root), (".py",), max_depth=max_depth
-    ):
+    for file_path, rel_path in candidates:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
+            content = FileCache.read_project_file(root, file_path)
 
             tree = ast.parse(content)
             extractor = UMLExtractor(file_path, str(rel_path))
@@ -123,16 +132,23 @@ def parse_project_for_django_uml(root_path: str, max_depth: Optional[int] = 4) -
             continue
     return all_classes
 
-def parse_project_for_django_er(root_path: str, max_depth: Optional[int] = 4) -> List[EREntity]:
+def parse_project_for_django_er(
+    root_path: str,
+    max_depth: Optional[int] = 4,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> List[EREntity]:
     all_entities = []
-    root = Path(root_path)
+    root = file_index.root if file_index is not None else Path(root_path)
+    candidates = (
+        ((path, path.relative_to(root)) for path in file_index.python_files)
+        if file_index is not None
+        else walk_source_files(str(root), (".py",), max_depth=max_depth)
+    )
 
-    for file_path, _rel_path in walk_source_files(
-        str(root), (".py",), max_depth=max_depth
-    ):
+    for file_path, _rel_path in candidates:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
+            content = FileCache.read_project_file(root, file_path)
 
             tree = ast.parse(content)
             extractor = DjangoERExtractor()

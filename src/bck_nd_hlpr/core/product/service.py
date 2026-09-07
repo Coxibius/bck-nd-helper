@@ -12,7 +12,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple, Union
 import yaml
 from yaml.nodes import MappingNode, ScalarNode
 
-from bck_nd_hlpr.core.requirements import RequirementsParser
+from bck_nd_hlpr.core.requirements import RequirementsLoadResult, RequirementsParser
 
 from .models import (
     DiagnosticSeverity,
@@ -235,7 +235,12 @@ class ProductService:
     ) -> ProductValidationReport:
         """Validate all PRDs or one case-insensitively selected document."""
         loaded = collection if collection is not None else self.load_documents()
-        requirement_ids = self._available_requirement_ids()
+        requirements = RequirementsParser.load_collection(self.project_root)
+        requirement_ids = (
+            None
+            if requirements.rejected
+            else self._available_requirement_ids(requirements)
+        )
 
         if product_id is None:
             documents = list(loaded.documents)
@@ -258,6 +263,11 @@ class ProductService:
                     project_root=self.project_root,
                     available_requirement_ids=requirement_ids,
                 )
+            )
+
+        if requirements.rejected:
+            diagnostics.extend(
+                self._requirements_unavailable_diagnostics(documents)
             )
 
         return ProductValidationReport(
@@ -358,11 +368,21 @@ class ProductService:
                 self._safe_diagnostics(candidate.diagnostics),
             )
 
+        requirements = RequirementsParser.load_collection(self.project_root)
+        requirement_ids = (
+            None
+            if requirements.rejected
+            else self._available_requirement_ids(requirements)
+        )
         diagnostics = ProductValidator.validate_document(
             candidate.document,
             project_root=self.project_root,
-            available_requirement_ids=self._available_requirement_ids(),
+            available_requirement_ids=requirement_ids,
         )
+        if requirements.rejected:
+            diagnostics.extend(
+                self._requirements_unavailable_diagnostics([candidate.document])
+            )
         safe_diagnostics = self._safe_diagnostics(diagnostics)
         blocking = [
             item
@@ -488,17 +508,45 @@ class ProductService:
         except OSError as exc:
             raise ProductReadError("Unable to inspect existing PRD sources.") from exc
 
-    def _available_requirement_ids(self) -> List[str]:
-        specifications = RequirementsParser.load_from_directory(self.project_root)
+    def _available_requirement_ids(
+        self,
+        result: Optional[RequirementsLoadResult] = None,
+    ) -> List[str]:
+        loaded = result if result is not None else RequirementsParser.load_collection(
+            self.project_root
+        )
+        if loaded.rejected:
+            return []
         return sorted(
             {
                 str(specification.story.id).strip()
-                for specification in specifications
+                for specification in loaded.specifications
                 if specification.story is not None
                 and str(specification.story.id).strip()
             },
             key=lambda item: (item.casefold(), item),
         )
+
+    @staticmethod
+    def _requirements_unavailable_diagnostics(
+        documents: Sequence[ProductRequirementDocument],
+    ) -> List[ProductDiagnostic]:
+        sources = [document.source_path for document in documents]
+        if not sources:
+            sources = [".bck-nd/requirements/"]
+        return [
+            ProductDiagnostic(
+                code=ProductDiagnosticCode.REQUIREMENTS_UNAVAILABLE,
+                severity=DiagnosticSeverity.ERROR,
+                message=(
+                    "Requirements are unavailable because the local collection "
+                    "was rejected safely."
+                ),
+                source_path=source,
+                field="requirement_ids",
+            )
+            for source in sources
+        ]
 
     def _safe_diagnostics(
         self,
