@@ -1,4 +1,3 @@
-import os
 import re
 import sys
 import json
@@ -7,6 +6,8 @@ from typing import Any, Dict, List, Optional
 from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
 from bck_nd_hlpr.core.detector import ArchitectureDetector
 from bck_nd_hlpr.core.uml_parser import parse_file_for_uml, generate_mermaid_class_diagram, UMLClassInfo
+from bck_nd_hlpr.core.utils.cache import FileCache
+from bck_nd_hlpr.core.utils.indexer import FileIndex, FileSystemIndexer
 from bck_nd_hlpr.core.base_analyzer import (
     AnalyzerResult,
     ScanContext,
@@ -34,14 +35,17 @@ class ProjectScanner:
     ]
     
     def __init__(self):
-        self.allowed_files = set() 
+        self.allowed_files = set()
+        self._file_index: Optional[FileIndex] = None
 
-    def _find_imports(self, file_path: Path) -> list[str]:
+    def _find_imports(self, file_path: Path, root: Optional[Path] = None) -> list[str]:
         """Busca imports SOLO hacia archivos que están en la lista blanca."""
         detected = []
         try:
-            from bck_nd_hlpr.core.utils.cache import FileCache
-            content = FileCache.read_file(file_path, encoding='utf-8', errors='ignore')
+            project_root = root or (
+                self._file_index.root if self._file_index is not None else file_path.parent
+            )
+            content = FileCache.read_project_file(project_root, file_path)
             patterns = [r'^from\s+(\w+)\s+import', r'^import\s+(\w+)']
             for line in content.splitlines():
                 for pat in patterns:
@@ -50,14 +54,33 @@ class ProjectScanner:
                         module = match.group(1)
                         if module in self.allowed_files and module != file_path.stem:
                             detected.append(module)
-        except:
+        except (OSError, UnicodeError, ValueError, TypeError, re.error):
             pass
         return detected
 
-    def detect_architecture(self, root_path: str) -> dict:
+    def detect_architecture(
+        self, root_path: str, *, file_index: Optional[FileIndex] = None
+    ) -> dict:
         """Detecta y retorna información arquitectónica del proyecto."""
         detector = ArchitectureDetector()
-        return detector.detect(root_path)
+        return detector.detect(
+            root_path, file_index=file_index or self._file_index
+        )
+
+    def _snapshot(
+        self,
+        root_path: str,
+        max_depth: Optional[int],
+        file_index: Optional[FileIndex] = None,
+    ) -> Optional[FileIndex]:
+        try:
+            snapshot = file_index or FileSystemIndexer(
+                root_path, max_depth=max_depth
+            ).build()
+        except (OSError, RuntimeError, ValueError):
+            return None
+        self._file_index = snapshot
+        return snapshot
 
     # ═══════════════════════════════════════════════════════════════════
     # STRATEGY DISPATCHER — replaces the old flag if/elif God-Object block.
@@ -93,10 +116,18 @@ class ProjectScanner:
         return analyzer.run(ctx)
 
 
-    def scan(self, root_path: str, max_depth: Optional[int] = 5) -> str:
+    def scan(
+        self,
+        root_path: str,
+        max_depth: Optional[int] = 5,
+        *,
+        file_index: Optional[FileIndex] = None,
+    ) -> str:
         """Genera la topología (Grafo)."""
-        root = Path(root_path).resolve()
-        if not root.exists(): return "Error -> Path_Not_Found"
+        snapshot = self._snapshot(root_path, max_depth, file_index)
+        if snapshot is None:
+            return ""
+        root = snapshot.root
         
         self.allowed_files.clear()
         connections = []
@@ -109,125 +140,103 @@ class ProjectScanner:
             'database': []
         }
 
-        # FASE 1: INDEXADO
-        for root_dir, dirs, files in os.walk(root):
-            rel_path = Path(root_dir).relative_to(root)
-            depth_level = len(rel_path.parts)
-            if str(rel_path) == ".": depth_level = 0
+        for candidate in snapshot.all_files:
+            if candidate.suffix.lower() in {".py", ".cs", ".js", ".ts"}:
+                self.allowed_files.add(candidate.stem)
 
-            if max_depth is not None and depth_level > max_depth:
-                del dirs[:] 
+        for full_path in snapshot.all_files:
+            try:
+                rel_path = full_path.relative_to(root)
+            except ValueError:
                 continue
-            
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-            
-            for f in files:
-                if f.endswith(".py") or f.endswith(".cs") or f.endswith((".js", ".ts")):
-                    self.allowed_files.add(Path(f).stem)
-
-        # FASE 2: CONEXIÓN
-        for root_dir, dirs, files in os.walk(root):
-            rel_path = Path(root_dir).relative_to(root)
-            depth_level = len(rel_path.parts)
-            if str(rel_path) == ".": depth_level = 0
-
+            depth_level = len(rel_path.parent.parts)
             if max_depth is not None and depth_level > max_depth:
-                del dirs[:]
                 continue
-            
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-            folder_name = Path(root_dir).name
-            if str(rel_path) == ".": folder_name = "ROOT"
+            folder_name = rel_path.parent.name if rel_path.parent.name else "ROOT"
+            file = full_path.name
 
-            for file in files:
-                # 🐍 PYTHON
-                if file.endswith(".py"):
-                    full_path = Path(root_dir) / file
-                    file_lower = file.lower()
-                    
-                    # Clasificar componentes por patrón de nombres
-                    if 'controller' in file_lower or 'ctrl' in file_lower:
-                        components['controllers'].append(file)
-                        connections.append(f"[Controller] {file} -> API")
-                    elif 'model' in file_lower or 'entity' in file_lower or 'schema' in file_lower:
-                        components['models'].append(file)
-                        connections.append(f"[Model] {file} -> Database")
-                    elif 'service' in file_lower or 'svc' in file_lower:
-                        components['services'].append(file)
-                        connections.append(f"[Service] {file} -> Business_Logic")
-                    elif 'route' in file_lower or 'router' in file_lower:
-                        components['routes'].append(file)
-                        connections.append(f"[Route] {file} -> Endpoints")
-                    elif 'middleware' in file_lower:
-                        components['middlewares'].append(file)
-                        connections.append(f"[Middleware] {file} -> Request_Pipeline")
-                    else:
-                        deps = self._find_imports(full_path)
-                        if deps:
-                            for dep in deps: connections.append(f"{file} -> {dep}.py")
-                        else:
-                            connections.append(f"{folder_name} [DIR] -> {file}")
-                
-                # 🐳 DOCKER
-                elif file == "Dockerfile":
-                    # El Dockerfile construye la App
-                    connections.append(f"{folder_name} [DIR] -> Dockerfile")
-                elif file == "docker-compose.yml":
-                    # El compose orquesta todo
-                    connections.append(f"docker-compose.yml -> {folder_name} [App]")
-
-                # 🦀 RUST / JS / GO / ETC
-                elif file in ["Cargo.toml", "package.json", "go.mod", "pom.xml", "tsconfig.json"]:
-                    # Archivos de definición de proyecto = Nodos Centrales
-                    connections.append(f"{folder_name} [DIR] -> {file}")
-                    
-                # 🔷 C# / .NET
-                elif file.endswith(".cs"):
-                    file_lower = file.lower()
-                    if 'controller' in file_lower:
-                        components['controllers'].append(file)
-                        connections.append(f"[Controller] {file} -> API")
-                    elif 'model' in file_lower or 'entity' in file_lower:
-                        components['models'].append(file)
-                        connections.append(f"[Model] {file} -> Database")
-                    elif 'service' in file_lower or 'repository' in file_lower:
-                        components['services'].append(file)
-                        connections.append(f"[Service] {file} -> Business_Logic")
+            # 🐍 PYTHON
+            if file.endswith(".py"):
+                file_lower = file.lower()
+                if 'controller' in file_lower or 'ctrl' in file_lower:
+                    components['controllers'].append(file)
+                    connections.append(f"[Controller] {file} -> API")
+                elif 'model' in file_lower or 'entity' in file_lower or 'schema' in file_lower:
+                    components['models'].append(file)
+                    connections.append(f"[Model] {file} -> Database")
+                elif 'service' in file_lower or 'svc' in file_lower:
+                    components['services'].append(file)
+                    connections.append(f"[Service] {file} -> Business_Logic")
+                elif 'route' in file_lower or 'router' in file_lower:
+                    components['routes'].append(file)
+                    connections.append(f"[Route] {file} -> Endpoints")
+                elif 'middleware' in file_lower:
+                    components['middlewares'].append(file)
+                    connections.append(f"[Middleware] {file} -> Request_Pipeline")
+                else:
+                    deps = self._find_imports(full_path, root)
+                    if deps:
+                        for dep in deps:
+                            connections.append(f"{file} -> {dep}.py")
                     else:
                         connections.append(f"{folder_name} [DIR] -> {file}")
-                    
-                # ⚙️ .NET PROJECTS
-                elif file.endswith(".csproj") or file.endswith(".sln"):
-                    connections.append(f"{folder_name} [Solution/Project] -> {file}")
 
-                # ☁️ INFRAESTRUCTURA
-                elif file.endswith(".tf"): # Terraform
-                    connections.append(f"Terraform -> {file}")
+            # 🐳 DOCKER
+            elif file == "Dockerfile":
+                connections.append(f"{folder_name} [DIR] -> Dockerfile")
+            elif file == "docker-compose.yml":
+                connections.append(f"docker-compose.yml -> {folder_name} [App]")
 
-                # 🗄️ DATOS (Archivos estáticos)
-                elif file.endswith((".sql", ".db", ".sqlite")):
-                    components['database'].append(file)
-                    connections.append(f"[Database] {file} -> Data_Storage")
+            # 🦀 RUST / JS / GO / ETC
+            elif file in ["Cargo.toml", "package.json", "go.mod", "pom.xml", "tsconfig.json"]:
+                connections.append(f"{folder_name} [DIR] -> {file}")
+
+            # 🔷 C# / .NET
+            elif file.endswith(".cs"):
+                file_lower = file.lower()
+                if 'controller' in file_lower:
+                    components['controllers'].append(file)
+                    connections.append(f"[Controller] {file} -> API")
+                elif 'model' in file_lower or 'entity' in file_lower:
+                    components['models'].append(file)
+                    connections.append(f"[Model] {file} -> Database")
+                elif 'service' in file_lower or 'repository' in file_lower:
+                    components['services'].append(file)
+                    connections.append(f"[Service] {file} -> Business_Logic")
+                else:
+                    connections.append(f"{folder_name} [DIR] -> {file}")
+
+            # ⚙️ .NET PROJECTS
+            elif file.endswith(".csproj") or file.endswith(".sln"):
+                connections.append(f"{folder_name} [Solution/Project] -> {file}")
+
+            # ☁️ INFRAESTRUCTURA
+            elif file.endswith(".tf"): # Terraform
+                connections.append(f"Terraform -> {file}")
+
+            # 🗄️ DATOS (Archivos estáticos)
+            elif file.endswith((".sql", ".db", ".sqlite")):
+                components['database'].append(file)
+                connections.append(f"[Database] {file} -> Data_Storage")
 
         if not connections: return ""
         return " ; ".join(sorted(list(set(connections))))
 
     def scan_file(self, file_path: str) -> str:
         """Escanear un único archivo para ver sus importaciones locales."""
-        path = Path(file_path).resolve()
-        if not path.exists(): return ""
-        
+        path = Path(file_path).absolute()
+        root = path.parent
+        snapshot = self._snapshot(str(root), None)
+        if snapshot is None or path not in snapshot.all_files:
+            return ""
+
         # Necesitamos poblar allowed_files si está vacío para la whitelist
         if not self.allowed_files:
-            # Buscar otros archivos hermanos/padres en el proyecto para whitelist
-            root = path.parent
-            for r_dir, r_dirs, files in os.walk(root):
-                r_dirs[:] = [d for d in r_dirs if d not in GLOBAL_IGNORE_DIRS]
-                for f in files:
-                    if f.endswith((".py", ".cs", ".js", ".ts")):
-                        self.allowed_files.add(Path(f).stem)
-                        
-        deps = self._find_imports(path)
+            for candidate in snapshot.all_files:
+                if candidate.suffix.lower() in {".py", ".cs", ".js", ".ts"}:
+                    self.allowed_files.add(candidate.stem)
+
+        deps = self._find_imports(path, snapshot.root)
         if deps:
             connections = [f"{path.name} -> {dep}.py" for dep in deps]
             return " ; ".join(connections)
@@ -237,83 +246,102 @@ class ProjectScanner:
         self,
         root_path: str,
         max_depth: Optional[int] = 5,
+        *,
+        file_index: Optional[FileIndex] = None,
     ) -> list[UMLClassInfo]:
         """Collect normalized UML descriptors from every supported language."""
-        root = Path(root_path).resolve()
-        if not root.exists():
+        snapshot = self._snapshot(root_path, max_depth, file_index)
+        if snapshot is None:
             return []
+        root = snapshot.root
         
         all_classes: list[UMLClassInfo] = []
+        indexed_suffixes = {
+            path.suffix.lower() for path in snapshot.all_files
+        }
         
         # 1. Python (via AST)
-        for root_dir, dirs, files in os.walk(root):
-            rel_path = Path(root_dir).relative_to(root)
-            depth_level = len(rel_path.parts)
-            if str(rel_path) == ".": depth_level = 0
-
-            if max_depth is not None and depth_level > max_depth:
-                del dirs[:] 
-                continue
-            
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-            
-            for file in files:
-                if file.endswith(".py"):
-                    full_path = Path(root_dir) / file
-                    classes = parse_file_for_uml(full_path, root)
-                    all_classes.extend(classes)
+        for full_path in snapshot.python_files:
+            classes = parse_file_for_uml(full_path, root)
+            all_classes.extend(classes)
         
         # 2. C# UML Parser
         try:
             from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_uml
-            all_classes.extend(parse_project_for_csharp_uml(root_path, max_depth=max_depth))
-        except Exception as e:
-            print(f"Error parseando UML C#: {e}", file=sys.stderr)
+            if ".cs" in indexed_suffixes:
+                all_classes.extend(parse_project_for_csharp_uml(
+                    root_path, max_depth=max_depth
+                ))
+        except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+            pass
             
         # 3. Java UML Parser
         try:
             from bck_nd_hlpr.core.java_parser import parse_project_for_java_uml
-            all_classes.extend(parse_project_for_java_uml(root_path, max_depth=max_depth))
-        except Exception as e:
-            print(f"Error parseando UML Java: {e}", file=sys.stderr)
+            if ".java" in indexed_suffixes:
+                all_classes.extend(parse_project_for_java_uml(
+                    root_path, max_depth=max_depth, file_index=snapshot
+                ))
+        except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+            pass
             
         # 4. JS/TS UML Parser
         try:
             from bck_nd_hlpr.core.js_parser import parse_project_for_js_uml
-            all_classes.extend(parse_project_for_js_uml(root_path, max_depth=max_depth))
-        except Exception as e:
-            print(f"Error parseando UML JS/TS: {e}", file=sys.stderr)
+            if indexed_suffixes & {".js", ".jsx", ".ts", ".tsx", ".mjs"}:
+                all_classes.extend(parse_project_for_js_uml(
+                    root_path, max_depth=max_depth
+                ))
+        except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+            pass
             
         # 5. PHP UML Parser
         try:
             from bck_nd_hlpr.core.php_parser import parse_project_for_php_uml
-            all_classes.extend(parse_project_for_php_uml(root_path, max_depth=max_depth))
-        except Exception as e:
-            print(f"Error parseando UML PHP: {e}", file=sys.stderr)
+            if ".php" in indexed_suffixes:
+                all_classes.extend(parse_project_for_php_uml(
+                    root_path, max_depth=max_depth, file_index=snapshot
+                ))
+        except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+            pass
 
         # 6. Go UML Parser
         try:
             from bck_nd_hlpr.core.go_parser import parse_project_for_go_uml
-            all_classes.extend(parse_project_for_go_uml(root_path, max_depth=max_depth))
-        except Exception as e:
-            print(f"Error parseando UML Go: {e}", file=sys.stderr)
+            if ".go" in indexed_suffixes:
+                all_classes.extend(parse_project_for_go_uml(
+                    root_path, max_depth=max_depth
+                ))
+        except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+            pass
 
         # 7. Rust UML Parser
         try:
             from bck_nd_hlpr.core.rust_parser import parse_project_for_rust_uml
-            all_classes.extend(parse_project_for_rust_uml(root_path, max_depth=max_depth))
-        except Exception as e:
-            print(f"Error parseando UML Rust: {e}", file=sys.stderr)
+            if ".rs" in indexed_suffixes:
+                all_classes.extend(parse_project_for_rust_uml(
+                    root_path, max_depth=max_depth
+                ))
+        except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+            pass
 
         return all_classes
 
-    def scan_uml(self, root_path: str, max_depth: Optional[int] = 5) -> str:
+    def scan_uml(
+        self,
+        root_path: str,
+        max_depth: Optional[int] = 5,
+        *,
+        file_index: Optional[FileIndex] = None,
+    ) -> str:
         """Genera un diagrama de clases UML (Mermaid) multi-lenguaje."""
-        root = Path(root_path).resolve()
-        if not root.exists():
+        snapshot = self._snapshot(root_path, max_depth, file_index)
+        if snapshot is None:
             return "Error -> Path_Not_Found"
 
-        all_classes = self.collect_uml_classes(root_path, max_depth=max_depth)
+        all_classes = self.collect_uml_classes(
+            root_path, max_depth=max_depth, file_index=snapshot
+        )
 
         if not all_classes:
             return "classDiagram\n    note \"No classes found in scanned directories.\""
@@ -325,11 +353,16 @@ class ProjectScanner:
         from bck_nd_hlpr.core.requirements import RequirementsParser
         return RequirementsParser.load_from_directory(root_path)
 
-    def get_docs_content(self, root_path: str) -> str:
+    def get_docs_content(
+        self, root_path: str, *, file_index: Optional[FileIndex] = None
+    ) -> str:
         """
         Lee el contenido de archivos de documentación clave para dar contexto a la IA.
         """
-        root = Path(root_path).resolve()
+        snapshot = self._snapshot(root_path, None, file_index)
+        if snapshot is None:
+            return ""
+        root = snapshot.root
         docs_buffer = []
         
         print("📚 [Scanner] Buscando documentación para contexto...", file=sys.stderr)
@@ -337,15 +370,13 @@ class ProjectScanner:
         # Buscamos en la raíz, en docs/ y en mis_apuntes/ si existen
         search_paths = [root, root / "docs", root / "mis_apuntes"]
         
+        indexed = set(snapshot.all_files)
         for base_path in search_paths:
-            if not base_path.exists(): continue
-            
             for file_name in self.CONTEXT_FILES:
                 target_file = base_path / file_name
-                if target_file.exists():
+                if target_file in indexed:
                     try:
-                        from bck_nd_hlpr.core.utils.cache import FileCache
-                        content = FileCache.read_file(target_file, encoding='utf-8', errors='ignore')
+                        content = FileCache.read_project_file(root, target_file)
                         # Limitamos el tamaño por seguridad (máx 3000 caracteres por archivo)
                         if len(content) > 3000:
                             content = content[:3000] + "\n... [TRUNCADO POR EXCESO DE LONGITUD]"
@@ -353,7 +384,7 @@ class ProjectScanner:
                         docs_buffer.append(f"\n--- CONTENIDO DE {file_name} ---")
                         docs_buffer.append(content)
                         docs_buffer.append("--------------------------------\n")
-                    except Exception:
+                    except (OSError, UnicodeError):
                         pass # Si falla leer uno, seguimos
         
         return "\n".join(docs_buffer)
@@ -362,18 +393,30 @@ class ProjectScanner:
     # FUTURE METHODS — Cimientos para features planificadas
     # ═══════════════════════════════════════════════════════════════════
 
-    def calculate_health_score(self, root_path: str, max_depth: Optional[int] = 5) -> dict:
+    def calculate_health_score(
+        self,
+        root_path: str,
+        max_depth: Optional[int] = 5,
+        *,
+        file_index: Optional[FileIndex] = None,
+    ) -> dict:
         """Calcula un Project Health Score consolidado."""
+        snapshot = self._snapshot(root_path, max_depth, file_index)
+        file_list = snapshot.all_files if snapshot is not None else []
         try:
             from bck_nd_hlpr.core.todo_hunter import scan_for_todos
-            todos = scan_for_todos(root_path, max_depth=max_depth) or []
-        except Exception:
+            todos = scan_for_todos(
+                root_path, max_depth=max_depth, file_list=file_list
+            ) or []
+        except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
             todos = []
             
         try:
             from bck_nd_hlpr.core.security_auditor import scan_security_risks
-            risks = scan_security_risks(root_path, max_depth=max_depth) or []
-        except Exception:
+            risks = scan_security_risks(
+                root_path, max_depth=max_depth, file_list=file_list
+            ) or []
+        except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
             risks = []
             
         from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
@@ -443,14 +486,13 @@ class ProjectScanner:
             }
         }
 
-    def _parse_notebook_lineage(self, file_path: Path) -> dict:
+    def _parse_notebook_lineage(self, file_path: Path, root: Path) -> dict:
         """Parse a Jupyter Notebook for input and output data references."""
         result = {"notebook": file_path.name, "inputs": [], "outputs": []}
         try:
-            from bck_nd_hlpr.core.utils.cache import FileCache
-            content = FileCache.read_file(file_path, encoding="utf-8", errors="ignore")
+            content = FileCache.read_project_file(root, file_path)
             data = json.loads(content)
-        except Exception:
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
             return result
 
         cells = data.get("cells", [])
@@ -481,29 +523,31 @@ class ProjectScanner:
         
         return result
 
-    def scan_notebooks(self, root_path: str, max_depth: Optional[int] = 3) -> str:
+    def scan_notebooks(
+        self,
+        root_path: str,
+        max_depth: Optional[int] = 3,
+        *,
+        file_index: Optional[FileIndex] = None,
+    ) -> str:
         """Generates a Mermaid graph LR representing the data lineage from Jupyter Notebooks."""
-        root = Path(root_path).resolve()
-        if not root.exists(): return ""
+        snapshot = self._snapshot(root_path, max_depth, file_index)
+        if snapshot is None:
+            return ""
+        root = snapshot.root
         
         lineages = []
         
-        for root_dir, dirs, files in os.walk(root):
-            rel_path = Path(root_dir).relative_to(root)
-            depth_level = len(rel_path.parts) if str(rel_path) != "." else 0
-
-            if max_depth is not None and depth_level > max_depth:
-                del dirs[:] 
+        for full_path in snapshot.jupyter_notebooks:
+            try:
+                relative = full_path.relative_to(root)
+            except ValueError:
                 continue
-            
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-            
-            for f in files:
-                if f.endswith(".ipynb"):
-                    full_path = Path(root_dir) / f
-                    lineage = self._parse_notebook_lineage(full_path)
-                    if lineage["inputs"] or lineage["outputs"]:
-                        lineages.append(lineage)
+            if max_depth is not None and len(relative.parent.parts) > max_depth:
+                continue
+            lineage = self._parse_notebook_lineage(full_path, root)
+            if lineage["inputs"] or lineage["outputs"]:
+                lineages.append(lineage)
                         
         if not lineages:
             return ""
@@ -537,9 +581,11 @@ class ProjectScanner:
                 
         return "\n".join(dedup_lines)
 
-    def get_onboarding_path(self, root_path: str) -> list:
+    def get_onboarding_path(
+        self, root_path: str, *, file_index: Optional[FileIndex] = None
+    ) -> list:
         """Genera un recorrido pedagógico ordenado del codebase."""
         from bck_nd_hlpr.core.dependency_tracker import DependencyTracker
-        tracker = DependencyTracker(root_path)
+        tracker = DependencyTracker(root_path, file_index=file_index)
         tracker.scan_dependencies()
         return tracker.get_onboarding_path()

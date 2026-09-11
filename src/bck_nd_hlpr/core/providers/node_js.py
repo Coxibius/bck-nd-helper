@@ -20,18 +20,15 @@ def find_package_json(root_path: Path) -> Optional[Path]:
     Returns *None* if no manifest is discoverable.
     """
     root = Path(root_path)
+    candidates = find_files_by_glob(root, "**/package.json")
     direct = root / "package.json"
-    if direct.is_file():
+    if direct in candidates:
         return direct
-    try:
-        candidates = find_files_by_glob(root, "**/package.json")
-    except Exception:
-        return None
     for candidate in candidates:
         try:
-            if candidate.is_file():
+            if len(candidate.relative_to(root).parts) <= 4:
                 return candidate
-        except Exception:
+        except ValueError:
             continue
     return None
 
@@ -72,14 +69,15 @@ class NodeJsProvider(BaseArchitectureProvider):
 
     def detect(self, root_path: Path) -> bool:
         root = Path(root_path)
-        package_json = root / "package.json"
-        if not package_json.exists():
+        package_json = self._file(root, "package.json")
+        if package_json is None:
             return False
 
         try:
-            data = json.loads(
-                package_json.read_text(encoding="utf-8", errors="ignore")
-            )
+            content = self._read(root, package_json)
+            if content is None:
+                return False
+            data = json.loads(content)
             deps = {
                 **data.get("dependencies", {}),
                 **data.get("devDependencies", {}),
@@ -87,7 +85,7 @@ class NodeJsProvider(BaseArchitectureProvider):
             # Match if any known framework or ORM dependency is present
             known_keys = {key for key, _, _ in _FRAMEWORK_MAP} | {key for key, _ in _ORM_MAP}
             return bool(known_keys & set(deps.keys()))
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             pass
 
         return False
@@ -105,7 +103,7 @@ class NodeJsProvider(BaseArchitectureProvider):
             features.append(f"{orm} ORM")
 
         # Detect TypeScript
-        if (root / "tsconfig.json").exists():
+        if self._file(root, "tsconfig.json") is not None:
             features.append("TypeScript")
 
         return {
@@ -118,25 +116,24 @@ class NodeJsProvider(BaseArchitectureProvider):
 
     # -- Helpers --------------------------------------------------------------
 
-    @staticmethod
-    def _read_deps(root: Path) -> Dict[str, str]:
-        package_json = root / "package.json"
-        if not package_json.exists():
+    def _read_deps(self, root: Path) -> Dict[str, str]:
+        package_json = self._file(root, "package.json")
+        if package_json is None:
             return {}
         try:
-            data = json.loads(
-                package_json.read_text(encoding="utf-8", errors="ignore")
-            )
+            content = self._read(root, package_json)
+            if content is None:
+                return {}
+            data = json.loads(content)
             return {
                 **data.get("dependencies", {}),
                 **data.get("devDependencies", {}),
             }
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             return {}
 
-    @staticmethod
     def _resolve_framework(
-        deps: Dict[str, str], root: Path
+        self, deps: Dict[str, str], root: Path
     ) -> Tuple[str, str]:
         """Return (framework_name, architecture_type) for the first matching
         framework dependency."""
@@ -144,9 +141,9 @@ class NodeJsProvider(BaseArchitectureProvider):
             if key in deps:
                 # Refine Next.js architecture type
                 if name == "Next.js":
-                    if (root / "app").exists() or (root / "src" / "app").exists():
+                    if self._has_directory(root, "app") or self._has_directory(root, "src/app"):
                         arch = "Next.js App Router"
-                    elif (root / "pages").exists() or (root / "src" / "pages").exists():
+                    elif self._has_directory(root, "pages") or self._has_directory(root, "src/pages"):
                         arch = "Next.js Pages Router"
                 return name, arch
         return "Node.js", "REST API"
@@ -165,50 +162,43 @@ class NodeJsProvider(BaseArchitectureProvider):
         results: List[Path] = []
 
         # Prisma schema
-        prisma_schema = root / "prisma" / "schema.prisma"
-        if prisma_schema.exists():
+        prisma_schema = self._file(root, "prisma/schema.prisma")
+        if prisma_schema is not None:
             results.append(prisma_schema)
 
         # TypeORM / Sequelize / TypeScript models, types, schemas, entities, DTOs
-        candidate_dirs = [root / d for d in ("src", "lib", "types", "models", "entities", "schemas", "app") if (root / d).is_dir()]
-        if not candidate_dirs:
-            candidate_dirs = [root]
-
         MODEL_HINTS = (
             "models", "model", "entities", "entity",
             "schemas", "schema", "types", "type",
             "interfaces", "interface", "dto", "dtos",
         )
 
-        seen = set()
-        for d in candidate_dirs:
-            for ext in ("*.ts", "*.js"):
-                for p in d.rglob(ext):
-                    if p in seen:
-                        continue
-                    parent_lower = p.parent.name.lower()
-                    stem_lower = p.stem.lower()
-                    if (
-                        any(h in parent_lower for h in MODEL_HINTS)
-                        or any(h in stem_lower for h in MODEL_HINTS)
-                    ):
-                        seen.add(p)
-                        results.append(p)
+        for path in self._files(root, suffixes=(".ts", ".js")):
+            parent_lower = path.parent.name.lower()
+            stem_lower = path.stem.lower()
+            if (
+                any(h in parent_lower for h in MODEL_HINTS)
+                or any(h in stem_lower for h in MODEL_HINTS)
+            ):
+                results.append(path)
         return sorted(results)
 
     def find_route_files(self, root_path: Path) -> List[Path]:
         root = Path(root_path)
         results: List[Path] = []
-        src = root / "src"
-        if src.is_dir():
-            for ext in ("*.ts", "*.js"):
-                for p in src.rglob(ext):
-                    parent_lower = p.parent.name.lower()
-                    name_lower = p.stem.lower()
-                    if parent_lower in (
-                        "routes", "route", "controllers", "controller",
-                    ) or "route" in name_lower or "controller" in name_lower:
-                        results.append(p)
+        for path in self._files(root, suffixes=(".ts", ".js")):
+            try:
+                relative = path.relative_to(root)
+            except ValueError:
+                continue
+            if not relative.parts or relative.parts[0].casefold() != "src":
+                continue
+            parent_lower = path.parent.name.lower()
+            name_lower = path.stem.lower()
+            if parent_lower in (
+                "routes", "route", "controllers", "controller",
+            ) or "route" in name_lower or "controller" in name_lower:
+                results.append(path)
         return sorted(results)
 
 
@@ -228,11 +218,8 @@ def find_routes_or_controllers(root_path: Path) -> List[Path]:
     results: List[Path] = []
 
     def _accept(p: Path) -> None:
-        try:
-            key = p.resolve()
-        except Exception:
-            key = Path(str(p)).absolute()
-        if key in seen or not p.is_file():
+        key = p
+        if key in seen:
             return
         seen.add(key)
         results.append(p)
@@ -246,35 +233,29 @@ def find_routes_or_controllers(root_path: Path) -> List[Path]:
 
     bootstrap_names = {"app", "server", "index", "main", "routes", "router"}
 
-    def _scan_dir(d: Path) -> None:
-        if not d.is_dir():
-            return
-        for ext in ("*.ts", "*.js", "*.tsx", "*.jsx"):
-            for p in d.rglob(ext):
-                try:
-                    rel = p.relative_to(root)
-                except ValueError:
-                    rel = Path(p.name)
-                parts_lower = [part.lower() for part in rel.parts]
-                name_lower = p.stem.lower()
-                parent_lower = p.parent.name.lower()
-                is_route_dir = any(seg in ("routes", "route", "controllers", "controller")
-                                   for seg in parts_lower)
-                is_route_name = ("route" in name_lower or "controller" in name_lower
-                                 or "handler" in name_lower)
-                is_bootstrap = name_lower in bootstrap_names
-                if is_route_dir or is_route_name or (
-                    is_bootstrap and parent_lower in ("src", "")
-                ):
-                    _accept(p)
-
-    for candidate in (
-        root / "src",
-        root / "packages",
-        root / "apps",
-        root / "server",
-        root,
-    ):
-        _scan_dir(candidate)
+    for path in find_files_by_glob(root, "**/*"):
+        if path.suffix.casefold() not in {".ts", ".js", ".tsx", ".jsx"}:
+            continue
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            continue
+        parts_lower = [part.lower() for part in rel.parts]
+        name_lower = path.stem.lower()
+        parent_lower = path.parent.name.lower()
+        is_route_dir = any(
+            segment in ("routes", "route", "controllers", "controller")
+            for segment in parts_lower
+        )
+        is_route_name = (
+            "route" in name_lower
+            or "controller" in name_lower
+            or "handler" in name_lower
+        )
+        is_bootstrap = name_lower in bootstrap_names
+        if is_route_dir or is_route_name or (
+            is_bootstrap and parent_lower in ("src", "")
+        ):
+            _accept(path)
 
     return sorted(results)

@@ -4,6 +4,7 @@ include README.md
 include LICENSE
 include CHANGELOG.md
 include pyproject.toml
+recursive-include src/bck_nd_hlpr/assets/mermaid *.gz LICENSE NOTICE.md
 
 # Excluir explícitamente todo lo de VS Code para mantener el paquete PyPI ligero
 recursive-exclude vscode-extension *.vsix

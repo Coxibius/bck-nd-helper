@@ -8,8 +8,27 @@ and skip redundant parsing.
 
 import hashlib
 import json
+import os
 from pathlib import Path
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Dict, List, Optional, Set, Union
+
+from bck_nd_hlpr.core.utils import cache as cache_module
+from bck_nd_hlpr.core.utils.file_lock import (
+    FileLockError,
+    exclusive_file_lock,
+    fsync_directory,
+)
+from bck_nd_hlpr.core.utils.secure_write import (
+    SecureWriteError,
+    atomic_write_artifact,
+    ensure_project_artifact_parent,
+    read_verified_artifact,
+    validate_artifact_target,
+)
+
+
+MAX_DELTA_CACHE_BYTES = 8 * 1024 * 1024
 
 
 class DeltaCacheManager:
@@ -22,83 +41,84 @@ class DeltaCacheManager:
     CACHE_VERSION = "1.0"
 
     def __init__(self, root_path: Union[str, Path]):
-        self.root = Path(root_path).resolve()
+        self.root = Path(os.path.abspath(str(root_path)))
         self.cache_path = self._resolve_cache_path(self.root)
         self.signatures: Dict[str, Dict[str, Any]] = {}
         self.metadata: Dict[str, Any] = {}
+        self._loaded_cache_content: Optional[bytes] = None
+        self._cache_persistence_allowed = True
         self.load_cache()
 
     def _resolve_cache_path(self, root: Path) -> Path:
-        cache_dir = root / self.CACHE_DIRECTORY
-        try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            # Keep initialization non-fatal for read-only projects. save_cache
-            # will report failure through its existing boolean return value.
-            pass
-        return cache_dir / self.CACHE_FILE_NAME
+        return root / self.CACHE_DIRECTORY / self.CACHE_FILE_NAME
 
     def _get_rel_path(self, file_path: Union[str, Path]) -> str:
-        p = Path(file_path).resolve()
+        if cache_module._has_unsafe_syntax(file_path):
+            return ""
+        raw = Path(str(file_path))
+        p = Path(os.path.abspath(str(raw if raw.is_absolute() else self.root / raw)))
+        if not cache_module._is_within(p, self.root):
+            return ""
         try:
             return str(p.relative_to(self.root)).replace("\\", "/")
         except ValueError:
-            return str(p).replace("\\", "/")
+            return ""
 
     def compute_signature(self, file_path: Union[str, Path]) -> Dict[str, Any]:
         """
         Compute signature (mtime, size, SHA256 hash) for a file.
         """
-        p = Path(file_path).resolve()
-        if not p.is_file():
+        rel_key = self._get_rel_path(file_path)
+        if not rel_key:
             return {}
-
         try:
-            stat = p.stat()
-            mtime = stat.st_mtime
-            size = stat.st_size
-            content = p.read_bytes()
+            p = self.root / Path(rel_key)
+            _path, state, content = cache_module._read_project_bytes_verified(
+                self.root,
+                p,
+            )
             sha256 = hashlib.sha256(content).hexdigest()
             return {
-                "mtime": mtime,
-                "size": size,
+                "mtime": state[4] / 1_000_000_000,
+                "size": state[3],
                 "hash": sha256,
             }
-        except Exception:
+        except OSError:
             return {}
 
     def is_unmodified(self, file_path: Union[str, Path]) -> bool:
         """
         Check if a file has not been modified since the last recorded scan.
         """
-        p = Path(file_path).resolve()
-        if not p.is_file():
+        rel_key = self._get_rel_path(file_path)
+        if not rel_key:
             return False
-
-        rel_key = self._get_rel_path(p)
         stored = self.signatures.get(rel_key)
-        if not stored:
+        if not isinstance(stored, dict):
             return False
 
         try:
-            stat = p.stat()
-            current_mtime = stat.st_mtime
-            current_size = stat.st_size
+            _root, _target, states = cache_module._verified_project_target(
+                self.root,
+                self.root / Path(rel_key),
+            )
+            state = states[-1][1]
+            current_mtime = state[4] / 1_000_000_000
+            current_size = state[3]
 
             # Fast path check: mtime and size match
             if current_mtime == stored.get("mtime") and current_size == stored.get("size"):
                 return True
 
             # Fallback check: SHA256 content hash matching
-            content = p.read_bytes()
-            current_hash = hashlib.sha256(content).hexdigest()
-            if current_hash == stored.get("hash"):
+            signature = self.compute_signature(self.root / Path(rel_key))
+            if signature and signature.get("hash") == stored.get("hash"):
                 # Update mtime & size in memory for future fast path checks
-                stored["mtime"] = current_mtime
-                stored["size"] = current_size
+                stored["mtime"] = signature["mtime"]
+                stored["size"] = signature["size"]
                 return True
             return False
-        except Exception:
+        except OSError:
             return False
 
     def update_file(
@@ -109,15 +129,13 @@ class DeltaCacheManager:
         """
         Record or update the signature (and optional extra cached analysis data) for a file.
         """
-        p = Path(file_path).resolve()
-        if not p.is_file():
+        rel_key = self._get_rel_path(file_path)
+        if not rel_key:
             return
-
-        sig = self.compute_signature(p)
+        sig = self.compute_signature(self.root / Path(rel_key))
         if sig:
             if extra_data:
                 sig["data"] = extra_data
-            rel_key = self._get_rel_path(p)
             self.signatures[rel_key] = sig
 
     def get_file_data(self, file_path: Union[str, Path]) -> Optional[Dict[str, Any]]:
@@ -143,9 +161,10 @@ class DeltaCacheManager:
         """
         result = []
         for f in file_list:
-            p = Path(f).resolve()
-            if self.is_unmodified(p):
-                result.append(p)
+            if self.is_unmodified(f):
+                rel_key = self._get_rel_path(f)
+                if rel_key:
+                    result.append(self.root / Path(rel_key))
         return result
 
     def get_modified_files(self, file_list: List[Union[str, Path]]) -> List[Path]:
@@ -154,9 +173,9 @@ class DeltaCacheManager:
         """
         result = []
         for f in file_list:
-            p = Path(f).resolve()
-            if not self.is_unmodified(p):
-                result.append(p)
+            rel_key = self._get_rel_path(f)
+            if rel_key and not self.is_unmodified(f):
+                result.append(self.root / Path(rel_key))
         return result
 
     def sync_files(self, current_files: List[Union[str, Path]]) -> None:
@@ -165,12 +184,19 @@ class DeltaCacheManager:
         """
         valid_keys: Set[str] = set()
         for f in current_files:
-            p = Path(f).resolve()
-            if p.is_file():
-                rel_key = self._get_rel_path(p)
-                valid_keys.add(rel_key)
-                if not self.is_unmodified(p):
-                    self.update_file(p)
+            rel_key = self._get_rel_path(f)
+            if not rel_key:
+                continue
+            try:
+                cache_module._verified_project_target(
+                    self.root,
+                    self.root / Path(rel_key),
+                )
+            except OSError:
+                continue
+            valid_keys.add(rel_key)
+            if not self.is_unmodified(f):
+                self.update_file(f)
 
         # Remove keys for files that no longer exist in project
         stale_keys = [k for k in self.signatures if k not in valid_keys]
@@ -181,42 +207,109 @@ class DeltaCacheManager:
         """
         Load signatures from disk cache file.
         """
-        if not self.cache_path.exists():
-            self.signatures = {}
-            self.metadata = {}
-            return False
-
+        self.signatures = {}
+        self.metadata = {}
+        self._loaded_cache_content = None
+        self._cache_persistence_allowed = False
         try:
-            content = self.cache_path.read_text(encoding="utf-8")
-            data = json.loads(content)
-            if isinstance(data, dict):
-                self.signatures = data.get("signatures", {})
-                self.metadata = data.get("metadata", {})
-                return True
-        except Exception:
+            try:
+                path_stat = self.cache_path.lstat()
+            except FileNotFoundError:
+                self._cache_persistence_allowed = True
+                return False
+            if path_stat.st_size > MAX_DELTA_CACHE_BYTES:
+                return False
+            raw_content = cache_module.FileCache.read_project_bytes(
+                self.root,
+                self.cache_path,
+            )
+            if len(raw_content) > MAX_DELTA_CACHE_BYTES:
+                return False
+            self._loaded_cache_content = raw_content
+            self._cache_persistence_allowed = True
+            data = json.loads(raw_content.decode("utf-8"))
+            if not isinstance(data, dict):
+                return False
+            signatures = data.get("signatures", {})
+            metadata = data.get("metadata", {})
+            if not isinstance(signatures, dict) or not isinstance(metadata, dict):
+                return False
+            for key, signature in signatures.items():
+                if not self._valid_cache_key(key) or not isinstance(signature, dict):
+                    return False
+            self.signatures = dict(signatures)
+            self.metadata = dict(metadata)
+            return True
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
             self.signatures = {}
             self.metadata = {}
         return False
+
+    def _serialize_cache(self) -> bytes:
+        """Serialize the complete cache deterministically before any mutation."""
+        if not isinstance(self.signatures, dict) or not isinstance(self.metadata, dict):
+            raise ValueError("Delta cache state is incompatible.")
+        for key, signature in self.signatures.items():
+            if not self._valid_cache_key(key) or not isinstance(signature, dict):
+                raise ValueError("Delta cache state is incompatible.")
+        data = {
+            "version": self.CACHE_VERSION,
+            "metadata": self.metadata,
+            "signatures": self.signatures,
+        }
+        rendered = json.dumps(
+            data,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        ) + "\n"
+        return rendered.encode("utf-8")
+
+    @staticmethod
+    def _valid_cache_key(value: object) -> bool:
+        if not isinstance(value, str) or not value.strip():
+            return False
+        normalized = value.replace("\\", "/")
+        posix = PurePosixPath(normalized)
+        windows = PureWindowsPath(value)
+        return (
+            not posix.is_absolute()
+            and not windows.is_absolute()
+            and not windows.drive
+            and ".." not in posix.parts
+        )
 
     def save_cache(self) -> bool:
         """
         Persist signatures and metadata to disk cache file.
         """
         try:
-            cache_file = self.cache_path
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = self._serialize_cache()
+            if len(payload) > MAX_DELTA_CACHE_BYTES:
+                return False
+            if not self._cache_persistence_allowed:
+                return False
 
-            data = {
-                "version": self.CACHE_VERSION,
-                "metadata": self.metadata,
-                "signatures": self.signatures,
-            }
-
-            temp_file = cache_file.with_suffix(".tmp")
-            temp_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            temp_file.replace(cache_file)
+            ensure_project_artifact_parent(self.root, self.cache_path)
+            lock_path = self.cache_path.parent / ".delta.lock"
+            with exclusive_file_lock(lock_path, timeout=5.0):
+                current = read_verified_artifact(self.root, self.cache_path)
+                if current != self._loaded_cache_content:
+                    return False
+                atomic_write_artifact(self.root, self.cache_path, payload)
+                self._loaded_cache_content = payload
+                self._cache_persistence_allowed = True
             return True
-        except Exception:
+        except (
+            FileLockError,
+            SecureWriteError,
+            OSError,
+            TypeError,
+            ValueError,
+            OverflowError,
+            RecursionError,
+        ):
             return False
 
     def clear(self) -> None:
@@ -226,7 +319,25 @@ class DeltaCacheManager:
         self.signatures = {}
         self.metadata = {}
         try:
-            if self.cache_path.is_file():
+            if not self._cache_persistence_allowed:
+                return
+            try:
+                self.cache_path.parent.lstat()
+            except FileNotFoundError:
+                self._loaded_cache_content = None
+                return
+            validate_artifact_target(self.root, self.cache_path)
+            lock_path = self.cache_path.parent / ".delta.lock"
+            with exclusive_file_lock(lock_path, timeout=5.0):
+                current = read_verified_artifact(self.root, self.cache_path)
+                if current is None:
+                    self._loaded_cache_content = None
+                    return
+                if self._loaded_cache_content is None or current != self._loaded_cache_content:
+                    return
+                validate_artifact_target(self.root, self.cache_path)
                 self.cache_path.unlink()
-        except Exception:
-            pass
+                fsync_directory(self.cache_path.parent)
+                self._loaded_cache_content = None
+        except (FileLockError, SecureWriteError, OSError):
+            return

@@ -6,12 +6,18 @@ import ast
 import csv
 import io
 import json
-import os
 import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.base_tree_sitter import walk_source_files
+from bck_nd_hlpr.core.utils.cache import FileCache
+from bck_nd_hlpr.core.utils.indexer import FileIndex, FileSystemIndexer
+
+
+def _read_candidate(file_path: Path, project_root: Optional[Path] = None) -> str:
+    root = project_root if project_root is not None else file_path.parent
+    return FileCache.read_project_file(root, file_path)
 
 class EREntity:
     """Representa una entidad (tabla) en el diagrama ER."""
@@ -396,11 +402,12 @@ class ERExtractor(ast.NodeVisitor):
         except Exception:
             pass
 
-def parse_prisma_schema(file_path: Path) -> List[EREntity]:
+def parse_prisma_schema(
+    file_path: Path, project_root: Optional[Path] = None
+) -> List[EREntity]:
     entities = []
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        content = _read_candidate(file_path, project_root)
             
         model_blocks = re.findall(r'model\s+(\w+)\s*\{([^}]+)\}', content)
         for model_name, body in model_blocks:
@@ -433,15 +440,16 @@ def parse_prisma_schema(file_path: Path) -> List[EREntity]:
                             col_type += " PK"
                         entity.columns.append((field_name, col_type))
             entities.append(entity)
-    except Exception as e:
-        print(f"Error parsing Prisma schema {file_path}: {e}", file=sys.stderr)
+    except (OSError, UnicodeError, ValueError, TypeError, re.error):
+        pass
     return entities
 
-def parse_sql_file(file_path: Path) -> List[EREntity]:
+def parse_sql_file(
+    file_path: Path, project_root: Optional[Path] = None
+) -> List[EREntity]:
     entities = []
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        content = _read_candidate(file_path, project_root)
             
         content = re.sub(r'--.*$', '', content, flags=re.MULTILINE)
         content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
@@ -502,15 +510,16 @@ def parse_sql_file(file_path: Path) -> List[EREntity]:
                         col_type += " PK"
                     entity.columns.append((col_name, col_type))
             entities.append(entity)
-    except Exception as e:
-        print(f"Error parsing SQL file {file_path}: {e}", file=sys.stderr)
+    except (OSError, UnicodeError, ValueError, TypeError, re.error):
+        pass
     return entities
 
-def parse_drizzle_schema(file_path: Path) -> List[EREntity]:
+def parse_drizzle_schema(
+    file_path: Path, project_root: Optional[Path] = None
+) -> List[EREntity]:
     entities = []
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        content = _read_candidate(file_path, project_root)
             
         table_matches = re.finditer(r'(?:export\s+)?const\s+(\w+)\s*=\s*(?:pgTable|mysqlTable|sqliteTable)\(\s*[\'"](\w+)[\'"]\s*,\s*\{', content)
         
@@ -555,8 +564,8 @@ def parse_drizzle_schema(file_path: Path) -> List[EREntity]:
                         col_type += " PK"
                     entity.columns.append((col_name, col_type))
             entities.append(entity)
-    except Exception as e:
-        print(f"Error parsing Drizzle schema {file_path}: {e}", file=sys.stderr)
+    except (OSError, UnicodeError, ValueError, TypeError, re.error):
+        pass
     return entities
 
 def extract_bracket_content(text: str, start_idx: int, open_char: str = '{', close_char: str = '}') -> str:
@@ -575,11 +584,12 @@ def extract_bracket_content(text: str, start_idx: int, open_char: str = '{', clo
         return "".join(body_chars)[:-1]
     return "".join(body_chars)
 
-def parse_ts_interfaces_and_types(file_path: Path) -> List[EREntity]:
+def parse_ts_interfaces_and_types(
+    file_path: Path, project_root: Optional[Path] = None
+) -> List[EREntity]:
     entities = []
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        content = _read_candidate(file_path, project_root)
             
         content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
         content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
@@ -601,8 +611,8 @@ def parse_ts_interfaces_and_types(file_path: Path) -> List[EREntity]:
             entity = parse_ts_fields(name, body)
             if entity:
                 entities.append(entity)
-    except Exception as e:
-        print(f"Error parsing TS interfaces/types in {file_path}: {e}", file=sys.stderr)
+    except (OSError, UnicodeError, ValueError, TypeError, re.error):
+        pass
     return entities
 
 def parse_ts_fields(entity_name: str, body: str) -> Optional[EREntity]:
@@ -653,11 +663,12 @@ def parse_ts_fields(entity_name: str, body: str) -> Optional[EREntity]:
         return entity
     return None
 
-def parse_firestore_collections(file_path: Path) -> List[EREntity]:
+def parse_firestore_collections(
+    file_path: Path, project_root: Optional[Path] = None
+) -> List[EREntity]:
     entities_dict = {}
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        content = _read_candidate(file_path, project_root)
             
         # Verify first 20 lines contains firestore or firebaseConfig
         first_20 = "\n".join(content.splitlines()[:20])
@@ -694,8 +705,8 @@ def parse_firestore_collections(file_path: Path) -> List[EREntity]:
             child_raw = match.group(2)
             add_firestore_relation(entities_dict, parent_raw, child_raw)
             
-    except Exception as e:
-        print(f"Error parsing Firestore collections in {file_path}: {e}", file=sys.stderr)
+    except (OSError, UnicodeError, ValueError, TypeError, re.error):
+        pass
         
     return list(entities_dict.values())
 
@@ -713,11 +724,12 @@ def add_firestore_relation(entities_dict: dict, parent_raw: str, child_raw: str)
     if not exists:
         parent_entity.relationships.append((child_name, "||--o{", child_raw, "inferred from controller/collection"))
 
-def parse_mongoose_schemas(file_path: Path) -> List[EREntity]:
+def parse_mongoose_schemas(
+    file_path: Path, project_root: Optional[Path] = None
+) -> List[EREntity]:
     entities = []
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        content = _read_candidate(file_path, project_root)
             
         content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
         content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
@@ -747,8 +759,8 @@ def parse_mongoose_schemas(file_path: Path) -> List[EREntity]:
                 entity = parse_mongoose_fields(entity_name, obj_body)
                 if entity:
                     entities.append(entity)
-    except Exception as e:
-        print(f"Error parsing Mongoose schemas in {file_path}: {e}", file=sys.stderr)
+    except (OSError, UnicodeError, ValueError, TypeError, re.error):
+        pass
     return entities
 
 def parse_mongoose_fields(entity_name: str, body: str) -> Optional[EREntity]:
@@ -835,34 +847,32 @@ class ORMParserStub:
 
     def _walk_files(self, root_path: str, extensions: tuple, name_hints: list = None, max_depth: Optional[int] = 3):
         """Helper: yield (file_path, content) for matching files."""
-        root = Path(root_path)
-        for root_dir, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
+        snapshot = getattr(self, "_file_index", None)
+        candidates = (
+            (
+                (path, path.relative_to(snapshot.root))
+                for path in snapshot.all_files
+                if path.suffix.lower() in extensions
+            )
+            if snapshot is not None
+            else walk_source_files(root_path, extensions, max_depth=max_depth)
+        )
+        project_root = snapshot.root if snapshot is not None else root_path
+        for fp, _rel_path in candidates:
+            if name_hints:
+                f_lower = fp.name.lower()
+                if not any(h in f_lower for h in name_hints):
+                    continue
             try:
-                depth = len(Path(root_dir).relative_to(root).parts)
-            except ValueError:
-                depth = 0
-            if max_depth is not None and depth > max_depth:
+                yield fp, FileCache.read_project_file(project_root, fp)
+            except (OSError, UnicodeError):
                 continue
-            for f in files:
-                if not f.endswith(extensions):
-                    continue
-                if name_hints:
-                    f_lower = f.lower()
-                    if not any(h in f_lower for h in name_hints):
-                        continue
-                fp = Path(root_dir) / f
-                try:
-                    with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
-                        yield fp, fh.read()
-                except Exception:
-                    continue
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         """¿Existe este ORM en el proyecto?"""
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         """Extraer entidades y relaciones."""
         return []
 
@@ -888,19 +898,23 @@ class SQLAlchemyParser(ORMParserStub):
     """
     name = "sqlalchemy"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".py",), ["model", "schema"]):
+            for _, content in self._walk_files(
+                root_path, (".py",), ["model", "schema"], max_depth=max_depth
+            ):
                 if re.search(r'(?:declarative_base|Column|relationship|mapped_column|Mapped)\s*\(?', content):
                     return True
         except Exception:
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            for _, content in self._walk_files(root_path, (".py",), ["model", "schema"]):
+            for _, content in self._walk_files(
+                root_path, (".py",), ["model", "schema"], max_depth=max_depth
+            ):
                 try:
                     # Buscar clases que heredan de Base / DeclarativeBase / Model
                     class_matches = re.finditer(
@@ -988,19 +1002,23 @@ class DjangoORMParser(ORMParserStub):
     """
     name = "django"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".py",), ["model"]):
+            for _, content in self._walk_files(
+                root_path, (".py",), ["model"], max_depth=max_depth
+            ):
                 if re.search(r'(?:models\.Model|ForeignKey|ManyToManyField|OneToOneField)', content):
                     return True
         except Exception:
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            for _, content in self._walk_files(root_path, (".py",), ["model"]):
+            for _, content in self._walk_files(
+                root_path, (".py",), ["model"], max_depth=max_depth
+            ):
                 try:
                     class_matches = re.finditer(
                         r'class\s+(\w+)\s*\(\s*(?:\w+\.)*(?:Model|AbstractUser)\s*(?:,\s*\w+)*\s*\)\s*:',
@@ -1066,25 +1084,24 @@ class PrismaParser(ORMParserStub):
     """
     name = "prisma"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            root = Path(root_path)
-            for root_dir, dirs, files in os.walk(root):
-                dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-                if "schema.prisma" in files:
+            for fp, _content in self._walk_files(
+                root_path, (".prisma",), ["schema"], max_depth=max_depth
+            ):
+                if fp.name == "schema.prisma":
                     return True
         except Exception:
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            root = Path(root_path)
-            for root_dir, dirs, files in os.walk(root):
-                dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-                if "schema.prisma" in files:
-                    fp = Path(root_dir) / "schema.prisma"
+            for fp, _content in self._walk_files(
+                root_path, (".prisma",), ["schema"], max_depth=max_depth
+            ):
+                if fp.name == "schema.prisma":
                     entities.extend(parse_prisma_schema(fp))
         except Exception:
             pass
@@ -1099,9 +1116,11 @@ class TypeORMParser(ORMParserStub):
     """
     name = "typeorm"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".ts",), ["entity", "model"]):
+            for _, content in self._walk_files(
+                root_path, (".ts",), ["entity", "model"], max_depth=max_depth
+            ):
                 cleaned = re.sub(r'//.*', '', content)
                 cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
                 if re.search(r'@Entity\s*\(', cleaned):
@@ -1110,10 +1129,12 @@ class TypeORMParser(ORMParserStub):
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            for _, content in self._walk_files(root_path, (".ts",), ["entity", "model"]):
+            for _, content in self._walk_files(
+                root_path, (".ts",), ["entity", "model"], max_depth=max_depth
+            ):
                 try:
                     if not re.search(r'@Entity\s*\(', content):
                         continue
@@ -1179,19 +1200,23 @@ class SequelizeParser(ORMParserStub):
     """
     name = "sequelize"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".js", ".ts"), ["model"]):
+            for _, content in self._walk_files(
+                root_path, (".js", ".ts"), ["model"], max_depth=max_depth
+            ):
                 if re.search(r'(?:Model\.init|sequelize\.define|\.belongsTo|\.hasMany|\.hasOne|\.belongsToMany)\s*\(', content):
                     return True
         except Exception:
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
-            for fp, content in self._walk_files(root_path, (".js", ".ts"), ["model"]):
+            for fp, content in self._walk_files(
+                root_path, (".js", ".ts"), ["model"], max_depth=max_depth
+            ):
                 try:
                     file_entities = []
 
@@ -1278,9 +1303,14 @@ class EFCoreParser(ORMParserStub):
     """
     name = "efcore"
 
-    def detect(self, root_path: str) -> bool:
+    def detect(self, root_path: str, max_depth: Optional[int] = 3) -> bool:
         try:
-            for _, content in self._walk_files(root_path, (".cs",), ["context", "dbcontext", "model"]):
+            for _, content in self._walk_files(
+                root_path,
+                (".cs",),
+                ["context", "dbcontext", "model"],
+                max_depth=max_depth,
+            ):
                 # Remove line and block comments to avoid false positives
                 cleaned = re.sub(r'//.*', '', content)
                 cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
@@ -1290,13 +1320,18 @@ class EFCoreParser(ORMParserStub):
             pass
         return False
 
-    def extract(self, root_path: str) -> List[EREntity]:
+    def extract(self, root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
         entities = []
         try:
             entities_from_dbset = set()
 
             # Paso 1: Buscar DbContext para extraer DbSet<T> como entidades
-            for _, content in self._walk_files(root_path, (".cs",), ["context", "dbcontext"]):
+            for _, content in self._walk_files(
+                root_path,
+                (".cs",),
+                ["context", "dbcontext"],
+                max_depth=max_depth,
+            ):
                 try:
                     dbset_matches = re.finditer(r'DbSet\s*<\s*(\w+)\s*>', content)
                     for dm in dbset_matches:
@@ -1306,7 +1341,12 @@ class EFCoreParser(ORMParserStub):
                     pass
 
             # Paso 2: Buscar archivos de modelo para extraer propiedades
-            for _, content in self._walk_files(root_path, (".cs",), ["model", "entity"]):
+            for _, content in self._walk_files(
+                root_path,
+                (".cs",),
+                ["model", "entity"],
+                max_depth=max_depth,
+            ):
                 try:
                     class_matches = re.finditer(
                         r'(?:public\s+)?class\s+(\w+)\s*(?::\s*[^{]+)?\s*\{',
@@ -1381,122 +1421,142 @@ ORM_REGISTRY: List[ORMParserStub] = [
     EFCoreParser(),
 ]
 
-def run_orm_parsers(root_path: str) -> List[EREntity]:
+def run_orm_parsers(
+    root_path: str,
+    max_depth: Optional[int] = 3,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> List[EREntity]:
     """
     Orquestador: detecta qué ORMs están presentes, corre solo los detectados,
     y retorna la lista combinada de entidades (sin deduplicar - eso lo hace
     parse_project_for_er).
     """
     all_entities: List[EREntity] = []
-    for parser in ORM_REGISTRY:
+    for registered_parser in ORM_REGISTRY:
+        parser = type(registered_parser)()
+        parser._file_index = file_index
         try:
-            if parser.detect(root_path):
-                results = parser.extract(root_path)
+            if parser.detect(root_path, max_depth=max_depth):
+                results = parser.extract(root_path, max_depth=max_depth)
                 all_entities.extend(results)
-        except Exception as e:
-            print(f"Error in ORM parser '{parser.name}': {e}", file=sys.stderr)
+        except (OSError, UnicodeError, SyntaxError, ValueError, TypeError, re.error):
+            continue
     return all_entities
 
 
-def parse_project_for_er(root_path: str, max_depth: Optional[int] = 3) -> List[EREntity]:
+def parse_project_for_er(
+    root_path: str,
+    max_depth: Optional[int] = 3,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> List[EREntity]:
     all_entities = []
-    root = Path(root_path)
+    try:
+        snapshot = file_index or FileSystemIndexer(
+            root_path, max_depth=max_depth
+        ).build()
+    except (OSError, RuntimeError, ValueError):
+        return all_entities
+    root = snapshot.root
+    project_files = snapshot.all_files
 
     # Check if firebaseConfig.ts is present
-    firebase_config_present = False
-    for r_dir, _, f_files in os.walk(root):
-        if "firebaseConfig.ts" in f_files:
-            firebase_config_present = True
-            break
+    firebase_config_present = any(
+        file_path.name == "firebaseConfig.ts" for file_path in project_files
+    )
 
     # Check if mongoose is in package.json
     mongoose_present = False
     pkg_json = root / "package.json"
-    if pkg_json.is_file():
+    if pkg_json in project_files:
         try:
-            with open(pkg_json, "r", encoding="utf-8", errors="ignore") as f:
-                pkg_content = f.read()
+            pkg_content = FileCache.read_project_file(root, pkg_json)
             if "mongoose" in pkg_content:
                 mongoose_present = True
-        except Exception:
+        except (OSError, UnicodeError):
             pass
 
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS and not d.startswith('.')]
-        
-        try:
-            current_depth = len(Path(root_dir).relative_to(root).parts)
-        except ValueError:
-            current_depth = 0
-            
-        if max_depth is not None and current_depth > max_depth:
-            continue
-            
-        for file in files:
-            file_path = Path(root_dir) / file
+    for file_path in project_files:
+            file = file_path.name
             # 1. Python Models (SQLAlchemy / Django)
             if file.endswith(".py"):
                 is_model_file = "model" in file.lower()
                 try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
+                    content = FileCache.read_project_file(root, file_path)
                     tree = ast.parse(content)
                     extractor = ERExtractor(is_model_file=is_model_file)
                     extractor.visit(tree)
                     all_entities.extend(extractor.entities)
-                except Exception:
+                except (OSError, SyntaxError, ValueError, TypeError):
                     pass
             # 2. Prisma Schemas
             elif file.endswith(".prisma"):
-                all_entities.extend(parse_prisma_schema(file_path))
+                all_entities.extend(parse_prisma_schema(file_path, root))
             # 3. SQL Migrations & Tables
             elif file.endswith(".sql"):
-                all_entities.extend(parse_sql_file(file_path))
+                all_entities.extend(parse_sql_file(file_path, root))
             # 4. JS/TS files (Drizzle schemas, TS interfaces/types, Firestore, Mongoose)
             elif file.endswith((".js", ".ts", ".jsx", ".tsx")):
-                all_entities.extend(parse_drizzle_schema(file_path))
+                all_entities.extend(parse_drizzle_schema(file_path, root))
                 
                 file_lower = file.lower()
                 if file.endswith(".ts") and any(k in file_lower for k in ["model", "type", "interface"]):
-                    all_entities.extend(parse_ts_interfaces_and_types(file_path))
+                    all_entities.extend(parse_ts_interfaces_and_types(file_path, root))
                     
                 if firebase_config_present and file.endswith((".ts", ".tsx")):
-                    all_entities.extend(parse_firestore_collections(file_path))
+                    all_entities.extend(parse_firestore_collections(file_path, root))
                     
                 if mongoose_present and any(k in file_lower for k in ["schema", "model"]):
-                    all_entities.extend(parse_mongoose_schemas(file_path))
+                    all_entities.extend(parse_mongoose_schemas(file_path, root))
                     
+    indexed_suffixes = {path.suffix.lower() for path in project_files}
+
     # Unified execution of language-specific parsers that walk the project:
     # 5. C# ER Parser (Entity Framework)
     try:
         from bck_nd_hlpr.core.csharp_parser import parse_project_for_csharp_er
-        all_entities.extend(parse_project_for_csharp_er(root_path, max_depth=max_depth))
-    except Exception as e:
-        print(f"Error parsing C# ER: {e}", file=sys.stderr)
+        if ".cs" in indexed_suffixes:
+            all_entities.extend(parse_project_for_csharp_er(
+                root_path, max_depth=max_depth
+            ))
+    except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+        pass
         
     # 6. Java ER Parser (Spring Boot / JPA)
     try:
         from bck_nd_hlpr.core.java_parser import parse_project_for_java_er
-        all_entities.extend(parse_project_for_java_er(root_path, max_depth=max_depth))
-    except Exception as e:
-        print(f"Error parsing Java ER: {e}", file=sys.stderr)
+        if ".java" in indexed_suffixes:
+            all_entities.extend(parse_project_for_java_er(
+                root_path, max_depth=max_depth, file_index=snapshot
+            ))
+    except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+        pass
         
     # 7. JS/TS ER Parser (Mongoose / Sequelize)
     try:
         from bck_nd_hlpr.core.js_parser import parse_project_for_js_er
-        all_entities.extend(parse_project_for_js_er(root_path, max_depth=max_depth))
-    except Exception as e:
-        print(f"Error parsing JS/TS ER: {e}", file=sys.stderr)
+        if indexed_suffixes & {".js", ".jsx", ".ts", ".tsx", ".mjs"}:
+            all_entities.extend(parse_project_for_js_er(
+                root_path, max_depth=max_depth
+            ))
+    except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+        pass
         
     # 8. PHP ER Parser (Laravel / Eloquent)
     try:
         from bck_nd_hlpr.core.php_parser import parse_project_for_php_er
-        all_entities.extend(parse_project_for_php_er(root_path, max_depth=max_depth))
-    except Exception as e:
-        print(f"Error parsing PHP ER: {e}", file=sys.stderr)
+        if ".php" in indexed_suffixes:
+            all_entities.extend(parse_project_for_php_er(
+                root_path, max_depth=max_depth, file_index=snapshot
+            ))
+    except (OSError, UnicodeError, SyntaxError, ValueError, TypeError):
+        pass
 
     # 9. ORM Parser Stubs (SQLAlchemy, Django, Prisma, TypeORM, Sequelize, EF Core)
-    all_entities.extend(run_orm_parsers(root_path))
+    all_entities.extend(run_orm_parsers(
+        root_path, max_depth=max_depth, file_index=snapshot
+    ))
 
     # Deduplicate entities by name to avoid duplicates
     seen = {}
@@ -1654,7 +1714,13 @@ def generate_mermaid_er(entities: List[EREntity]) -> str:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def export_entities_as_dict(root_path: str, format: str = "json", max_depth: Optional[int] = 3) -> str:
+def export_entities_as_dict(
+    root_path: str,
+    format: str = "json",
+    max_depth: Optional[int] = 3,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> str:
     """Exporta las entidades ER detectadas como Data Dictionary.
 
     Args:
@@ -1665,7 +1731,9 @@ def export_entities_as_dict(root_path: str, format: str = "json", max_depth: Opt
     Returns:
         String formateado con el diccionario de datos del proyecto.
     """
-    entities = parse_project_for_er(root_path, max_depth)
+    entities = parse_project_for_er(
+        root_path, max_depth, file_index=file_index
+    )
 
     # Serializar cada entidad a un dict plano
     tables: List[Dict[str, Any]] = []
@@ -1716,7 +1784,12 @@ def export_entities_as_dict(root_path: str, format: str = "json", max_depth: Opt
     return json.dumps(tables, indent=2, ensure_ascii=False)
 
 
-def get_entities_for_contract_map(root_path: str, max_depth: Optional[int] = 3) -> dict:
+def get_entities_for_contract_map(
+    root_path: str,
+    max_depth: Optional[int] = 3,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> dict:
     """Retorna entidades indexadas por nombre para cruce con rutas API.
 
     El diccionario resultante tiene la forma::
@@ -1742,7 +1815,9 @@ def get_entities_for_contract_map(root_path: str, max_depth: Optional[int] = 3) 
     Returns:
         Diccionario indexado por nombre de entidad.
     """
-    entities = parse_project_for_er(root_path, max_depth)
+    entities = parse_project_for_er(
+        root_path, max_depth, file_index=file_index
+    )
 
     result: Dict[str, Dict[str, Any]] = {}
     for entity in entities:

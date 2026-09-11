@@ -358,61 +358,11 @@ def format_uml_diagram(uml_content: Any, plain: bool = False) -> str:
     return "[--] No classes or TypeScript interfaces detected."
 
 
-def display_requirements_table(specs: List[Any], console: Optional[Console] = None) -> None:
-    """Displays project requirements summary in a Rich table."""
-    if console is None:
-        console = Console()
+def _requirements_briefs_table(specs: List[Any], *, plain: bool = False) -> Table:
+    """Build the one canonical, compact story-brief presentation."""
     from rich import box
-    table = Table(
-        title=f"Project Requirements & User Stories ({len(specs)} found)",
-        show_header=True,
-        header_style="bold cyan",
-        border_style="bright_black",
-        box=box.ROUNDED,
-    )
-    table.add_column("Story ID", style="cyan bold", justify="center")
-    table.add_column("Status", justify="center")
-    table.add_column("Title", style="bold")
-    table.add_column("Crit.", justify="right", style="green")
-    table.add_column("Rules", justify="right", style="magenta")
+    from rich.markup import escape
 
-    status_styles = {
-        "TODO": "bold yellow",
-        "IN_PROGRESS": "bold blue",
-        "TESTING": "bold magenta",
-        "DONE": "bold green",
-    }
-
-    for spec in specs:
-        story = getattr(spec, "story", None)
-        story_id = getattr(story, "id", "") if story else ""
-        raw_status = (getattr(story, "status", "TODO") or "TODO").upper() if story else "TODO"
-        status_style = status_styles.get(raw_status, "white")
-        title = getattr(story, "title", "Untitled") if story else "Untitled"
-        crit_count = len(getattr(spec, "acceptance_criteria", []) or [])
-        rules_count = len(getattr(spec, "business_rules", []) or [])
-
-        table.add_row(
-            story_id or "N/A",
-            Text(raw_status, style=status_style),
-            title or "Untitled",
-            str(crit_count),
-            str(rules_count),
-        )
-
-    console.print()
-    console.print(table)
-
-
-def get_requirements_table_string(specs: List[Any], plain: bool = False) -> str:
-    """Returns project requirements summary table as a formatted string."""
-    output = io.StringIO()
-    if plain:
-        console = Console(file=output, force_terminal=False, no_color=True, width=120)
-    else:
-        console = Console(file=output, force_terminal=True, width=120)
-
-    from rich import box
     table = Table(
         title="Project Requirements" if plain else f"Project Requirements & User Stories ({len(specs)} found)",
         show_header=True,
@@ -420,11 +370,8 @@ def get_requirements_table_string(specs: List[Any], plain: bool = False) -> str:
         border_style="bright_black" if not plain else None,
         box=box.ASCII if plain else box.ROUNDED,
     )
-    table.add_column("Story ID", style="cyan bold" if not plain else None, justify="center")
-    table.add_column("Status", justify="center")
-    table.add_column("Title", style="bold" if not plain else None)
-    table.add_column("Crit.", justify="right", style="green" if not plain else None)
-    table.add_column("Rules", justify="right", style="magenta" if not plain else None)
+    table.add_column("Story", style="cyan bold" if not plain else None, min_width=14)
+    table.add_column("Story Brief", no_wrap=False, ratio=1)
 
     status_styles = {
         "TODO": "bold yellow",
@@ -439,17 +386,160 @@ def get_requirements_table_string(specs: List[Any], plain: bool = False) -> str:
         raw_status = (getattr(story, "status", "TODO") or "TODO").upper() if story else "TODO"
         status_style = status_styles.get(raw_status, "white") if not plain else None
         title = getattr(story, "title", "Untitled") if story else "Untitled"
+        role = getattr(story, "role", "") if story else ""
+        want = getattr(story, "want", "") if story else ""
+        benefit = getattr(story, "benefit", "") if story else ""
         crit_count = len(getattr(spec, "acceptance_criteria", []) or [])
         rules_count = len(getattr(spec, "business_rules", []) or [])
+        criteria_label = "criterio" if crit_count == 1 else "criterios"
+        rules_label = "regla" if rules_count == 1 else "reglas"
+
+        story_cell = Text(str(story_id or "N/A"))
+        story_cell.append(f" [{raw_status}]", style=status_style)
+        brief_lines = [
+            escape(str(title or "Untitled")),
+            f"Como {escape(str(role or '(none)'))},",
+            f"quiero {escape(str(want or '(none)'))},",
+            f"para {escape(str(benefit or '(none)'))}.",
+            f"{crit_count} {criteria_label} · {rules_count} {rules_label}",
+        ]
 
         table.add_row(
-            story_id or "N/A",
-            Text(raw_status, style=status_style) if status_style else raw_status,
-            title or "Untitled",
-            str(crit_count),
-            str(rules_count),
+            story_cell,
+            "\n".join(brief_lines),
         )
+    return table
 
-    console.print(table)
+
+def display_requirements_table(specs: List[Any], console: Optional[Console] = None) -> None:
+    """Display the canonical story briefs for a Requirements collection."""
+    if console is None:
+        console = Console()
+
+    console.print()
+    console.print(_requirements_briefs_table(specs))
+
+
+def get_requirements_table_string(specs: List[Any], plain: bool = False) -> str:
+    """Return the same canonical story briefs as a formatted string."""
+    output = io.StringIO()
+    if plain:
+        console = Console(file=output, force_terminal=False, no_color=True, width=120)
+    else:
+        console = Console(file=output, force_terminal=True, width=120)
+
+    console.print(_requirements_briefs_table(specs, plain=plain))
     return output.getvalue()
+
+
+def _requirement_value_text(value: Any) -> str:
+    """Return compact deterministic text without Python/JSON container syntax."""
+    if value is None:
+        return "(none)"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, dict):
+        return " · ".join(
+            f"{key}: {_requirement_value_text(value[key])}"
+            for key in sorted(value, key=lambda item: (str(item).casefold(), str(item)))
+        ) or "(none)"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_requirement_value_text(item) for item in value) or "(none)"
+    return str(value)
+
+
+def _requirement_item_text(
+    value: Any,
+    *,
+    identifier_key: str,
+    description_key: str,
+) -> str:
+    """Format a structured requirement item as a friendly, stable sentence."""
+    if not isinstance(value, dict):
+        return _requirement_value_text(value)
+
+    identifier = _requirement_value_text(value.get(identifier_key)) \
+        if identifier_key in value else ""
+    description = _requirement_value_text(value.get(description_key)) \
+        if description_key in value else ""
+    if identifier and description:
+        leading = f"{identifier} — {description}"
+    else:
+        leading = identifier or description
+
+    excluded = {identifier_key, description_key}
+    extras = [
+        f"{key}: {_requirement_value_text(value[key])}"
+        for key in sorted(value, key=lambda item: (str(item).casefold(), str(item)))
+        if key not in excluded
+    ]
+    parts = [part for part in (leading, *extras) if part]
+    return " · ".join(parts) or "(none)"
+
+
+def display_requirement_detail(spec: Any, console: Optional[Console] = None) -> None:
+    """Display every public section of one requirement without mutating it."""
+    from rich.markup import escape
+
+    if console is None:
+        console = Console()
+    story = getattr(spec, "story", None)
+
+    def safe(value: Any, fallback: str = "(none)") -> str:
+        text = "" if value is None else str(value)
+        return escape(text) if text else fallback
+
+    console.print()
+    console.print(f"[bold cyan]Story ID:[/bold cyan] {safe(getattr(story, 'id', ''))}")
+    console.print(f"[bold cyan]Status:[/bold cyan] {safe(getattr(story, 'status', 'TODO'))}")
+    console.print(f"[bold cyan]Title:[/bold cyan] {safe(getattr(story, 'title', ''))}")
+    console.print(f"[bold]Role / Como:[/bold] {safe(getattr(story, 'role', ''))}")
+    console.print(f"[bold]Want / Quiero:[/bold] {safe(getattr(story, 'want', ''))}")
+    console.print(f"[bold]Benefit / Para:[/bold] {safe(getattr(story, 'benefit', ''))}")
+
+    def section(title: str, items: List[Any], render) -> None:
+        console.print(f"\n[bold cyan]{title}[/bold cyan]")
+        if not items:
+            console.print("  (none)")
+            return
+        for item in items:
+            render(item)
+
+    section(
+        "Business Rules",
+        list(getattr(spec, "business_rules", []) or []),
+        lambda rule: console.print(
+            f"  - [magenta]{safe(getattr(rule, 'id', ''))}[/magenta]: "
+            f"{safe(getattr(rule, 'description', ''))}"
+        ),
+    )
+    section(
+        "Acceptance Criteria",
+        list(getattr(spec, "acceptance_criteria", []) or []),
+        lambda criterion: console.print(
+            f"  - [yellow]{safe(getattr(criterion, 'id', ''))}[/yellow]\n"
+            f"    [bold]Given[/bold] {safe(getattr(criterion, 'given', ''))}\n"
+            f"    [bold]When[/bold] {safe(getattr(criterion, 'when', ''))}\n"
+            f"    [bold]Then[/bold] {safe(getattr(criterion, 'then', ''))}"
+        ),
+    )
+    for title, attribute, identifier_key, description_key in (
+        ("Required Data", "required_data", "field", "type"),
+        ("Validations", "validations", "field", "rule"),
+        ("Exceptions", "exceptions", "code", "description"),
+        ("Open Questions", "open_questions", "question", "description"),
+    ):
+        section(
+            title,
+            list(getattr(spec, attribute, []) or []),
+            lambda item, identifier_key=identifier_key, description_key=description_key: console.print(
+                "  - " + safe(
+                    _requirement_item_text(
+                        item,
+                        identifier_key=identifier_key,
+                        description_key=description_key,
+                    )
+                )
+            ),
+        )
 

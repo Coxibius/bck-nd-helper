@@ -1,12 +1,16 @@
 import os
-import sys
 import requests
 from typing import Optional
+
+from bck_nd_hlpr.core.sanitizer import sanitize_text
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
+
+
+AI_PROVIDER_ERROR = "AI provider request failed safely."
 
 
 class NoAPIKeyError(Exception):
@@ -31,6 +35,8 @@ class OpenAILikeProvider(AIProvider):
         self.name = name
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
+        safe_system_prompt = sanitize_text(system_prompt)
+        safe_user_prompt = sanitize_text(user_prompt)
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
@@ -38,16 +44,16 @@ class OpenAILikeProvider(AIProvider):
         data = {
             "model": self.default_model,
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "system", "content": safe_system_prompt},
+                {"role": "user", "content": safe_user_prompt}
             ]
         }
         try:
             resp = requests.post(self.base_url, headers=headers, json=data, timeout=45)
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            return f"Error {self.name}: {e}\nResponse: {resp.text if 'resp' in locals() else ''}"
+            return sanitize_text(resp.json()["choices"][0]["message"]["content"])
+        except Exception:
+            return AI_PROVIDER_ERROR
 
 
 class OpenAIProvider(OpenAILikeProvider):
@@ -81,6 +87,8 @@ class OpenRouterProvider(OpenAILikeProvider):
         )
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
+        safe_system_prompt = sanitize_text(system_prompt)
+        safe_user_prompt = sanitize_text(user_prompt)
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
@@ -91,22 +99,24 @@ class OpenRouterProvider(OpenAILikeProvider):
         data = {
             "model": self.default_model,
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "system", "content": safe_system_prompt},
+                {"role": "user", "content": safe_user_prompt}
             ]
         }
         try:
             resp = requests.post(self.base_url, headers=headers, json=data, timeout=45)
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            return f"Error OpenRouter: {e}\nResponse: {resp.text if 'resp' in locals() else ''}"
+            return sanitize_text(resp.json()["choices"][0]["message"]["content"])
+        except Exception:
+            return AI_PROVIDER_ERROR
 
 
 class AnthropicProvider(AIProvider):
     # Endpoint: https://api.anthropic.com/v1/messages
     # Default model: claude-3-haiku-20240307
     def generate(self, system_prompt: str, user_prompt: str) -> str:
+        safe_system_prompt = sanitize_text(system_prompt)
+        safe_user_prompt = sanitize_text(user_prompt)
         url = "https://api.anthropic.com/v1/messages"
         headers = {
             "x-api-key": self.api_key,
@@ -116,22 +126,24 @@ class AnthropicProvider(AIProvider):
         data = {
             "model": "claude-3-haiku-20240307",
             "max_tokens": 1024,
-            "system": system_prompt,
+            "system": safe_system_prompt,
             "messages": [
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": safe_user_prompt}
             ]
         }
         try:
             resp = requests.post(url, headers=headers, json=data, timeout=45)
             resp.raise_for_status()
-            return resp.json()["content"][0]["text"]
-        except Exception as e:
-            return f"Error Anthropic: {e}"
+            return sanitize_text(resp.json()["content"][0]["text"])
+        except Exception:
+            return AI_PROVIDER_ERROR
 
 
 class GeminiProvider(AIProvider):
     # Endpoint: https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent
     def generate(self, system_prompt: str, user_prompt: str) -> str:
+        safe_system_prompt = sanitize_text(system_prompt)
+        safe_user_prompt = sanitize_text(user_prompt)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.api_key}"
         headers = {
             "Content-Type": "application/json"
@@ -139,18 +151,18 @@ class GeminiProvider(AIProvider):
         # Gemini handles system instructions specifically
         data = {
             "system_instruction": {
-                "parts": [{"text": system_prompt}]
+                "parts": [{"text": safe_system_prompt}]
             },
             "contents": [
-                {"parts": [{"text": user_prompt}]}
+                {"parts": [{"text": safe_user_prompt}]}
             ]
         }
         try:
             resp = requests.post(url, headers=headers, json=data, timeout=45)
             resp.raise_for_status()
-            return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception as e:
-            return f"Error Gemini: {e}"
+            return sanitize_text(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+        except Exception:
+            return AI_PROVIDER_ERROR
 
 
 class OllamaProvider(AIProvider):
@@ -160,21 +172,23 @@ class OllamaProvider(AIProvider):
 
     # Endpoint: {self.host}/api/chat
     def generate(self, system_prompt: str, user_prompt: str) -> str:
+        safe_system_prompt = sanitize_text(system_prompt)
+        safe_user_prompt = sanitize_text(user_prompt)
         url = f"{self.host.rstrip('/')}/api/chat"
         data = {
             "model": "llama3",
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "system", "content": safe_system_prompt},
+                {"role": "user", "content": safe_user_prompt}
             ],
             "stream": False
         }
         try:
             resp = requests.post(url, json=data, timeout=45)
             resp.raise_for_status()
-            return resp.json()["message"]["content"]
-        except Exception as e:
-            return f"Error Ollama: {e}"
+            return sanitize_text(resp.json()["message"]["content"])
+        except Exception:
+            return AI_PROVIDER_ERROR
 
 
 def get_provider(force_provider: Optional[str] = None) -> AIProvider:

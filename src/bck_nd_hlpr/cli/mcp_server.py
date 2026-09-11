@@ -1,8 +1,17 @@
+import asyncio
+import inspect
+import io
+import json
 import os
+import re
+import shutil
+import stat
 import sys
-import traceback
-from pathlib import Path
-from typing import Optional
+import tempfile
+import threading
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Optional, Tuple
 from functools import wraps
 from mcp.server.fastmcp import FastMCP
 
@@ -17,17 +26,6 @@ if sys.platform.startswith('win'):
     except AttributeError:
         pass
 
-def redirect_stdout_to_stderr(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        original_stdout = sys.stdout
-        sys.stdout = sys.stderr
-        try:
-            return func(*args, **kwargs)
-        finally:
-            sys.stdout = original_stdout
-    return wrapper
-
 # Ensure the package modules are in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -39,15 +37,342 @@ from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid
 from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
 from bck_nd_hlpr.core.todo_hunter import scan_for_todos
 from bck_nd_hlpr.core.security_auditor import scan_security_risks
+from bck_nd_hlpr.core.sanitizer import sanitize_text
 from bck_nd_hlpr.core.doc_generator import DocGenerator
 from bck_nd_hlpr.core.ci_generator import generate_ci_workflow
 from bck_nd_hlpr.core.traceability import parse_project_traceability, generate_mermaid_traceability
 from bck_nd_hlpr.core.tree_generator import generate_project_tree
+from bck_nd_hlpr.core.product.renderer import (
+    DEFAULT_PRODUCT_CONTEXT_CHARS,
+    ProductContextError,
+    build_product_context,
+)
+from bck_nd_hlpr.core.requirements import (
+    RequirementsParser,
+    discover_requirements_locations,
+    render_requirements_scope,
+    render_requirements_summary,
+)
 from bck_nd_hlpr.cli.formatters import (
     get_todos_table_string,
     get_security_report_string,
     get_impact_report_string,
 )
+from bck_nd_hlpr.core.utils.file_lock import (
+    FileLockError,
+    exclusive_file_lock,
+    fsync_directory,
+)
+from bck_nd_hlpr.core.utils.secure_write import (
+    SecureWriteError,
+    atomic_write_artifact,
+    ensure_existing_artifact_allowed,
+    read_verified_artifact,
+    resolve_project_target,
+)
+
+
+class MCPProjectAccessError(ValueError):
+    """A requested project is outside the server's local read boundary."""
+
+
+class MCPConfigError(RuntimeError):
+    """An MCP client configuration could not be updated without data loss."""
+
+
+MCP_ACCESS_DENIED = (
+    "Access denied: requested path is outside the configured MCP roots."
+)
+MCP_ARTIFACT_WRITE_DENIED = (
+    "Artifact write denied: requested destination is not a safe Backend Helper artifact."
+)
+MCP_TOOL_ERROR = "Error executing MCP tool safely."
+MCP_ARGUMENT_ERROR = "Invalid MCP tool arguments."
+MAX_MCP_DEPTH = 20
+MAX_MCP_LAYOUT_CHARS = 8192
+MCP_CONFIG_LOCK_TIMEOUT = 5.0
+_MCP_STREAM_LOCK = threading.RLock()
+_AI_CONTEXT_MARKER = b"<!-- bck-nd-hlpr generated AI context -->\n"
+_AI_CONTEXT_PREFIX = b"<!-- bck-nd-hlpr"
+_HTML_DOCS_MARKER = b"<!-- bck-nd-hlpr generated documentation -->\n"
+_HTML_DOCS_PREFIX = b"<!-- bck-nd-hlpr generated documentation -->"
+
+
+def _validated_mcp_call(func, args, kwargs):
+    """Bind and validate the small public argument surface before analysis."""
+    try:
+        bound = inspect.signature(func).bind(*args, **kwargs)
+    except TypeError:
+        return None
+    bound.apply_defaults()
+    values = bound.arguments
+
+    if "depth" in values:
+        depth = values["depth"]
+        if (
+            isinstance(depth, bool)
+            or not isinstance(depth, int)
+            or depth < 0
+            or depth > MAX_MCP_DEPTH
+        ):
+            return None
+    if "format" in values:
+        output_format = values["format"]
+        if not isinstance(output_format, str) or output_format not in {"json", "csv"}:
+            return None
+    if "layout" in values:
+        layout = values["layout"]
+        if not isinstance(layout, str) or len(layout) > MAX_MCP_LAYOUT_CHARS:
+            return None
+    return bound
+
+
+def _bound_project_root(bound) -> Optional[Path]:
+    """Authorize the filesystem root once at the outer MCP boundary."""
+    for parameter in ("path", "root_path", "project_path"):
+        if parameter in bound.arguments:
+            return _safe_mcp_project_root(bound.arguments[parameter])
+    return None
+
+
+def _replace_exact_root(text: str, root: Path) -> str:
+    """Replace only complete selected-root prefixes, including JSON escaping."""
+    raw_forms = {str(root), root.as_posix()}
+    raw_forms.update(value.replace("\\", "\\\\") for value in tuple(raw_forms))
+    flags = re.IGNORECASE if os.name == "nt" else 0
+    result = text
+    for value in sorted(raw_forms, key=len, reverse=True):
+        if not value:
+            continue
+        pattern = re.compile(
+            re.escape(value) + r"(?=$|[\\/]|[^A-Za-z0-9_.-])",
+            flags,
+        )
+        result = pattern.sub(".", result)
+    return result
+
+
+def _finalize_mcp_output(result, project_root: Optional[Path] = None) -> str:
+    """Apply the universal, idempotent trust boundary to successful text."""
+    if result in {MCP_ACCESS_DENIED, MCP_ARTIFACT_WRITE_DENIED}:
+        return result
+    text = "" if result is None else str(result)
+    if project_root is not None:
+        text = _replace_exact_root(text, project_root)
+    return sanitize_text(text)
+
+
+def redirect_stdout_to_stderr(func):
+    """Finalize an MCP tool while suppressing incidental process streams safely."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        bound = _validated_mcp_call(func, args, kwargs)
+        if bound is None:
+            return MCP_ARGUMENT_ERROR
+        try:
+            project_root = _bound_project_root(bound)
+        except MCPProjectAccessError:
+            return MCP_ACCESS_DENIED
+        except Exception:
+            return MCP_TOOL_ERROR
+
+        try:
+            with _MCP_STREAM_LOCK:
+                captured_stdout = io.StringIO()
+                captured_stderr = io.StringIO()
+                with redirect_stdout(captured_stdout), redirect_stderr(captured_stderr):
+                    result = func(*args, **kwargs)
+        except MCPProjectAccessError:
+            return MCP_ACCESS_DENIED
+        except SecureWriteError:
+            return MCP_ARTIFACT_WRITE_DENIED
+        except Exception:
+            return MCP_TOOL_ERROR
+        return _finalize_mcp_output(result, project_root)
+
+    return wrapper
+
+
+def _canonical_allowed_roots(values) -> Tuple[Path, ...]:
+    """Validate, canonicalize and deterministically deduplicate explicit roots."""
+    raw_values = list(values)
+    if not raw_values:
+        raise ValueError("No explicit MCP roots were configured.")
+    canonical = {}
+    for value in raw_values:
+        raw = str(value or "").strip()
+        candidate = Path(raw)
+        windows_path = PureWindowsPath(raw)
+        if (
+            not raw
+            or not candidate.is_absolute()
+            or (os.name != "nt" and (windows_path.drive or windows_path.is_absolute()))
+        ):
+            raise ValueError("An explicit MCP root is invalid.")
+        try:
+            resolved = candidate.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ValueError("An explicit MCP root is invalid.") from exc
+        if not resolved.is_dir():
+            raise ValueError("An explicit MCP root is invalid.")
+        key = os.path.normcase(os.path.abspath(str(resolved)))
+        canonical[key] = resolved
+    return tuple(canonical[key] for key in sorted(canonical))
+
+
+def _environment_allowed_roots() -> Tuple[Path, ...]:
+    configured = os.environ.get("BCK_ND_MCP_ALLOWED_ROOTS")
+    if configured is None:
+        raise ValueError("No explicit MCP roots were configured.")
+    return _canonical_allowed_roots(configured.split(os.pathsep))
+
+
+def _raise_mcp_access_denied() -> None:
+    raise MCPProjectAccessError(MCP_ACCESS_DENIED) from None
+
+
+def _safe_mcp_project_root(project_path: str) -> Path:
+    """Resolve an existing project inside BCK_ND_MCP_ALLOWED_ROOTS."""
+    try:
+        allowed_roots = _environment_allowed_roots()
+    except ValueError:
+        _raise_mcp_access_denied()
+
+    raw = str(project_path or "").strip()
+    normalized = raw.replace("\\", "/")
+    if (
+        not raw
+        or "://" in normalized
+        or any(part == ".." for part in normalized.split("/"))
+    ):
+        _raise_mcp_access_denied()
+
+    windows_path = PureWindowsPath(raw)
+    posix_path = PurePosixPath(normalized)
+    if os.name == "nt":
+        if (
+            (windows_path.drive and not windows_path.is_absolute())
+            or (posix_path.is_absolute() and not windows_path.is_absolute())
+        ):
+            _raise_mcp_access_denied()
+        is_absolute = windows_path.is_absolute()
+    else:
+        if windows_path.drive or windows_path.is_absolute():
+            _raise_mcp_access_denied()
+        is_absolute = posix_path.is_absolute()
+
+    if is_absolute:
+        candidate = Path(raw)
+    else:
+        if len(allowed_roots) != 1:
+            _raise_mcp_access_denied()
+        relative_parts = tuple(
+            part for part in normalized.split("/") if part not in ("", ".")
+        )
+        candidate = allowed_roots[0].joinpath(*relative_parts)
+
+    try:
+        candidate = candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise MCPProjectAccessError(MCP_ACCESS_DENIED) from None
+    if not candidate.is_dir():
+        _raise_mcp_access_denied()
+
+    candidate_text = os.path.normcase(os.path.abspath(str(candidate)))
+    for root in allowed_roots:
+        root_text = os.path.normcase(os.path.abspath(str(root)))
+        try:
+            if os.path.commonpath([root_text, candidate_text]) == root_text:
+                return candidate
+        except ValueError:
+            continue
+    _raise_mcp_access_denied()
+
+
+def _safe_mcp_child_path(
+    project_root: Path,
+    requested_path: str,
+    *,
+    must_exist: bool = True,
+    expected_type: str = "file",
+) -> Path:
+    """Resolve one secondary path strictly inside an authorized project."""
+    raw = str(requested_path or "").strip()
+    normalized = raw.replace("\\", "/")
+    if (
+        not raw
+        or "://" in normalized
+        or any(part == ".." for part in normalized.split("/"))
+    ):
+        _raise_mcp_access_denied()
+
+    windows_path = PureWindowsPath(raw)
+    if os.name != "nt" and (windows_path.drive or windows_path.is_absolute()):
+        _raise_mcp_access_denied()
+
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = project_root / candidate
+    try:
+        resolved = candidate.resolve(strict=must_exist)
+    except (OSError, RuntimeError) as exc:
+        raise MCPProjectAccessError(MCP_ACCESS_DENIED) from exc
+
+    root_text = os.path.normcase(os.path.abspath(str(project_root)))
+    candidate_text = os.path.normcase(os.path.abspath(str(resolved)))
+    try:
+        if os.path.commonpath([root_text, candidate_text]) != root_text:
+            _raise_mcp_access_denied()
+    except ValueError:
+        _raise_mcp_access_denied()
+
+    if must_exist or resolved.exists():
+        if expected_type == "file" and not resolved.is_file():
+            _raise_mcp_access_denied()
+        if expected_type == "directory" and not resolved.is_dir():
+            _raise_mcp_access_denied()
+    return resolved
+
+
+def _relative_mcp_path(project_root: Path, path: Path) -> str:
+    """Expose an authorized result relative to its project root."""
+    try:
+        relative = path.relative_to(project_root).as_posix()
+    except ValueError:
+        _raise_mcp_access_denied()
+    return relative or "."
+
+
+def _safe_context_artifact_target(project_root: Path, requested_path: str) -> Path:
+    target = resolve_project_target(project_root, requested_path)
+    try:
+        relative = target.relative_to(project_root)
+    except ValueError as exc:
+        raise SecureWriteError("Artifact publication was denied safely.") from exc
+    parts = relative.parts
+    allowed_root_file = parts == ("ai_context.txt",)
+    allowed_generated_file = (
+        len(parts) >= 4
+        and parts[:3] == (".bck-nd", "generated", "contexts")
+        and target.suffix.casefold() == ".txt"
+    )
+    if not allowed_root_file and not allowed_generated_file:
+        raise SecureWriteError("Artifact publication was denied safely.")
+    return target
+
+
+def _safe_docs_artifact_target(project_root: Path, requested_output: str) -> Path:
+    output_directory = resolve_project_target(project_root, requested_output)
+    try:
+        relative = output_directory.relative_to(project_root).parts
+    except ValueError as exc:
+        raise SecureWriteError("Artifact publication was denied safely.") from exc
+    if relative not in {
+        ("docs",),
+        (".bck-nd", "generated", "docs"),
+    }:
+        raise SecureWriteError("Artifact publication was denied safely.")
+    return output_directory / "index.html"
 
 mcp = FastMCP(
     "Backend Helper MCP Server",
@@ -72,9 +397,12 @@ ROUTING GUIDE — call the right tool for the right question:
 - "trace endpoints / route to database / data flow?" → get_traceability_diagram
 - "project structure / file tree / directory layout?" → get_project_tree
 - "requirements / user stories / acceptance criteria / business rules?" → get_requirements_summary
+- "product intent / PRD / scope / goals?"       → get_product_context
 - "setup CI / GitHub Actions / auto-documentation workflow?" → init_ci
 
-Default path is always "." (current directory) unless the user specifies a different path.
+Project paths default to ".". With one authorized root this selects that root;
+with multiple roots the caller must provide an authorized absolute project path.
+The server process working directory never grants access.
 """
 )
 
@@ -104,17 +432,20 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
     get_er_diagram, etc.) when the user asks about one specific diagram type.
 
     Args:
-        path: Absolute or relative path to the project root. Use "." for current directory.
-              Example: "/home/user/my-api" or "C:/projects/backend".
+        path: Authorized project root. With one configured root, "." selects it
+              and relative paths resolve beneath it. Multiple roots require an
+              authorized absolute path.
         depth: Directory levels to scan. Default 3 covers most projects.
                Increase to 5-6 for deeply nested monorepos or multi-module Maven/Gradle projects.
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         scanner = ProjectScanner()
         arch_info = scanner.detect_architecture(path)
 
         result = []
-        result.append(f"Architectural Scan of: {os.path.abspath(path)}")
+        result.append("Architectural Scan of: .")
         if arch_info.get('framework') != 'Unknown':
             result.append(f"Framework: {arch_info['framework']}")
         if arch_info.get('architecture'):
@@ -195,8 +526,8 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
                 result.append(get_security_report_string(risks, plain=True))
             else:
                 result.append("\n[SECURITY] SECURITY RISK AUDIT:\nNo security risks detected.")
-        except Exception as e:
-            result.append(f"\n[SECURITY] SECURITY RISK AUDIT:\nError scanning security: {str(e)}")
+        except Exception:
+            result.append("\n[SECURITY] SECURITY RISK AUDIT:\nAnalysis unavailable.")
 
         # 7. DEPENDENCY IMPACT HEATMAP
         try:
@@ -205,8 +536,8 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
             if usage_map:
                 result.append("\n[IMPACT] DEPENDENCY HEATMAP:")
                 result.append(get_impact_report_string(usage_map, plain=True))
-        except Exception as e:
-            result.append(f"\n[IMPACT] DEPENDENCY HEATMAP:\nError running heatmap: {str(e)}")
+        except Exception:
+            result.append("\n[IMPACT] DEPENDENCY HEATMAP:\nAnalysis unavailable.")
 
         # 8. ROUTE-TO-DB TRACEABILITY
         try:
@@ -220,12 +551,14 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
                     result.append("\n[TRACE] ROUTE-TO-DB TRACEABILITY:\nCould not render traceability sequence.")
             else:
                 result.append("\n[TRACE] ROUTE-TO-DB TRACEABILITY:\nNo traceability traces found.")
-        except Exception as e:
-            result.append(f"\n[TRACE] ROUTE-TO-DB TRACEABILITY:\nError running traceability: {str(e)}")
+        except Exception:
+            result.append("\n[TRACE] ROUTE-TO-DB TRACEABILITY:\nAnalysis unavailable.")
 
         return "\n".join(result)
-    except Exception as e:
-        return f"Error scanning project: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -246,17 +579,21 @@ def get_project_tree(path: str = ".", depth: int = 4) -> str:
     This is a READ-ONLY tool — it does not create or modify any files.
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: Directory depth to display. Default 4 covers most project layouts.
                Increase to 6-8 for deeply nested monorepos.
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         tree_output = generate_project_tree(path, depth=depth)
         if not tree_output:
             return "Could not generate project tree. The path may not exist or may be empty."
         return tree_output
-    except Exception as e:
-        return f"Error generating project tree: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -278,10 +615,12 @@ def get_uml_diagram(path: str = ".", depth: int = 3) -> str:
     Do NOT use this to find API endpoints — use get_routes_diagram for that.
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: Directory scan depth. Use 4-5 for large projects with nested packages.
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         scanner = ProjectScanner()
         uml_code = scanner.scan_uml(path, max_depth=depth)
 
@@ -290,8 +629,10 @@ def get_uml_diagram(path: str = ".", depth: int = 3) -> str:
             return "No classes detected. The project may not use OOP patterns, or try increasing depth."
 
         return f"```mermaid\n{uml_code}\n```"
-    except Exception as e:
-        return f"Error generating UML diagram: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -319,10 +660,12 @@ def get_er_diagram(path: str = ".", depth: int = 3) -> str:
     Do NOT use this to find Python/JS classes — use get_uml_diagram for that.
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: Directory depth to search for model files. Increase for nested module structures.
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         entities = parse_project_for_er(path, max_depth=depth)
         er_code = generate_mermaid_er(entities)
 
@@ -330,8 +673,10 @@ def get_er_diagram(path: str = ".", depth: int = 3) -> str:
             return "No database models or entities detected. The project may not use an ORM, or try increasing depth."
 
         return f"```mermaid\n{er_code}\n```"
-    except Exception as e:
-        return f"Error generating ER diagram: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -353,10 +698,12 @@ def get_routes_diagram(path: str = ".", depth: int = 3) -> str:
               Next.js (pages/api/* file routes).
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: How deep to search for route files. Increase for nested router structures.
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         detected_routes = parse_project_routes(path, max_depth=depth)
         seq_code = generate_mermaid_sequence(detected_routes)
 
@@ -364,8 +711,10 @@ def get_routes_diagram(path: str = ".", depth: int = 3) -> str:
             return "No API routes detected. Supported frameworks: Flask, FastAPI, Express, NestJS, Next.js."
 
         return f"```mermaid\n{seq_code}\n```"
-    except Exception as e:
-        return f"Error generating routes diagram: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -389,6 +738,8 @@ def get_infra_diagram(path: str = ".") -> str:
         path: Path to the project root containing docker-compose.yml. Default ".".
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         compose_file = parse_infra(path)
         if not compose_file:
             return "No docker-compose.yml file found. This tool only works with Docker Compose projects."
@@ -398,8 +749,10 @@ def get_infra_diagram(path: str = ".") -> str:
             return "docker-compose.yml found but contains no service definitions."
 
         return f"```mermaid\n{generate_mermaid_infra(services)}\n```"
-    except Exception as e:
-        return f"Error generating infrastructure diagram: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -426,13 +779,17 @@ def scan_todos(path: str = ".", depth: int = 3) -> str:
         depth: Directory depth for the scan. Increase for deeply nested projects.
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         todos = scan_for_todos(path, max_depth=depth)
         if not todos:
             return "No technical debt comments (TODO/FIXME/HACK/XXX/BUG) found. Clean codebase!"
 
         return get_todos_table_string(todos, plain=True)
-    except Exception as e:
-        return f"Error scanning technical debt: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -458,10 +815,14 @@ def audit_security(path: str = ".", depth: int = 3) -> str:
         depth: Scan depth. Use higher values to catch secrets in nested config files.
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         risks = scan_security_risks(path, max_depth=depth)
-        return get_security_report_string(risks, plain=True)
-    except Exception as e:
-        return f"Error executing security audit: {str(e)}\n{traceback.format_exc()}"
+        return sanitize_text(get_security_report_string(risks, plain=True))
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -484,17 +845,21 @@ def analyze_impact(path: str = ".") -> str:
         path: Path to the project root to analyze. Default ".".
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         from bck_nd_hlpr.core.dependency_tracker import analyze_impact as _analyze_impact
         usage_map = _analyze_impact(path)
         return get_impact_report_string(usage_map, plain=True)
-    except Exception as e:
-        return f"Error analyzing dependency impact: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
 @redirect_stdout_to_stderr
 def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_context.txt") -> str:
-    """Generate a single LLM-optimized context file with the full project structure, diagrams, and core source files.
+    """Generate an LLM context artifact with Product, Requirements, architecture, and core files.
 
     Use this tool when:
     - The user says "give me context for this project", "prepare a context file", or "share with another AI".
@@ -504,6 +869,8 @@ def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_conte
 
     Output: Writes a UTF-8 .txt file to disk and returns the file path + a summary.
     The file uses XML-like tags optimized for LLM parsing:
+    - <product_context>:   Applicable product intent, provenance, and trust
+    - <requirements_context>: Selected user stories and business rules
     - <project_tree>:      Clean ASCII directory tree (ignoring venv, node_modules, .git, etc.)
     - <architecture_uml>:  UML Class Diagram in Mermaid format
     - <architecture_er>:   Entity-Relationship Diagram in Mermaid format
@@ -516,46 +883,64 @@ def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_conte
     Args:
         path: Path to the project root to analyze. Default ".".
         depth: Directory scan depth. Default 4 covers most project structures.
-        output: Output file path. Default "ai_context.txt" in the current directory.
+        output: Approved output path relative to the selected project. Default
+                "ai_context.txt" at that project root.
     """
     try:
         from bck_nd_hlpr.core.context_dumper import ContextDumper
-        dumper = ContextDumper(path=path, depth=depth)
+        safe_project = _safe_mcp_project_root(path)
+        safe_output = _safe_context_artifact_target(safe_project, output)
+        ensure_existing_artifact_allowed(
+            safe_project,
+            safe_output,
+            lambda content: content.startswith(_AI_CONTEXT_PREFIX),
+        )
+        dumper = ContextDumper(path=str(safe_project), depth=depth)
         context = dumper.build()
-
-        output_path = os.path.abspath(output)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(context)
+        rendered = _AI_CONTEXT_MARKER + context.encode("utf-8")
+        atomic_write_artifact(
+            safe_project,
+            safe_output,
+            rendered,
+            existing_validator=lambda content: content.startswith(
+                _AI_CONTEXT_PREFIX
+            ),
+        )
 
         uml = dumper.get_uml_diagram()
         er = dumper.get_er_diagram()
-        file_size_kb = round(os.path.getsize(output_path) / 1024, 1)
+        file_size_kb = round(safe_output.stat().st_size / 1024, 1)
+        relative_output = _relative_mcp_path(safe_project, safe_output)
 
         return (
             f"AI context file successfully generated!\n\n"
-            f"File: {output_path}\n"
+            f"File: {relative_output}\n"
             f"Size: {file_size_kb} KB\n"
             f"UML Diagram:  {'Generated' if uml else 'Not detected'}\n"
             f"ER Diagram:   {'Generated' if er else 'Not detected'}\n\n"
-            f"The user can now open '{output}', Select All, Copy, and paste it into ChatGPT or Claude."
+            f"The user can now open '{relative_output}', Select All, Copy, and paste it into ChatGPT or Claude."
         )
-    except Exception as e:
-        return f"Error generating AI context file: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except SecureWriteError:
+        return MCP_ARTIFACT_WRITE_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
 @redirect_stdout_to_stderr
 def generate_html_docs(path: str = ".", output: str = "docs") -> str:
-    """Generate a self-contained static HTML documentation portal with live interactive Mermaid diagrams.
+    """Generate a self-contained static HTML portal with embedded diagram previews.
 
     Use this tool when:
     - The user asks to "generate documentation", "create a docs site", or "build HTML docs".
     - The user wants to publish architecture docs to GitHub Pages or an internal wiki.
     - After running bck-nd init-ci, to preview the documentation that will be auto-deployed.
 
-    Output: Creates an index.html file in the output directory with all diagrams rendered
-    interactively via MermaidJS CDN. Returns the absolute path to the generated file.
-    The site is fully self-contained — just open index.html in a browser.
+    Output: Creates an approved index.html artifact with an embedded offline Mermaid
+    renderer and returns a project-relative location. Drawing requires JavaScript
+    enabled in the viewer's browser; no external font or Mermaid CDN is required.
 
     Args:
         path: Path to the project root to document. Default ".".
@@ -563,15 +948,54 @@ def generate_html_docs(path: str = ".", output: str = "docs") -> str:
                 Will be created if it doesn't exist.
     """
     try:
-        generator = DocGenerator()
-        out_file = generator.generate(path, output)
+        safe_project = _safe_mcp_project_root(path)
+        safe_output = _safe_docs_artifact_target(
+            safe_project,
+            output,
+        )
+        ensure_existing_artifact_allowed(
+            safe_project,
+            safe_output,
+            lambda content: content.startswith(_HTML_DOCS_PREFIX),
+        )
+        with tempfile.TemporaryDirectory(prefix="bck-nd-docs-") as staging:
+            staging_root = Path(staging).resolve(strict=True)
+            generator = DocGenerator()
+            out_file = generator.generate(str(safe_project), str(staging_root))
+            if out_file is None:
+                raise SecureWriteError("Artifact publication was denied safely.")
+            generated = Path(out_file).resolve(strict=True)
+            try:
+                generated.relative_to(staging_root)
+            except ValueError as exc:
+                raise SecureWriteError(
+                    "Artifact publication was denied safely."
+                ) from exc
+            generated_content = read_verified_artifact(staging_root, generated)
+            if generated_content is None:
+                raise SecureWriteError("Artifact publication was denied safely.")
+            if not generated_content.startswith(_HTML_DOCS_MARKER):
+                generated_content = _HTML_DOCS_MARKER + generated_content
+            atomic_write_artifact(
+                safe_project,
+                safe_output,
+                generated_content,
+                existing_validator=lambda content: content.startswith(
+                    _HTML_DOCS_PREFIX
+                ),
+            )
+        relative_output = _relative_mcp_path(safe_project, safe_output)
         return (
             f"Static HTML documentation portal generated successfully.\n"
-            f"File: {os.path.abspath(out_file)}\n"
+            f"File: {relative_output}\n"
             f"Open this file in a browser to view the interactive architecture diagrams."
         )
-    except Exception as e:
-        return f"Error generating documentation portal: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except SecureWriteError:
+        return MCP_ARTIFACT_WRITE_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -610,8 +1034,8 @@ def render_flow_diagram(layout: str) -> str:
         with redirect_stdout(f):
             router.process(layout)
         return f.getvalue()
-    except Exception as e:
-        return f"Error rendering manual flow: {str(e)}\n{traceback.format_exc()}"
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -654,6 +1078,8 @@ def explain_architecture_with_ai(
                   "groq", "deepseek", "openrouter", "ollama". Auto-detects if None.
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         scanner = ProjectScanner()
         arch_info = scanner.detect_architecture(path)
         flow_string = scanner.scan(path, max_depth=depth)
@@ -693,8 +1119,10 @@ def explain_architecture_with_ai(
 
         narrator = Narrator(force_provider=provider)
         return narrator.explain(full_context, use_ai=True, style=style)
-    except Exception as e:
-        return f"Error generating AI analysis: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -711,10 +1139,12 @@ def get_traceability_diagram(path: str = ".", depth: int = 3) -> str:
     Supports: Python (FastAPI/Flask).
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: Scan depth. Increase for deeply nested route files.
     """
     try:
+        safe_project = _safe_mcp_project_root(path)
+        path = str(safe_project)
         traces = parse_project_traceability(path, max_depth=depth)
         if not traces:
             return "No routes or calls detected to trace. Traceability is currently supported for Python (Flask/FastAPI)."
@@ -724,8 +1154,10 @@ def get_traceability_diagram(path: str = ".", depth: int = 3) -> str:
             return "Could not generate the traceability graph."
             
         return f"```mermaid\n{trace_code}\n```"
-    except Exception as e:
-        return f"Error generating traceability diagram: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -741,17 +1173,29 @@ def init_ci(path: str = ".") -> str:
         path: Path to the project root. Default ".".
     """
     try:
-        workflow_path = generate_ci_workflow(path)
+        safe_project = _safe_mcp_project_root(path)
+        workflow_path = generate_ci_workflow(str(safe_project))
+        verified_workflow = _safe_mcp_child_path(
+            safe_project,
+            str(workflow_path),
+            must_exist=True,
+            expected_type="file",
+        )
+        relative_workflow = _relative_mcp_path(safe_project, verified_workflow)
         return (
             f"GitHub Actions workflow for auto-documentation successfully initialized!\n"
-            f"Created workflow file: {workflow_path}\n\n"
+            f"Created workflow file: {relative_workflow}\n\n"
             f"Next steps for the user:\n"
             f"1. Push the changes to GitHub: git add . && git commit -m 'ci: add auto-docs' && git push origin main\n"
             f"2. Go to repository settings on GitHub > Pages.\n"
             f"3. Under 'Build and deployment', choose 'GitHub Actions' as the source."
         )
-    except Exception as e:
-        return f"Error configuring CI: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except SecureWriteError:
+        return MCP_ARTIFACT_WRITE_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -767,10 +1211,12 @@ def get_project_health(root_path: str = ".", depth: int = 3) -> str:
     - The user asks about the overall health, score, or tech debt metrics of the codebase.
     
     Args:
-        root_path: Path to the project root. Default "." is the current directory.
+        root_path: Authorized project root. Default "." selects the sole configured root.
         depth: Scan depth.
     """
     try:
+        safe_project = _safe_mcp_project_root(root_path)
+        root_path = str(safe_project)
         scanner = ProjectScanner()
         result = scanner.calculate_health_score(root_path, max_depth=depth)
         
@@ -793,8 +1239,10 @@ def get_project_health(root_path: str = ".", depth: int = 3) -> str:
             report.append("No technical debt or security risks detected. Perfect score!")
             
         return "\n".join(report)
-    except Exception as e:
-        return f"Error calculating health score: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -810,6 +1258,8 @@ def get_guided_onboarding(root_path: str = ".", depth: int = 3) -> str:
         depth: Scan depth.
     """
     try:
+        safe_project = _safe_mcp_project_root(root_path)
+        root_path = str(safe_project)
         from bck_nd_hlpr.core.dependency_tracker import DependencyTracker
         tracker = DependencyTracker(root_path)
         tracker.scan_dependencies()
@@ -823,8 +1273,10 @@ def get_guided_onboarding(root_path: str = ".", depth: int = 3) -> str:
             report.append(f"{i}. {item['file']} ({item['role']}) - {item['hint']}")
             
         return "\n".join(report)
-    except Exception as e:
-        return f"Error generating onboarding path: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -840,10 +1292,14 @@ def export_data_dictionary(root_path: str = ".", format: str = "json") -> str:
         format: Format to export, either 'json' or 'csv'. Default "json".
     """
     try:
+        safe_project = _safe_mcp_project_root(root_path)
+        root_path = str(safe_project)
         from bck_nd_hlpr.core.er_parser import export_entities_as_dict
         return export_entities_as_dict(root_path, format)
-    except Exception as e:
-        return f"Error exporting data dictionary: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -861,14 +1317,25 @@ def get_impact_radius(root_path: str = ".", changed_file: str = "", depth: int =
     """
     try:
         from bck_nd_hlpr.core.route_parser import get_routes_affected_by_file
-        
-        abs_path = os.path.abspath(changed_file)
-        if not os.path.exists(abs_path):
-            return f"Error: The file '{changed_file}' does not exist."
-            
-        report_data = get_routes_affected_by_file(root_path, abs_path, max_depth=depth)
-        
-        report = [f"Impact Radius for: {report_data['changed_file']}\n"]
+        safe_project = _safe_mcp_project_root(root_path)
+        safe_changed_file = _safe_mcp_child_path(
+            safe_project,
+            changed_file,
+            must_exist=True,
+            expected_type="file",
+        )
+
+        report_data = get_routes_affected_by_file(
+            str(safe_project),
+            str(safe_changed_file),
+            max_depth=depth,
+        )
+
+        relative_changed_file = _relative_mcp_path(
+            safe_project,
+            safe_changed_file,
+        )
+        report = [f"Impact Radius for: {relative_changed_file}\n"]
         
         report.append(f"Transitively Affected Files ({len(report_data['affected_files'])}):")
         for f in report_data["affected_files"]:
@@ -882,8 +1349,10 @@ def get_impact_radius(root_path: str = ".", changed_file: str = "", depth: int =
                 report.append(f"- [{r['method']}] {r['path']} (in {r['file']})")
                 
         return "\n".join(report)
-    except Exception as e:
-        return f"Error calculating impact radius: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -899,6 +1368,8 @@ def get_api_contract_map(root_path: str = ".", depth: int = 3) -> str:
         depth: Scan depth.
     """
     try:
+        safe_project = _safe_mcp_project_root(root_path)
+        root_path = str(safe_project)
         from bck_nd_hlpr.core.route_parser import generate_api_contract_map
         contracts = generate_api_contract_map(root_path, max_depth=depth)
         
@@ -912,8 +1383,10 @@ def get_api_contract_map(root_path: str = ".", depth: int = 3) -> str:
             report.append(f"| {c['route']} | {c['file']} | {model} | {cols} |")
             
         return "\n".join(report)
-    except Exception as e:
-        return f"Error generating API contract map: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -929,6 +1402,8 @@ def get_asg_graph(root_path: str = ".", depth: int = 3) -> str:
         depth: Scan depth.
     """
     try:
+        safe_project = _safe_mcp_project_root(root_path)
+        root_path = str(safe_project)
         from bck_nd_hlpr.core.asg import ASGGraph, ASGBuilder
         from bck_nd_hlpr.core.er_parser import parse_project_for_er
         from bck_nd_hlpr.core.route_parser import parse_project_routes
@@ -962,8 +1437,10 @@ def get_asg_graph(root_path: str = ".", depth: int = 3) -> str:
             pass
 
         return format_asg_json(graph)
-    except Exception as e:
-        return f"Error generating ASG graph: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -979,6 +1456,8 @@ def get_architecture_summary(root_path: str = ".", depth: int = 3) -> str:
         depth: Scan depth.
     """
     try:
+        safe_project = _safe_mcp_project_root(root_path)
+        root_path = str(safe_project)
         from pathlib import Path
         from bck_nd_hlpr.core.detector import ArchitectureDetector
         from bck_nd_hlpr.core.providers.registry import ProviderRegistry
@@ -987,7 +1466,7 @@ def get_architecture_summary(root_path: str = ".", depth: int = 3) -> str:
         arch_info = detector.detect(root_path)
 
         summary_lines = []
-        summary_lines.append(f"Architectural Summary of: {os.path.abspath(root_path)}")
+        summary_lines.append("Architectural Summary of: .")
         summary_lines.append(f"Framework: {arch_info.get('framework', 'Unknown')}")
         summary_lines.append(f"Architecture Pattern: {arch_info.get('architecture', 'Unknown')}")
 
@@ -1018,8 +1497,43 @@ def get_architecture_summary(root_path: str = ".", depth: int = 3) -> str:
                     pass
 
         return "\n".join(summary_lines)
-    except Exception as e:
-        return f"Error getting architecture summary: {str(e)}\n{traceback.format_exc()}"
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
+
+
+@mcp.tool()
+@redirect_stdout_to_stderr
+def get_product_context(
+    project_path: str = ".",
+    target_path: str = ".",
+    max_chars: int = DEFAULT_PRODUCT_CONTEXT_CHARS,
+) -> str:
+    """Return applicable, validated product intent as canonical read-only context.
+
+    AI clients should consult this tool before proposing changes to product scope,
+    goals, target users, or release behavior. The result is the same deterministic
+    ``<product_context>`` block used by ``bck-nd prompt`` and ContextDumper.
+
+    Args:
+        project_path: Selected project root. Default ".".
+        target_path: Safe project-relative scope such as "." or "frontend/src".
+        max_chars: Total character budget for the complete canonical block.
+    """
+    try:
+        safe_project = _safe_mcp_project_root(project_path)
+        return build_product_context(
+            safe_project,
+            target_path=target_path,
+            max_chars=max_chars,
+        ) or ""
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except ProductContextError:
+        return "Error building product context: request rejected safely."
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 @mcp.tool()
@@ -1033,75 +1547,34 @@ def get_requirements_summary(project_path: str = ".") -> str:
     - You need to align implementation or tests with functional requirements and business rules.
 
     Args:
-        project_path: Path to the project root containing .bck-nd/requirements/. Default ".".
+        project_path: Path to the project root containing .bck-nd/requirements/.
+            With one configured root, "." and relative paths resolve from that root;
+            with multiple configured roots, pass an authorized absolute path. The
+            server process working directory never grants filesystem access.
     """
     try:
-        from bck_nd_hlpr.core.requirements import RequirementsParser
-        specs = RequirementsParser.load_from_directory(project_path)
-
-        if not specs:
-            return "No requirements found under .bck-nd/requirements/. Create JSON specifications under .bck-nd/requirements/ to define User Stories."
-
-        status_counts = {"TODO": 0, "IN_PROGRESS": 0, "TESTING": 0, "DONE": 0}
-        for spec in specs:
-            status = spec.story.status.upper() if spec.story.status else "TODO"
-            if status in status_counts:
-                status_counts[status] += 1
-            else:
-                status_counts[status] = 1
-
-        summary = [
-            "# Requirements Summary\n",
-            f"**Total Stories**: {len(specs)} (TODO: {status_counts.get('TODO', 0)}, "
-            f"IN_PROGRESS: {status_counts.get('IN_PROGRESS', 0)}, "
-            f"TESTING: {status_counts.get('TESTING', 0)}, "
-            f"DONE: {status_counts.get('DONE', 0)})\n",
-        ]
-
-        for spec in specs:
-            story = spec.story
-            status_tag = f"[{story.status}]" if story.status else "[TODO]"
-            summary.append(f"### {story.id} {status_tag} - {story.title}")
-            if story.role:
-                summary.append(f"- **As a**: {story.role}")
-            if story.want:
-                summary.append(f"- **I want**: {story.want}")
-            if story.benefit:
-                summary.append(f"- **So that**: {story.benefit}")
-
-            if spec.business_rules:
-                summary.append(f"- **Business Rules** ({len(spec.business_rules)}):")
-                for br in spec.business_rules:
-                    summary.append(f"  - `{br.id}`: {br.description}")
-
-            if spec.acceptance_criteria:
-                summary.append(f"- **Acceptance Criteria** ({len(spec.acceptance_criteria)}):")
-                for ac in spec.acceptance_criteria:
-                    summary.append(f"  - `{ac.id}`: **Given** {ac.given} **When** {ac.when} **Then** {ac.then}")
-
-            if spec.required_data:
-                summary.append(f"- **Required Data**: {spec.required_data}")
-
-            if spec.validations:
-                summary.append(f"- **Validations**: {spec.validations}")
-
-            if spec.exceptions:
-                summary.append(f"- **Exceptions**: {spec.exceptions}")
-
-            if spec.open_questions:
-                summary.append(f"- **Open Questions** ({len(spec.open_questions)}):")
-                for q in spec.open_questions:
-                    summary.append(f"  - {q}")
-
-            summary.append("")
-
-        return "\n".join(summary).rstrip()
-    except Exception as e:
-        return f"Error getting requirements summary: {str(e)}\n{traceback.format_exc()}"
+        safe_project = _safe_mcp_project_root(project_path)
+        current_result = RequirementsParser.load_collection(safe_project)
+        location_report = discover_requirements_locations(
+            safe_project,
+            current_result=current_result,
+        )
+        summary = render_requirements_summary(current_result)
+        scope = render_requirements_scope(location_report)
+        if scope is None:
+            return summary
+        return (
+            f"{scope}\n\n"
+            f"<requirements_context>\n{summary}\n</requirements_context>"
+        )
+    except MCPProjectAccessError:
+        return MCP_ACCESS_DENIED
+    except Exception:
+        return MCP_TOOL_ERROR
 
 
 # ──────────────────────────────────────────────
-# Claude Desktop & Cursor / AntiGravity Auto-Installer
+# Claude Desktop, Cursor & Antigravity Auto-Installer
 # ──────────────────────────────────────────────
 
 def _get_claude_config_path() -> Path:
@@ -1116,7 +1589,7 @@ def _get_claude_config_path() -> Path:
 
 
 def _get_cursor_config_paths() -> list[Path]:
-    """Return candidate platform-specific paths for Cursor / AntiGravity IDE / Trae mcp.json."""
+    """Return candidate platform-specific paths for Cursor's mcp.json."""
     candidates: list[Path] = []
 
     # Standard User home .cursor/mcp.json across Windows, macOS, Linux
@@ -1135,67 +1608,322 @@ def _get_cursor_config_paths() -> list[Path]:
     return candidates
 
 
-def _update_mcp_config_file(target: Path) -> None:
+def _get_antigravity_config_path() -> Path:
+    """Return the shared global MCP configuration used by Antigravity IDE/CLI."""
+    return Path.home() / ".gemini" / "config" / "mcp_config.json"
+
+
+def _find_antigravity_executable() -> Optional[str]:
+    """Find a current or compatible Antigravity launcher on PATH."""
+    for command in ("antigravity-ide", "antigravity", "agy"):
+        executable = shutil.which(command)
+        if executable:
+            return executable
+    return None
+
+
+def _get_antigravity_server_definition(allowed_roots: str) -> dict:
+    """Build a GUI-safe stdio definition using the active Python interpreter."""
+    return {
+        "command": str(Path(sys.executable).resolve()),
+        "args": ["-m", "bck_nd_hlpr.cli.mcp_server"],
+        "env": {"BCK_ND_MCP_ALLOWED_ROOTS": allowed_roots},
+    }
+
+
+def _installed_server_definition(allowed_roots: str) -> dict:
+    return {
+        "command": "bck-nd-mcp",
+        "env": {"BCK_ND_MCP_ALLOWED_ROOTS": allowed_roots},
+    }
+
+
+def _resolve_install_allowed_roots(allowed_roots=None) -> Tuple[Path, ...]:
+    try:
+        if allowed_roots:
+            return _canonical_allowed_roots(allowed_roots)
+        return _environment_allowed_roots()
+    except ValueError as exc:
+        raise MCPConfigError(
+            "MCP installation requires explicit valid roots; use --allowed-root <PATH>."
+        ) from None
+
+
+def _is_link_or_reparse(path_stat: os.stat_result) -> bool:
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return stat.S_ISLNK(path_stat.st_mode) or bool(
+        getattr(path_stat, "st_file_attributes", 0) & reparse_flag
+    )
+
+
+def _config_state(path_stat: os.stat_result) -> Tuple[int, int, int, int, int, int]:
+    return (
+        path_stat.st_dev,
+        path_stat.st_ino,
+        stat.S_IFMT(path_stat.st_mode),
+        path_stat.st_size,
+        path_stat.st_mtime_ns,
+        path_stat.st_ctime_ns,
+    )
+
+
+def _read_stable_config(target: Path) -> Optional[Tuple[bytes, os.stat_result]]:
+    """Read one regular config without following links or accepting races."""
+    try:
+        initial_stat = target.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise MCPConfigError("Unable to inspect the MCP configuration safely.") from exc
+
+    if _is_link_or_reparse(initial_stat) or not stat.S_ISREG(initial_stat.st_mode):
+        raise MCPConfigError("MCP configuration target must be a regular local file.")
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(str(target), flags)
+    except OSError as exc:
+        raise MCPConfigError("Unable to open the MCP configuration safely.") from exc
+
+    try:
+        opened_stat = os.fstat(descriptor)
+        opened_identity = (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+            stat.S_IFMT(opened_stat.st_mode),
+            opened_stat.st_size,
+            opened_stat.st_mtime_ns,
+        )
+        expected_identity = (
+            initial_stat.st_dev,
+            initial_stat.st_ino,
+            stat.S_IFMT(initial_stat.st_mode),
+            initial_stat.st_size,
+            initial_stat.st_mtime_ns,
+        )
+        if _is_link_or_reparse(opened_stat) or opened_identity != expected_identity:
+            raise MCPConfigError("MCP configuration changed during secure reading.")
+        chunks = []
+        while True:
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        content = b"".join(chunks)
+        final_descriptor_stat = os.fstat(descriptor)
+    except MCPConfigError:
+        raise
+    except OSError as exc:
+        raise MCPConfigError("Unable to read the MCP configuration safely.") from exc
+    finally:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+
+    try:
+        final_path_stat = target.lstat()
+    except OSError as exc:
+        raise MCPConfigError("MCP configuration changed during secure reading.") from exc
+    if (
+        _is_link_or_reparse(final_path_stat)
+        or _config_state(final_descriptor_stat) != _config_state(opened_stat)
+        or _config_state(final_path_stat) != _config_state(initial_stat)
+    ):
+        raise MCPConfigError("MCP configuration changed during secure reading.")
+    return content, final_path_stat
+
+
+def _write_verified_backup(backup_path: Path, original: bytes) -> None:
+    temp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=backup_path.parent,
+            prefix=f".{backup_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_file.write(original)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+            temp_path = Path(temp_file.name)
+        os.replace(temp_path, backup_path)
+        temp_path = None
+        fsync_directory(backup_path.parent)
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+
+
+def _reject_duplicate_json_pairs(pairs):
+    """Build one JSON object while rejecting exact duplicate keys."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise MCPConfigError(
+                "MCP configuration contains duplicate JSON keys; no changes were made."
+            )
+        result[key] = value
+    return result
+
+
+def _mcp_config_lock_path(target: Path) -> Path:
+    """Return the persistent cooperative lock beside one MCP config."""
+    return target.with_name(f".{target.name}.bck-nd.lock")
+
+
+def _update_mcp_config_file_locked(
+    target: Path,
+    server_definition: Optional[dict] = None,
+) -> Optional[Path]:
     """
     Safely inject or update the 'bck-nd-mcp' entry in an MCP JSON config file.
-    Preserves existing servers and cleans up legacy server entries.
+    Preserves existing servers, cleans up legacy entries, creates a backup, and
+    replaces the file atomically.
+
+    Returns:
+        The backup path when an existing file was preserved, otherwise None.
     """
-    import json
-
-    config: dict = {}
-    if target.is_file():
+    config: dict
+    backup_path: Optional[Path] = None
+    verified = _read_stable_config(target)
+    original_bytes: Optional[bytes] = None
+    original_stat: Optional[os.stat_result] = None
+    if verified is not None:
+        original_bytes, original_stat = verified
         try:
-            config = json.loads(target.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            config = {}
-
-    if not isinstance(config, dict):
+            config = json.loads(
+                original_bytes.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_json_pairs,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise MCPConfigError(
+                "MCP configuration is not valid UTF-8 JSON; no changes were made."
+            ) from exc
+        if not isinstance(config, dict):
+            raise MCPConfigError(
+                "MCP configuration root must be a JSON object; no changes were made."
+            )
+        if "mcpServers" in config and not isinstance(config["mcpServers"], dict):
+            raise MCPConfigError(
+                "MCP configuration mcpServers must be a JSON object; no changes were made."
+            )
+        servers = config.setdefault("mcpServers", {})
+    else:
         config = {}
-
-    servers = config.setdefault("mcpServers", {})
-    if not isinstance(servers, dict):
-        servers = {}
-        config["mcpServers"] = servers
+        servers = config.setdefault("mcpServers", {})
 
     # Automatically clean up legacy server entries
     for legacy_key in ("backend-helper", "bck_nd_hlpr"):
         servers.pop(legacy_key, None)
 
-    servers["bck-nd-mcp"] = {"command": "bck-nd-mcp"}
+    servers["bck-nd-mcp"] = server_definition or {"command": "bck-nd-mcp"}
 
     # Ensure parent directory exists
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    target.write_text(
-        json.dumps(config, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    if original_bytes is not None:
+        backup_path = target.with_name(f"{target.name}.bak")
+        _write_verified_backup(backup_path, original_bytes)
+
+    temp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            rendered = (
+                json.dumps(config, indent=2, ensure_ascii=False) + "\n"
+            ).encode("utf-8")
+            temp_file.write(rendered)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+            temp_path = Path(temp_file.name)
+        if original_stat is not None:
+            os.chmod(temp_path, stat.S_IMODE(original_stat.st_mode))
+
+        current = _read_stable_config(target)
+        if original_bytes is None:
+            if current is not None:
+                raise MCPConfigError(
+                    "MCP configuration was created concurrently; no changes were made."
+                )
+        elif (
+            current is None
+            or current[0] != original_bytes
+            or _config_state(current[1]) != _config_state(original_stat)
+        ):
+            raise MCPConfigError(
+                "MCP configuration changed concurrently; no changes were made."
+            )
+        os.replace(temp_path, target)
+        temp_path = None
+        fsync_directory(target.parent)
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+
+    return backup_path
 
 
-def _generate_manual_ide_settings_box() -> str:
+def _update_mcp_config_file(
+    target: Path,
+    server_definition: Optional[dict] = None,
+) -> Optional[Path]:
+    """Update one MCP config while serializing cooperative writers."""
+    target = Path(target)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(
+            _mcp_config_lock_path(target),
+            timeout=MCP_CONFIG_LOCK_TIMEOUT,
+        ):
+            return _update_mcp_config_file_locked(target, server_definition)
+    except FileLockError as exc:
+        raise MCPConfigError(
+            "Unable to acquire the MCP configuration writer lock."
+        ) from exc
+
+
+def _generate_manual_ide_settings_box(allowed_roots: str) -> str:
     """Render a styled Rich box showing exact fields for manual IDE settings."""
+    manual_config = json.dumps(
+        {
+            "mcpServers": {
+                "bck-nd-mcp": _installed_server_definition(allowed_roots),
+            }
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
     try:
         import io
         from rich.console import Console
         from rich.panel import Panel
         from rich import box
+        from rich.markup import escape
 
         string_io = io.StringIO()
         console = Console(file=string_io, force_terminal=False, highlight=False, width=80)
 
         content = (
-            "[bold]Manual IDE Settings (Cursor / AntiGravity IDE / Trae / Windsurf)[/bold]\n\n"
+            "[bold]Manual IDE Settings (Claude / Cursor / Antigravity IDE)[/bold]\n\n"
             "  • [cyan]Server Name[/cyan] : [bold green]bck-nd-mcp[/bold green]\n"
             "  • [cyan]Command[/cyan]     : [bold green]bck-nd-mcp[/bold green]\n"
             "  • [cyan]Transport[/cyan]   : [yellow]stdio[/yellow]\n\n"
             "[dim]JSON snippet for mcpServers:[/dim]\n"
-            '{\n'
-            '  "mcpServers": {\n'
-            '    "bck-nd-mcp": {\n'
-            '      "command": "bck-nd-mcp"\n'
-            '    }\n'
-            '  }\n'
-            '}'
+            f"{escape(manual_config)}"
         )
 
         panel = Panel(
@@ -1210,70 +1938,213 @@ def _generate_manual_ide_settings_box() -> str:
     except ImportError:
         return (
             "--------------------------------------------------\n"
-            "Manual IDE Settings (Cursor / AntiGravity IDE / Trae):\n"
+            "Manual IDE Settings (Claude / Cursor / Antigravity IDE):\n"
             "  • Server Name: bck-nd-mcp\n"
             "  • Command:     bck-nd-mcp\n"
             "  • Transport:   stdio\n"
+            f"  • BCK_ND_MCP_ALLOWED_ROOTS: {allowed_roots}\n"
             "--------------------------------------------------"
         )
 
 
-def _install_claude_desktop(
-    config_path: Optional["Path"] = None,
-    cursor_config_path: Optional["Path"] = None,
+def _install_mcp_clients(
+    claude_config_path: Optional[Path] = None,
+    cursor_config_path: Optional[Path] = None,
+    antigravity_config_path: Optional[Path] = None,
+    allowed_roots=None,
 ) -> str:
     """
-    Write or update claude_desktop_config.json and Cursor/AntiGravity mcp.json to register bck-nd-mcp.
+    Register bck-nd-mcp with Claude Desktop, Cursor, and Antigravity.
 
     Args:
-        config_path: Override the default Claude Desktop path (useful for testing).
+        claude_config_path: Override the default Claude Desktop path.
         cursor_config_path: Override the default Cursor path (useful for testing).
+        antigravity_config_path: Override the Antigravity path (useful for testing).
 
     Returns:
         A human-readable status message with configuration details and manual IDE setup box.
     """
-    messages = []
+    canonical_roots = _resolve_install_allowed_roots(allowed_roots)
+    allowed_roots_text = os.pathsep.join(str(root) for root in canonical_roots)
+    standard_definition = _installed_server_definition(allowed_roots_text)
+    antigravity_definition = _get_antigravity_server_definition(
+        allowed_roots_text
+    )
+    messages: list[str] = []
+    explicit_paths = any(
+        path is not None
+        for path in (claude_config_path, cursor_config_path, antigravity_config_path)
+    )
 
     # 1. Claude Desktop configuration
-    claude_target = config_path if config_path is not None else _get_claude_config_path()
-    _update_mcp_config_file(claude_target)
-    messages.append(f"✅ Claude Desktop configured successfully.\n   Config written to: {claude_target}")
+    if claude_config_path is not None or not explicit_paths:
+        claude_target = claude_config_path or _get_claude_config_path()
+        _update_mcp_config_file(
+            claude_target,
+            server_definition=standard_definition,
+        )
+        messages.append(f"✅ Claude Desktop configured successfully.\n   Config written to: {claude_target}")
 
-    # 2. Cursor / AntiGravity IDE / Trae configuration
+    # 2. Cursor configuration
     if cursor_config_path is not None:
-        _update_mcp_config_file(cursor_config_path)
-        messages.append(f"✅ Cursor / AntiGravity IDE configured successfully.\n   Config written to: {cursor_config_path}")
-    elif config_path is None:
-        # Auto-detect Cursor / AntiGravity paths on the host system
+        _update_mcp_config_file(
+            cursor_config_path,
+            server_definition=standard_definition,
+        )
+        messages.append(f"✅ Cursor configured successfully.\n   Config written to: {cursor_config_path}")
+    elif not explicit_paths:
         cursor_candidates = _get_cursor_config_paths()
         installed_cursor_paths = []
         for candidate in cursor_candidates:
             if candidate.is_file() or candidate.parent.is_dir():
-                _update_mcp_config_file(candidate)
+                _update_mcp_config_file(
+                    candidate,
+                    server_definition=standard_definition,
+                )
                 installed_cursor_paths.append(candidate)
 
         if installed_cursor_paths:
             for p in installed_cursor_paths:
-                messages.append(f"✅ Cursor / AntiGravity IDE configured successfully.\n   Config written to: {p}")
+                messages.append(f"✅ Cursor configured successfully.\n   Config written to: {p}")
         else:
-            messages.append("ℹ️  Cursor / AntiGravity IDE config directory not found (manual setup available below).")
+            messages.append("ℹ️  Cursor config directory not found (manual setup available below).")
 
-    # 3. Rich box for manual IDE configuration
-    messages.append("\n" + _generate_manual_ide_settings_box())
+    # 3. Antigravity IDE / CLI shared global configuration
+    antigravity_target = antigravity_config_path
+    antigravity_executable = _find_antigravity_executable()
+    if antigravity_target is not None:
+        _update_mcp_config_file(
+            antigravity_target,
+            server_definition=antigravity_definition,
+        )
+        messages.append(
+            "✅ Antigravity IDE / CLI configured successfully.\n"
+            f"   Config written to: {antigravity_target}"
+        )
+    elif not explicit_paths:
+        antigravity_target = _get_antigravity_config_path()
+        if (
+            antigravity_executable
+            or antigravity_target.is_file()
+            or antigravity_target.parent.is_dir()
+        ):
+            _update_mcp_config_file(
+                antigravity_target,
+                server_definition=antigravity_definition,
+            )
+            detected_as = f" (detected: {antigravity_executable})" if antigravity_executable else ""
+            messages.append(
+                f"✅ Antigravity IDE / CLI configured successfully{detected_as}.\n"
+                f"   Config written to: {antigravity_target}"
+            )
+        else:
+            messages.append(
+                "ℹ️  Antigravity IDE / CLI not detected "
+                "(manual setup available below)."
+            )
+
+    # 4. Rich box for manual IDE configuration
+    messages.append(
+        "\n" + _generate_manual_ide_settings_box(allowed_roots_text)
+    )
 
     return "\n".join(messages)
+
+
+def _install_claude_desktop(
+    config_path: Optional[Path] = None,
+    cursor_config_path: Optional[Path] = None,
+    antigravity_config_path: Optional[Path] = None,
+    allowed_roots=None,
+) -> str:
+    """Backward-compatible wrapper for the original installer helper."""
+    return _install_mcp_clients(
+        claude_config_path=config_path,
+        cursor_config_path=cursor_config_path,
+        antigravity_config_path=antigravity_config_path,
+        allowed_roots=allowed_roots,
+    )
 
 
 # ──────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────
 
+def _get_mcp_cli_help() -> str:
+    """Return current command-line help without starting the stdio server."""
+    return """Usage: bck-nd-mcp [OPTIONS]
+
+Backend Helper MCP server for local product, requirements, and architecture intelligence.
+
+With no options, starts the stdio server for an MCP-compatible client.
+
+Options:
+  --install              Register with Claude Desktop, Cursor, and Antigravity.
+  --allowed-root PATH    Authorize one absolute project root; may be repeated.
+  -v, --version          Show the Backend Helper version and exit.
+  -h, --help             Show this message and exit.
+
+Antigravity:
+  Detects the current antigravity-ide launcher and safely merges bck-nd-mcp into
+  ~/.gemini/config/mcp_config.json without removing GitHub or other MCP servers.
+"""
+
+
+def _parse_install_allowed_roots(args) -> list[str]:
+    if not args or args[0] != "--install":
+        raise MCPConfigError("Invalid MCP installation arguments.")
+    roots: list[str] = []
+    index = 1
+    while index < len(args):
+        argument = args[index]
+        if argument == "--allowed-root":
+            index += 1
+            if index >= len(args):
+                raise MCPConfigError(
+                    "--allowed-root requires an absolute directory path."
+                )
+            roots.append(args[index])
+        elif argument.startswith("--allowed-root="):
+            roots.append(argument.split("=", 1)[1])
+        else:
+            raise MCPConfigError("Invalid MCP installation arguments.")
+        index += 1
+    return roots
+
+
 def main():
-    # Handle --install flag
-    if "--install" in sys.argv:
-        msg = _install_claude_desktop()
+    args = sys.argv[1:]
+
+    if "--help" in args or "-h" in args:
+        print(_get_mcp_cli_help())
+        return
+
+    if "--version" in args or "-v" in args:
+        from bck_nd_hlpr.core.constants import VERSION
+        print(f"bck-nd-hlpr {VERSION}")
+        return
+
+    # Handle --install before entering stdio mode.
+    if args and args[0] == "--install":
+        try:
+            allowed_roots = _parse_install_allowed_roots(args)
+            msg = _install_claude_desktop(
+                allowed_roots=allowed_roots or None,
+            )
+        except MCPConfigError:
+            print(
+                "Error: MCP installation requires explicit valid project roots. "
+                "Use --allowed-root <PATH>.",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
         print(msg)
         return
+
+    if args:
+        print(f"Error: unknown option or argument: {' '.join(args)}", file=sys.stderr)
+        print(_get_mcp_cli_help(), file=sys.stderr)
+        raise SystemExit(2)
 
     # Interactive TTY helper: if a human runs `bck-nd-mcp` directly in a
     # terminal without piping, show a friendly explanation instead of silently
@@ -1288,9 +2159,9 @@ def main():
             console.print(Panel(
                 "[bold cyan]Backend Helper MCP Server[/bold cyan] is running in [yellow]stdio[/yellow] mode.\n\n"
                 "This process communicates over stdin/stdout using the MCP protocol.\n"
-                "It is meant to be launched by an MCP-compatible client (e.g. Claude Desktop, Cursor, AntiGravity IDE).\n\n"
-                "[dim]To auto-register with Claude Desktop & Cursor, run:[/dim]\n"
-                "  [bold green]bck-nd-mcp --install[/bold green]\n\n"
+                "It is meant to be launched by an MCP-compatible client (e.g. Claude Desktop, Cursor, Antigravity IDE).\n\n"
+                "[dim]To auto-register with Claude Desktop, Cursor & Antigravity, run:[/dim]\n"
+                "  [bold green]bck-nd-mcp --install --allowed-root <PATH>[/bold green]\n\n"
                 "[dim]To exit, press[/dim] [bold red]Ctrl+C[/bold red].",
                 title="🔌 MCP Server",
                 box=box.ROUNDED,
@@ -1300,12 +2171,17 @@ def main():
         except ImportError:
             print(
                 "Backend Helper MCP Server is running in stdio mode.\n"
-                "To auto-register with Claude Desktop / Cursor, run: bck-nd-mcp --install\n"
+                "To auto-register with Claude Desktop / Cursor / Antigravity, "
+                "run: bck-nd-mcp --install --allowed-root <PATH>\n"
                 "To exit, press Ctrl+C.",
                 file=sys.stderr,
             )
 
-    mcp.run(transport="stdio")
+    try:
+        mcp.run(transport="stdio")
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # A human stopped a stdio server that was waiting for its MCP client.
+        return
 
 if __name__ == "__main__":
     main()

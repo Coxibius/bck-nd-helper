@@ -2,8 +2,50 @@
 import os
 import pytest
 from pathlib import Path
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - exercised on Python 3.10
+    import tomli as tomllib
+
+import bck_nd_hlpr
 from bck_nd_hlpr.core.detector import ArchitectureDetector
 from bck_nd_hlpr.core.constants import VERSION
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_release_version_sources_are_synchronized():
+    with (PROJECT_ROOT / "pyproject.toml").open("rb") as stream:
+        project = tomllib.load(stream)["project"]
+
+    project_version = project["version"]
+    classifiers = project["classifiers"]
+    dependencies = project["dependencies"]
+    mcp_dependencies = [
+        dependency
+        for dependency in dependencies
+        if dependency == "mcp"
+        or dependency.startswith("mcp<")
+        or dependency.startswith("mcp>")
+        or dependency.startswith("mcp=")
+        or dependency.startswith("mcp~")
+        or dependency.startswith("mcp!")
+    ]
+
+    assert project_version == "2.5.0"
+    assert bck_nd_hlpr.__version__ == project_version
+    assert VERSION == project_version
+    assert project["requires-python"] == ">=3.10"
+    assert "Programming Language :: Python :: 3.9" not in classifiers
+    assert {
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+    }.issubset(classifiers)
+    assert mcp_dependencies == ["mcp>=1.28.1,<2"]
+    assert "mcp" not in dependencies
 
 def test_custom_config_detection(tmp_path):
     # Setup custom directories

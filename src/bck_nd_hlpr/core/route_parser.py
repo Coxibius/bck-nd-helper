@@ -1,9 +1,9 @@
 import ast
-import os
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict
-from bck_nd_hlpr.core.constants import GLOBAL_IGNORE_DIRS
+from bck_nd_hlpr.core.utils.cache import FileCache
+from bck_nd_hlpr.core.utils.indexer import FileIndex, FileSystemIndexer
 
 class RouteInfo:
     def __init__(self, method: str, path: str, filename: str, lineno: int):
@@ -100,129 +100,153 @@ class JSRouteExtractor:
                 self.routes.append(RouteInfo(method, path, self.filename, i))
 
 
-def parse_nextjs_routes(root_path: Path) -> List[RouteInfo]:
+def parse_nextjs_routes(
+    root_path: Path,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> List[RouteInfo]:
     routes = []
+    try:
+        snapshot = file_index or FileSystemIndexer(str(root_path)).build()
+    except (OSError, RuntimeError, ValueError):
+        return routes
     
     # 1. App Router (app or src/app)
     app_dirs = [root_path / 'app', root_path / 'src' / 'app']
     for app_dir in app_dirs:
-        if app_dir.exists() and app_dir.is_dir():
-            for root_dir, dirs, files in os.walk(app_dir):
-                for file in files:
-                    file_path = Path(root_dir) / file
-                    if file in ('page.tsx', 'page.jsx', 'page.js', 'page.ts'):
-                        rel = Path(root_dir).relative_to(app_dir)
-                        parts = []
-                        for part in rel.parts:
-                            if part.startswith('(') and part.endswith(')'):
-                                continue
-                            parts.append(part)
-                        
-                        route_path = "/" + "/".join(parts)
-                        route_path = route_path.replace("//", "/")
-                        routes.append(RouteInfo("GET", route_path, f"app/{rel.as_posix()}/{file}", 1))
-                        
-                    elif file in ('route.ts', 'route.js'):
-                        rel = Path(root_dir).relative_to(app_dir)
-                        parts = []
-                        for part in rel.parts:
-                            if part.startswith('(') and part.endswith(')'):
-                                continue
-                            parts.append(part)
-                        route_path = "/" + "/".join(parts)
-                        route_path = route_path.replace("//", "/")
-                        
-                        methods = []
-                        try:
-                            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                                content = f.read()
-                            matches = re.finditer(r'export\s+(async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b', content)
-                            for m in matches:
-                                methods.append(m.group(2))
-                        except Exception:
-                            pass
-                        
-                        if not methods:
-                            methods = ["GET"]
-                            
-                        for method in methods:
-                            routes.append(RouteInfo(method, route_path, f"app/{rel.as_posix()}/{file}", 1))
+        for file_path in snapshot.all_files:
+            try:
+                rel_file = file_path.relative_to(app_dir)
+            except ValueError:
+                continue
+            file = file_path.name
+            if file in ('page.tsx', 'page.jsx', 'page.js', 'page.ts'):
+                try:
+                    FileCache.read_project_file(root_path, file_path)
+                except (OSError, UnicodeError):
+                    continue
+                rel = rel_file.parent
+                parts = []
+                for part in rel.parts:
+                    if part.startswith('(') and part.endswith(')'):
+                        continue
+                    parts.append(part)
+
+                route_path = "/" + "/".join(parts)
+                route_path = route_path.replace("//", "/")
+                routes.append(RouteInfo("GET", route_path, f"app/{rel.as_posix()}/{file}", 1))
+
+            elif file in ('route.ts', 'route.js'):
+                rel = rel_file.parent
+                parts = []
+                for part in rel.parts:
+                    if part.startswith('(') and part.endswith(')'):
+                        continue
+                    parts.append(part)
+                route_path = "/" + "/".join(parts)
+                route_path = route_path.replace("//", "/")
+
+                methods = []
+                try:
+                    content = FileCache.read_project_file(root_path, file_path)
+                    matches = re.finditer(r'export\s+(async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b', content)
+                    for match in matches:
+                        methods.append(match.group(2))
+                except (OSError, UnicodeError):
+                    continue
+
+                if not methods:
+                    methods = ["GET"]
+
+                for method in methods:
+                    routes.append(RouteInfo(method, route_path, f"app/{rel.as_posix()}/{file}", 1))
                             
     # 2. Pages Router (pages or src/pages)
     pages_dirs = [root_path / 'pages', root_path / 'src' / 'pages']
     for pages_dir in pages_dirs:
-        if pages_dir.exists() and pages_dir.is_dir():
-            for root_dir, dirs, files in os.walk(pages_dir):
-                for file in files:
-                    if file.startswith('_') or not file.endswith(('.js', '.jsx', '.ts', '.tsx')):
-                        continue
-                    
-                    file_path = Path(root_dir) / file
-                    rel = file_path.relative_to(pages_dir)
-                    parts = list(rel.parent.parts)
-                    stem = rel.stem
-                    if stem != 'index':
-                        parts.append(stem)
-                        
-                    route_path = "/" + "/".join(parts)
-                    route_path = route_path.replace("//", "/")
-                    
-                    if 'api' in parts:
-                        routes.append(RouteInfo("GET", route_path, f"pages/{rel.as_posix()}", 1))
-                        routes.append(RouteInfo("POST", route_path, f"pages/{rel.as_posix()}", 1))
-                    else:
-                        routes.append(RouteInfo("GET", route_path, f"pages/{rel.as_posix()}", 1))
+        for file_path in snapshot.all_files:
+            try:
+                rel = file_path.relative_to(pages_dir)
+            except ValueError:
+                continue
+            file = file_path.name
+            if file.startswith('_') or not file.endswith(('.js', '.jsx', '.ts', '.tsx')):
+                continue
+            try:
+                FileCache.read_project_file(root_path, file_path)
+            except (OSError, UnicodeError):
+                continue
+
+            parts = list(rel.parent.parts)
+            stem = rel.stem
+            if stem != 'index':
+                parts.append(stem)
+
+            route_path = "/" + "/".join(parts)
+            route_path = route_path.replace("//", "/")
+
+            if 'api' in parts:
+                routes.append(RouteInfo("GET", route_path, f"pages/{rel.as_posix()}", 1))
+                routes.append(RouteInfo("POST", route_path, f"pages/{rel.as_posix()}", 1))
+            else:
+                routes.append(RouteInfo("GET", route_path, f"pages/{rel.as_posix()}", 1))
                         
     return routes
 
-def parse_project_routes(root_path: str, max_depth: Optional[int] = 3) -> List[RouteInfo]:
+def parse_project_routes(
+    root_path: str,
+    max_depth: Optional[int] = 3,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> List[RouteInfo]:
     all_routes = []
     root = Path(root_path)
     
+    try:
+        snapshot = file_index or FileSystemIndexer(str(root), max_depth=max_depth).build()
+    except (OSError, RuntimeError, ValueError):
+        return all_routes
+
     # Next.js Routing
-    nextjs_routes = parse_nextjs_routes(root)
+    nextjs_routes = parse_nextjs_routes(root, file_index=snapshot)
     if nextjs_routes:
         all_routes.extend(nextjs_routes)
     
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in GLOBAL_IGNORE_DIRS]
-        
+    for file_path in snapshot.all_files:
         try:
-            current_depth = len(Path(root_dir).relative_to(root).parts)
+            relative = file_path.relative_to(root)
+            current_depth = len(relative.parent.parts)
         except ValueError:
-            current_depth = 0
+            continue
             
         if max_depth is not None and current_depth > max_depth:
             continue
             
-        for file in files:
-            file_path = Path(root_dir) / file
-            display_name = str(file_path.relative_to(root)).replace("\\", "/")
-            
-            # Python AST Parsing
-            if file.endswith(".py"):
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
-                    
-                    tree = ast.parse(content)
-                    extractor = RouteExtractor(display_name)
-                    extractor.visit(tree)
-                    all_routes.extend(extractor.routes)
-                except Exception:
-                    continue
-            
-            # JS/TS Regex Parsing (New!)
-            elif file.endswith((".js", ".ts")):
-                 try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
-                    
-                    extractor = JSRouteExtractor(display_name)
-                    extractor.parse(content)
-                    all_routes.extend(extractor.routes)
-                 except Exception:
-                    continue
+        file = file_path.name
+        display_name = str(relative).replace("\\", "/")
+
+        # Python AST Parsing
+        if file.endswith(".py"):
+            try:
+                content = FileCache.read_project_file(root, file_path)
+
+                tree = ast.parse(content)
+                extractor = RouteExtractor(display_name)
+                extractor.visit(tree)
+                all_routes.extend(extractor.routes)
+            except (OSError, SyntaxError, ValueError, TypeError):
+                continue
+
+        # JS/TS Regex Parsing (New!)
+        elif file.endswith((".js", ".ts")):
+            try:
+                content = FileCache.read_project_file(root, file_path)
+
+                extractor = JSRouteExtractor(display_name)
+                extractor.parse(content)
+                all_routes.extend(extractor.routes)
+            except (OSError, SyntaxError, ValueError, TypeError):
+                continue
 
     return all_routes
 
@@ -258,11 +282,20 @@ def generate_mermaid_sequence(all_routes: List[RouteInfo]) -> str:
 # FUTURE FUNCTIONS — Cimientos para features planificadas
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_api_contract_map(root_path: str, max_depth: Optional[int] = 3) -> list:
+def generate_api_contract_map(
+    root_path: str,
+    max_depth: Optional[int] = 3,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> list:
     from bck_nd_hlpr.core.er_parser import get_entities_for_contract_map
     
-    routes = parse_project_routes(root_path, max_depth)
-    entities = get_entities_for_contract_map(root_path, max_depth)
+    routes = parse_project_routes(
+        root_path, max_depth, file_index=file_index
+    )
+    entities = get_entities_for_contract_map(
+        root_path, max_depth, file_index=file_index
+    )
     
     contract_map = []
     
@@ -310,22 +343,31 @@ def generate_api_contract_map(root_path: str, max_depth: Optional[int] = 3) -> l
     return contract_map
 
 
-def get_routes_affected_by_file(root_path: str, changed_file: str, max_depth: Optional[int] = 3) -> dict:
+def get_routes_affected_by_file(
+    root_path: str,
+    changed_file: str,
+    max_depth: Optional[int] = 3,
+    *,
+    file_index: Optional[FileIndex] = None,
+) -> dict:
     from bck_nd_hlpr.core.dependency_tracker import DependencyTracker
-    tracker = DependencyTracker(root_path)
+    tracker = DependencyTracker(root_path, file_index=file_index)
     impact_data = tracker.calculate_impact_radius(changed_file)
     
     affected_files = impact_data["affected_files"]
     if not affected_files:
-        return {"changed_file": changed_file, "affected_files": [], "affected_routes": []}
-        
-    all_routes = parse_project_routes(root_path, max_depth)
+        return {
+            "changed_file": impact_data["changed_file"],
+            "affected_files": [],
+            "affected_routes": [],
+        }
+
+    all_routes = parse_project_routes(
+        root_path, max_depth, file_index=file_index
+    )
     
     affected_routes = []
-    try:
-        rel_changed = str(Path(changed_file).resolve().relative_to(Path(root_path).resolve())).replace("\\", "/")
-    except ValueError:
-        rel_changed = changed_file
+    rel_changed = impact_data["changed_file"]
         
     for route in all_routes:
         if route.filename in affected_files or route.filename == rel_changed:
@@ -336,7 +378,7 @@ def get_routes_affected_by_file(root_path: str, changed_file: str, max_depth: Op
             })
             
     return {
-        "changed_file": changed_file,
+        "changed_file": rel_changed,
         "affected_files": affected_files,
         "affected_routes": affected_routes
     }

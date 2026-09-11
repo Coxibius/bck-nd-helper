@@ -22,16 +22,17 @@ def find_application_class(root_path: Path) -> Optional[Path]:
     the first match, or *None* if no such file exists.
     """
     root = Path(root_path)
+    provider = SpringBootProvider()
     candidates: List[Path] = []
     src_main = root / "src" / "main" / "java"
-    if src_main.is_dir():
-        candidates.extend(find_files_by_glob(src_main, "**/*.java"))
-    else:
-        candidates.extend(find_files_by_glob(root, "**/*.java"))
+    snapshot = provider._snapshot(root)
+    candidates.extend(find_files_by_glob(root, "**/*.java", file_index=snapshot))
+    preferred = [path for path in candidates if src_main in path.parents]
+    if preferred:
+        candidates = preferred
     for java_file in candidates:
-        try:
-            text = java_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
+        text = provider._read(root, java_file)
+        if text is None:
             continue
         for marker in _SPRING_BOOT_APP_ANNOTATIONS:
             if marker in text:
@@ -56,25 +57,21 @@ class SpringBootProvider(BaseArchitectureProvider):
         root = Path(root_path)
 
         # 1. Maven — pom.xml containing spring-boot
-        pom = root / "pom.xml"
-        if pom.exists():
-            try:
-                content = pom.read_text(encoding="utf-8", errors="ignore")
-                if "spring-boot" in content:
-                    return True
-            except Exception:
-                pass
+        pom = self._file(root, "pom.xml")
+        if pom is not None:
+            content = self._read(root, pom)
+            if content is not None and "spring-boot" in content:
+                return True
 
         # 2. Gradle — build.gradle / build.gradle.kts containing spring-boot
         for gradle_name in ("build.gradle", "build.gradle.kts"):
-            gradle = root / gradle_name
-            if gradle.exists():
-                try:
-                    content = gradle.read_text(encoding="utf-8", errors="ignore")
-                    if "spring-boot" in content or "org.springframework.boot" in content:
-                        return True
-                except Exception:
-                    pass
+            gradle = self._file(root, gradle_name)
+            if gradle is not None:
+                content = self._read(root, gradle)
+                if content is not None and (
+                    "spring-boot" in content or "org.springframework.boot" in content
+                ):
+                    return True
 
         return False
 
@@ -102,12 +99,11 @@ class SpringBootProvider(BaseArchitectureProvider):
         """Inspect build files for JPA / Hibernate references."""
         build_content = ""
         for name in ("pom.xml", "build.gradle", "build.gradle.kts"):
-            path = root / name
-            if path.exists():
-                try:
-                    build_content += path.read_text(encoding="utf-8", errors="ignore")
-                except Exception:
-                    pass
+            path = self._file(root, name)
+            if path is not None:
+                content = self._read(root, path)
+                if content is not None:
+                    build_content += content
 
         if "spring-boot-starter-data-jpa" in build_content or "spring-data-jpa" in build_content:
             return "Spring Data JPA / Hibernate"
@@ -121,21 +117,23 @@ class SpringBootProvider(BaseArchitectureProvider):
         root = Path(root_path)
         results: List[Path] = []
         # Conventional: src/main/java/**/model/ or **/entity/
-        src_main = root / "src" / "main" / "java"
-        if src_main.is_dir():
-            for p in src_main.rglob("*.java"):
-                parent_lower = p.parent.name.lower()
-                if parent_lower in ("model", "models", "entity", "entities", "domain"):
-                    results.append(p)
+        for path in self._files(root, suffixes=(".java",)):
+            relative = path.relative_to(root).as_posix().casefold()
+            parent_lower = path.parent.name.lower()
+            if relative.startswith("src/main/java/") and parent_lower in (
+                "model", "models", "entity", "entities", "domain"
+            ):
+                results.append(path)
         return sorted(results)
 
     def find_route_files(self, root_path: Path) -> List[Path]:
         root = Path(root_path)
         results: List[Path] = []
-        src_main = root / "src" / "main" / "java"
-        if src_main.is_dir():
-            for p in src_main.rglob("*.java"):
-                parent_lower = p.parent.name.lower()
-                if parent_lower in ("controller", "controllers", "rest", "api", "resource", "resources"):
-                    results.append(p)
+        for path in self._files(root, suffixes=(".java",)):
+            relative = path.relative_to(root).as_posix().casefold()
+            parent_lower = path.parent.name.lower()
+            if relative.startswith("src/main/java/") and parent_lower in (
+                "controller", "controllers", "rest", "api", "resource", "resources"
+            ):
+                results.append(path)
         return sorted(results)

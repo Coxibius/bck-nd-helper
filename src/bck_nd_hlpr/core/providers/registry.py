@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Type
 
 from bck_nd_hlpr.core.providers.base import BaseArchitectureProvider
+from bck_nd_hlpr.core.utils.indexer import FileIndex, FileSystemIndexer
 
 
 # ── Built-in fallback provider ──────────────────────────────────────────────
@@ -73,14 +74,24 @@ class ProviderRegistry:
     # -- Detection ------------------------------------------------------------
 
     def detect_provider(
-        self, root_path: Path
+        self,
+        root_path: Path,
+        *,
+        file_index: Optional[FileIndex] = None,
     ) -> BaseArchitectureProvider:
         """Return the first matching provider instance, or a
         :class:`GenericProvider` if nothing specific matches."""
         root = Path(root_path)
+        snapshot = file_index
+        if snapshot is None:
+            try:
+                snapshot = FileSystemIndexer(str(root), max_depth=None).build()
+            except (OSError, RuntimeError):
+                return GenericProvider()
         for provider_cls in self._providers:
             provider = provider_cls()
             try:
+                provider._set_file_index(snapshot)
                 if provider.detect(root):
                     return provider
             except Exception:
@@ -88,16 +99,26 @@ class ProviderRegistry:
         return GenericProvider()
 
     def detect_all(
-        self, root_path: Path
+        self,
+        root_path: Path,
+        *,
+        file_index: Optional[FileIndex] = None,
     ) -> List[BaseArchitectureProvider]:
         """Return *all* matching providers (for polyglot / multi-framework
         repositories).  Always includes a :class:`GenericProvider` at the
         end if no specific provider matched."""
         root = Path(root_path)
+        snapshot = file_index
+        if snapshot is None:
+            try:
+                snapshot = FileSystemIndexer(str(root), max_depth=None).build()
+            except (OSError, RuntimeError):
+                return [GenericProvider()]
         matched: List[BaseArchitectureProvider] = []
         for provider_cls in self._providers:
             provider = provider_cls()
             try:
+                provider._set_file_index(snapshot)
                 if provider.detect(root):
                     matched.append(provider)
             except Exception:

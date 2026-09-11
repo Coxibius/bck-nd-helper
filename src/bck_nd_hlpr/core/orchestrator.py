@@ -107,36 +107,38 @@ class ScannerOrchestrator:
         # ── v3.0.0: Clear memory cache for new scan ──
         FileCache.clear()
 
+        # Build the only authoritative filesystem snapshot before analyzers run.
+        requested_root = Path(config.path).absolute()
+        try:
+            file_index = FileSystemIndexer(
+                config.path, max_depth=config.depth
+            ).build()
+        except (OSError, RuntimeError, ValueError):
+            file_index = FileIndex(root=requested_root)
+
         # ── v3.2.0: Delta Cache Initialization ──
         delta_cache = DeltaCacheManager(config.path) if config.use_cache else None
 
-        # Detect architecture & framework first
+        # Detect architecture from the same fail-closed snapshot.
         try:
             detector = ArchitectureDetector()
-            arch_info = detector.detect(config.path)
-        except Exception as e:
-            logger.warning(f"Error detecting architecture: {e}")
+            arch_info = detector.detect(config.path, file_index=file_index)
+        except (OSError, RuntimeError, ValueError, TypeError):
+            logger.warning("Architecture detection failed safely.")
             arch_info = {}
 
         result = OrchestratorResult(
-            path=str(Path(config.path).resolve()),
+            path=str(file_index.root),
             framework=arch_info.get("framework", "Unknown"),
             architecture=arch_info.get("architecture", "Single File"),
             features=arch_info.get("features", []),
             summary=arch_info.get("summary", ""),
-            delta_cache=delta_cache
+            delta_cache=delta_cache,
+            file_index=file_index,
         )
 
-        # ── v3.0.0: Build file index once for all analyzers ──
-        try:
-            indexer = FileSystemIndexer(config.path, max_depth=config.depth)
-            file_index = indexer.build()
-            result.file_index = file_index
-            if delta_cache and file_index:
-                delta_cache.sync_files(file_index.all_files)
-        except Exception as e:
-            logger.warning(f"FileSystemIndexer error (falling back to per-analyzer walks): {e}")
-            file_index = None
+        if delta_cache:
+            delta_cache.sync_files(file_index.all_files)
         
         # ── Build Concurrent Tasks ──
         import concurrent.futures
@@ -149,29 +151,47 @@ class ScannerOrchestrator:
 
         if config.uml:
             def _task_uml():
-                from bck_nd_hlpr.core.analysis import build_uml_diagram
-                return build_uml_diagram(config.path, config.depth, arch_info)
+                scanner = ProjectScanner()
+                return scanner.scan_uml(
+                    config.path,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
             tasks.append(("uml", _task_uml, "UML Generation Error", None))
 
         if config.er:
             def _task_er():
-                from bck_nd_hlpr.core.analysis import build_er_diagram
-                return build_er_diagram(config.path, config.depth, arch_info)
+                from bck_nd_hlpr.core.er_parser import (
+                    generate_mermaid_er,
+                    parse_project_for_er,
+                )
+                entities = parse_project_for_er(
+                    config.path,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
+                return generate_mermaid_er(entities) if entities else None
             tasks.append(("er", _task_er, "ER Diagram Error", None))
 
         if config.routes:
             def _task_routes():
                 from bck_nd_hlpr.core.route_parser import parse_project_routes, generate_mermaid_sequence
-                r = parse_project_routes(config.path, max_depth=config.depth)
+                r = parse_project_routes(
+                    config.path,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
                 return generate_mermaid_sequence(r) if r else None
             tasks.append(("routes", _task_routes, "Routes Diagram Error", None))
 
         if config.infra:
             def _task_infra():
                 from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
-                compose_file = parse_infra(config.path)
+                compose_file = parse_infra(config.path, file_index=file_index)
                 if compose_file:
-                    services = parse_docker_compose(compose_file)
+                    services = parse_docker_compose(
+                        compose_file, project_root=config.path
+                    )
                     if services:
                         return generate_mermaid_infra(services)
                 return None
@@ -180,49 +200,71 @@ class ScannerOrchestrator:
         if config.trace:
             def _task_trace():
                 from bck_nd_hlpr.core.traceability import parse_project_traceability, generate_mermaid_traceability
-                traces = parse_project_traceability(config.path, max_depth=config.depth)
+                traces = parse_project_traceability(
+                    config.path,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
                 return generate_mermaid_traceability(traces) if traces else None
             tasks.append(("trace", _task_trace, "Traceability Diagram Error", None))
 
         if config.datascience:
             def _task_datascience():
                 scanner = ProjectScanner()
-                return scanner.scan_notebooks(config.path, max_depth=config.depth)
+                return scanner.scan_notebooks(
+                    config.path,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
             tasks.append(("datascience", _task_datascience, "Data Science Lineage Error", None))
 
         if config.todo or config.health:
             def _task_todo():
-                _file_list = file_index.all_files if file_index else None
-                return scan_for_todos(config.path, max_depth=config.depth, file_list=_file_list)
+                return scan_for_todos(
+                    config.path,
+                    max_depth=config.depth,
+                    file_list=file_index.all_files,
+                )
             tasks.append(("todos", _task_todo, "Technical Debt Scan Error", []))
 
         if config.audit or config.health:
             def _task_audit():
-                _file_list = file_index.all_files if file_index else None
-                return scan_security_risks(config.path, max_depth=config.depth, file_list=_file_list)
+                return scan_security_risks(
+                    config.path,
+                    max_depth=config.depth,
+                    file_list=file_index.all_files,
+                )
             tasks.append(("security_risks", _task_audit, "Security Audit Error", []))
 
         if config.impact:
             def _task_impact():
-                return analyze_impact(config.path)
+                return analyze_impact(config.path, file_index=file_index)
             tasks.append(("dependency_heatmap", _task_impact, "Dependency Heatmap Error", {}))
 
         if config.impact_radius:
             def _task_impact_radius():
                 from bck_nd_hlpr.core.route_parser import get_routes_affected_by_file
-                abs_changed_file = str(Path(config.impact_radius).resolve())
-                return get_routes_affected_by_file(config.path, abs_changed_file, max_depth=config.depth)
+                return get_routes_affected_by_file(
+                    config.path,
+                    config.impact_radius,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
             tasks.append(("impact_radius_report", _task_impact_radius, "Impact Radius Error", {}))
 
         if config.contract:
             def _task_contract():
                 from bck_nd_hlpr.core.route_parser import generate_api_contract_map
-                return generate_api_contract_map(config.path, max_depth=config.depth)
+                return generate_api_contract_map(
+                    config.path,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
             tasks.append(("api_contracts", _task_contract, "API Contract Map Error", []))
 
         if config.teach:
             def _task_teach():
-                tracker = DependencyTracker(config.path)
+                tracker = DependencyTracker(config.path, file_index=file_index)
                 tracker.scan_dependencies()
                 return tracker.get_onboarding_path()
             tasks.append(("onboarding_path", _task_teach, "Onboarding Path Error", []))
@@ -230,20 +272,33 @@ class ScannerOrchestrator:
         if config.health:
             def _task_health():
                 scanner = ProjectScanner()
-                return scanner.calculate_health_score(config.path, max_depth=config.depth)
+                return scanner.calculate_health_score(
+                    config.path,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
             tasks.append(("health_score", _task_health, "Project Health Score Error", {}))
 
         if config.export_dict:
             def _task_export_dict():
                 from bck_nd_hlpr.core.er_parser import export_entities_as_dict
-                return export_entities_as_dict(config.path, format=config.export_dict, max_depth=config.depth)
+                return export_entities_as_dict(
+                    config.path,
+                    format=config.export_dict,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
             tasks.append(("data_dictionary", _task_export_dict, "Data Dictionary Export Error", None))
 
         if config.ai:
             def _task_ai():
                 narrator = Narrator(force_provider=config.provider)
                 scanner = ProjectScanner()
-                topology_text = scanner.scan(config.path, max_depth=config.depth)
+                topology_text = scanner.scan(
+                    config.path,
+                    max_depth=config.depth,
+                    file_index=file_index,
+                )
                 return narrator.explain(topology_text, use_ai=True, style=config.style)
             tasks.append(("ai_narrative", _task_ai, "AI Narrative Error", None))
 
@@ -265,6 +320,7 @@ class ScannerOrchestrator:
                     classes = scanner.collect_uml_classes(
                         config.path,
                         max_depth=config.depth,
+                        file_index=file_index,
                     )
                     if classes:
                         ASGBuilder.from_uml_classes(classes, graph=graph)
@@ -274,6 +330,7 @@ class ScannerOrchestrator:
                     entities = parse_project_for_er(
                         config.path,
                         max_depth=config.depth,
+                        file_index=file_index,
                     )
                     if entities:
                         ASGBuilder.from_er_entities(entities, graph=graph)
@@ -283,6 +340,7 @@ class ScannerOrchestrator:
                     project_routes = parse_project_routes(
                         config.path,
                         max_depth=config.depth,
+                        file_index=file_index,
                     )
                     if project_routes:
                         ASGBuilder.from_routes(project_routes, graph=graph)
@@ -297,8 +355,8 @@ class ScannerOrchestrator:
             try:
                 res = func()
                 return attr_name, res, []
-            except Exception as e:
-                msg = f"{error_prefix}: {e}"
+            except Exception:
+                msg = f"{error_prefix}: analysis unavailable safely"
                 logger.warning(msg)
                 return attr_name, default_value, [msg]
 
@@ -314,8 +372,8 @@ class ScannerOrchestrator:
                         setattr(result, attr_name, res)
                         if warnings:
                             result.execution_warnings.extend(warnings)
-                    except Exception as e:
-                        logger.error(f"Executor failed unexpectedly: {e}")
+                    except Exception:
+                        logger.error("Analyzer execution failed safely.")
 
         if delta_cache:
             delta_cache.save_cache()

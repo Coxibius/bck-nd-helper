@@ -12,9 +12,33 @@
 
 ## 🚦 Release Status
 
-### v2.4.3 — Current Stable Release
+### v2.5.0 — Current Stable Release
 
-v2.4.3 is the current stable patch release, extending the Four Pillars and Requirements Intelligence layer with compiled-backend UML, polyglot monorepo detection, requirement status workflows, measurable AI context savings, machine-readable scans, and fully offline project documentation.
+v2.5.0 is the current stable release in this repository. It is prepared for release, while publication to PyPI remains pending explicit human authorization.
+
+The release adds a local-first PRD Intelligence layer that keeps human-authored product intent separate from detailed requirements and the technical architecture discovered by the scanner:
+
+- **Local product contract:** version-controlled `.bck-nd/product/*.md` documents use YAML front matter and the lifecycle states `DRAFT`, `REVIEW`, `APPROVED`, `SHIPPED`, and `ARCHIVED`.
+- **Deterministic validation:** typed models, safe parsing, lifecycle-aware diagnostics, stable JSON output, linked requirement IDs, and monorepo scope through `applies_to`.
+- **CLI workflow:** `bck-nd prd init`, `list`, `validate`, and `status`, with `--path` / `-p` for selecting a project root.
+- **Trusted AI context:** a canonical `<product_context>` block appears before requirements and technical architecture, uses a shared deterministic budget, and can be excluded completely with `--no-prd`.
+- **Requirements workflow:** `bck-nd req init`, `list`, `show`, `validate`, `status`, `discover`, and `locations` keep concise briefs separate from complete story detail and make nested collection boundaries visible.
+- **Context controls:** `--max-product-chars` defaults to 6000 characters and `--max-requirements-chars` to 12000; both have a public minimum of 256. `--no-prd` and `--no-req` are independent.
+- **Read-only MCP:** `get_product_context` exposes the same canonical scoped representation without modifying product sources.
+- **Backward compatibility:** repositories without `.bck-nd/product/` preserve their previous prompt behavior without empty product tags.
+- **Context fidelity fixes:** `scan` and `prompt` share canonical polyglot UML/ER aggregation at equal path and depth. Diagram discovery loads root and nested `.gitignore` rules incrementally, prunes ignored directories before descent, and uses pathname-aware wildcards with Git-compatible trailing-space and character-class semantics. Incomplete, oversized, unreadable, or linked ignore policies block only their governed scope instead of applying a partial policy. `<core_files>` uses dependency impact plus architectural priorities, and Windows clipboard export preserves Unicode through UTF-16LE.
+- **Local security boundaries:** project-contained paths, bounded safe YAML, strict deterministic serialization, verified product/requirements reads, and minimal atomic status updates with concurrent-modification detection. Project indexing, tree rendering, and final cached reads reject symlinks, junctions, reparse points, and non-regular entries before repository content reaches an AI context.
+- **Unified credential hygiene:** one high-confidence credential registry drives both redaction and audit detection. Core files, requirements summaries, prompt output, security reports, JSON, and MCP responses replace detected credential values with `***REDACTED***` without modifying source files. This is output hygiene, not a secret manager.
+
+PRD Intelligence structures and delivers decisions written by humans; it does not generate or approve product intent autonomously.
+
+**Release verification:** 936 tests collected: **934 passed, 2 skipped** on Windows with Python 3.13.5. Both skips are the expected product-parser symlink cases denied by Windows with `WinError 1314`. The portal additionally passed real-browser checks for all four diagram types via local files and HTTP with external networking unavailable; historical sprint counts remain in their corresponding release notes.
+
+**Runtime compatibility:** v2.5.0 requires Python `>=3.10`. Its declared support classifiers cover Python 3.10–3.13, and final local release verification ran on Windows with Python 3.13; newer Python versions can satisfy `Requires-Python` but are not yet part of this release's verified support matrix. Backend Helper uses the maintained official MCP SDK 1.x API through `mcp>=1.28.1,<2`, preventing fresh installations from resolving the incompatible MCP 2.x API. MCP SDK 2.x support requires an explicit later migration and is not claimed by this release.
+
+### v2.4.3 — Previous Stable Release
+
+v2.4.3 is the previous stable patch release, extending the Four Pillars and Requirements Intelligence layer with compiled-backend UML, polyglot monorepo detection, requirement status workflows, measurable AI context savings, machine-readable scans, and fully offline project documentation.
 
 All changes listed below are implemented and verified by the full test suite.
 
@@ -42,7 +66,15 @@ All changes listed below are implemented and verified by the full test suite.
 - **Added — Requirements portal:** generated documentation includes a safely escaped requirements section and navigation entry whenever `.bck-nd/requirements/` contains stories.
 - **Verified:** **296 tests passing** after the final v2.4.3 sprint integration.
 
-### v2.4.2 — Previous Stable Release
+#### Verified maintenance fixes
+
+- **Fixed — Antigravity auto-installation:** `bck-nd-mcp --install` now detects the renamed `antigravity-ide` launcher and registers Backend Helper in Antigravity's official shared MCP configuration.
+- **Preserved — Existing MCP servers:** configuration updates retain GitHub MCP, Supabase, and unrelated servers, create a backup, and replace JSON atomically.
+- **Fixed — Manual stdio shutdown:** interrupting a directly launched `bck-nd-mcp` exits cleanly without exposing cancellation tracebacks.
+- **Changed — Current CLI help:** root, prompt, requirements, and MCP help now document JSON scans, clipboard context, requirements workflows, context metrics, and Antigravity installation.
+- **Verified:** **320 tests passing** after the Antigravity and CLI-help compatibility maintenance.
+
+### v2.4.2 — Earlier Stable Release
 
 v2.4.2 completes the first stabilization pass over the Four Pillars and Requirements Intelligence layer:
 
@@ -61,14 +93,17 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 - [Quick Start](#-quick-start) — install the CLI and run the main workflows.
 - [Key Features](#-key-features) — capabilities grouped by purpose.
 - [Four Pillars Architecture](#-the-four-pillars-architecture) — cache, providers, ASG, and scoped debt.
+- [Product & PRD Intelligence](#-product--prd-intelligence) — capture, validate, scope, and deliver product intent.
 - [Requirements Intelligence](#-context--requirements-intelligence-layer) — create, list, discover, and export user stories.
 - [Command Manual](#-command-manual) — detailed CLI flags and examples.
-- [MCP Integration](#-mcp-integration-claude-desktop--cursor) — connect AI clients.
+- [MCP Integration](#-mcp-integration-claude-desktop--cursor--antigravity) — connect AI clients.
 - [Advanced Configuration](#advanced-configuration) — client configuration and requirement schemas.
 
 ---
 
 ## ⚡ Quick Start
+
+Until v2.5.0 receives explicit publication authorization, install it from this source checkout or from its locally built wheel. As checked against the public PyPI API on 2026-09-07, PyPI still serves v2.4.3 and has no v2.5.0 release; the command below therefore does not install this pending release yet.
 
 ```bash
 pip install -U bck-nd-hlpr
@@ -82,30 +117,49 @@ bck-nd scan .
 # Emit the complete scan as JSON for CI/CD
 bck-nd scan . --json
 
-# Export LLM-ready context (tree + UML + ER + requirements + core files)
+# Export LLM-ready context: product intent + requirements + architecture + core files
 bck-nd prompt .
+
+# Exclude local PRD product context when it is sensitive or unnecessary
+# This does not modify the source PRD
+bck-nd prompt . --no-prd
+
+# Strictly technical context excludes both independent business layers
+bck-nd prompt . --no-prd --no-req
+
+# Create and validate a local product contract
+bck-nd prd init PRD-AUTH
+bck-nd prd validate PRD-AUTH
 
 # Or copy that context directly into the system clipboard
 bck-nd prompt . --copy
 
-# Scaffold, list, and discover project requirements
+# Scaffold, browse, validate, and discover project requirements
 bck-nd req init US-001
 bck-nd req list
+bck-nd req show US-001
+bck-nd req validate
 bck-nd req status US-001 IN_PROGRESS
 bck-nd req discover US-001
+bck-nd req locations
 
-# Connect to Claude Desktop / Cursor (see the Advanced Configuration section)
-bck-nd-mcp
+# Quote project roots containing spaces
+bck-nd req list "C:\projects\customer portal"
+bck-nd req init US-002 --path "C:\projects\customer portal"
+
+# Connect to Claude Desktop / Cursor / Antigravity IDE
+bck-nd-mcp --install --allowed-root /absolute/path/to/project
 ```
 
 ## 🧭 When to Use What
 
 | Entry point | Best for |
 | --- | --- |
-| `bck-nd scan` | Interactive terminal analysis, diagrams, audits, and reports |
-| `bck-nd prompt` | One-shot AI context file to paste into ChatGPT / Claude |
+| `bck-nd scan` | Inspect the current project and produce human-readable or machine-readable technical reports and views |
+| `bck-nd prompt` | Package product intent, Requirements, and discovered architecture as context for an AI agent |
+| `bck-nd prd` | Local product intent, lifecycle validation, and scoped AI context |
 | `bck-nd req` | Tracking user stories, acceptance criteria, and stakeholder discovery |
-| `bck-nd-mcp` | Persistent MCP tools inside Claude Desktop or Cursor |
+| `bck-nd-mcp` | Persistent MCP tools inside Claude Desktop, Cursor, or Antigravity |
 | `bck-nd explore` | Full-screen TUI to browse and visualize the codebase |
 | `bck-nd docs` / `init-ci` | Static HTML portal and GitHub Pages automation |
 | VS Code Extension | In-editor diagrams, audits, and clipboard context — see [README-EXTENSION.md](vscode-extension/README-EXTENSION.md) |
@@ -120,12 +174,12 @@ bck-nd-mcp
 - 🏭 **Architecture Recognition**: MVC, Microservices, Layered Architecture patterns
 - 🌍 **Polyglot Ready**: C#, Python, JS/TS, Java, PHP, Go, Rust, Docker, Terraform, Prisma, SQL migrations
 - ⚙️ **Flexible Config**: Customize detection via `pyproject.toml`
-- 📄 **Automatic `.gitignore` Support**: Excludes ignored files from scans and context dumps
+- 📄 **Hierarchical `.gitignore` Support**: Applies root and nested rules relative to their directories, including deterministic `!` negation, before files reach scans or context dumps
 - 📱 **Expo/React Native Detection**: Appropriate diagramming for mobile projects
 
 ### Speed & Structure
 
-- ⚡ **Incremental Delta Cache**: `.bck-nd/cache/delta.json` powers sub-0.1s repeat scans; use `--no-cache` for a clean run
+- ⚡ **Incremental Delta Cache**: `.bck-nd/cache/delta.json` stores verified signatures after cache state is successfully saved; constructing the manager alone creates nothing. Use `--no-cache` for a clean run
 - 🌐 **Abstract Semantic Graph (ASG)**: Normalized in-memory architecture graph, queryable by AI agents via MCP
 
 ### Diagrams & Visualization
@@ -140,9 +194,10 @@ bck-nd-mcp
 
 ### AI & Context
 
-- 🧠 **AI Context Dump** (`bck-nd prompt`): Single LLM-optimized `.txt` with project tree + UML + ER + requirements + core files
+- 🧠 **AI Context Dump** (`bck-nd prompt`): Single LLM-optimized `.txt` with applicable product intent + requirements + project tree + UML + ER + core files
+- 🧭 **PRD Context**: Canonical budgeted `<product_context>` with source provenance, lifecycle trust, scope selection, and safe diagnostics
 - 📋 **Requirements Context**: `<requirements_context>` block with user stories and business rules injected into `ai_context.txt`
-- 🎯 **Focused Export** (`--uml`, `--er`, `--tree`): Lightweight context files with only the sections you need
+- 🎯 **Focused Export** (`--uml`, `--er`, `--tree`): Product- and Requirements-aware context plus the requested technical sections; use `--no-prd --no-req` together for strictly technical output
 - 📋 **Clipboard Export** (`--copy`, `-c`): Copy full or focused context directly with native OS clipboard tools
 - 📊 **Context Metrics**: Reports estimated tokens, context size, raw source size, and percentage saved on every prompt export
 - 🤖 **BYO-Key AI Analysis**: OpenAI, Anthropic, Gemini, OpenRouter, or local Ollama — no middleware
@@ -151,11 +206,11 @@ bck-nd-mcp
 ### Requirements Intelligence
 
 - 🧱 **`bck-nd req init`**: Scaffold a standard Markdown or JSON user story under `.bck-nd/requirements/`
-- 📖 **`bck-nd req list`**: Interactive table of User Stories, Status badges, Acceptance Criteria, and Business Rules
+- 📖 **`bck-nd req list`**: Concise briefs for the selected collection, with ID, status, title, `Como` / `Quiero` / `Para`, and criteria/rule counts; use `req show` for complete story detail
 - ✨ **`bck-nd req status`**: Move Markdown or JSON stories through `TODO`, `IN_PROGRESS`, `TESTING`, `DONE`, or `BLOCKED`
 - 🕵️ **`bck-nd req discover`**: Auto-generates a Stakeholder Interview Guide per story
 - 🧾 **Standard Scan Summary**: `bck-nd scan .` includes discovered requirements alongside architecture output
-- 🔌 **`get_requirements_summary`**: MCP tool exposing live requirements state to Claude Desktop / Cursor
+- 🔌 **`get_requirements_summary`**: MCP tool exposing live requirements state to Claude Desktop, Cursor, and Antigravity
 
 ### Quality, Security & Onboarding
 
@@ -175,7 +230,7 @@ The internal engine is organized around four pillars that work together: the cac
 
 ### 1. ⚡ Incremental Delta Cache
 
-Every scan writes a fingerprint of your project to `.bck-nd/cache/delta.json`. On the next run, only changed files are re-parsed — everything else is served from cache, so repeat scans on an unchanged project complete in **under 0.1 seconds**.
+Cached scans maintain verified project fingerprints in memory and persist them to `.bck-nd/cache/delta.json` only when cache state is successfully saved. Merely constructing `DeltaCacheManager` does not create `.bck-nd/` or the cache file. On a later run, matching signatures can avoid redundant work.
 
 ```bash
 # Normal scan — uses the cache automatically
@@ -193,7 +248,7 @@ Instead of one monolithic detector, each supported framework — **Laravel, Fast
 
 ### 3. 🌐 Abstract Semantic Graph (ASG)
 
-All providers normalize their output into one **Abstract Semantic Graph** — an in-memory architecture IR that represents controllers, models, services, routes, and their relationships in a framework-agnostic shape. The ASG is what powers diagrams and reports, and it's also queryable directly by AI agents inside Claude Desktop or Cursor via the MCP tool:
+All providers normalize their output into one **Abstract Semantic Graph** — an in-memory architecture IR that represents controllers, models, services, routes, and their relationships in a framework-agnostic shape. The ASG is what powers diagrams and reports, and it's also queryable directly by AI agents inside Claude Desktop, Cursor, or Antigravity via the MCP tool:
 
 ```
 get_asg_graph
@@ -212,6 +267,72 @@ The technical debt scanner now understands **scope tags**, letting teams triage 
 ```bash
 bck-nd scan . --todo
 ```
+
+---
+
+## 🧭 Product & PRD Intelligence
+
+A PRD records **why** a product or release exists, who it serves, its goals, scope, boundaries, success measures, risks, and unresolved decisions. Requirements describe **what behavior** must be delivered through user stories, business rules, and acceptance criteria. The scanner and ASG describe **what the codebase currently is**. Backend Helper combines these three layers as explicit context; it does not infer or invent missing product intent.
+
+### Local document contract
+
+Editable PRDs are UTF-8 Markdown files with YAML front matter under `.bck-nd/product/`. The metadata identifies the document, lifecycle state, applicable project paths, and linked requirement IDs. The required narrative remains human-authored.
+
+```yaml
+---
+schema_version: 1
+id: PRD-AUTH
+title: Authentication release
+status: DRAFT
+applies_to:
+  - apps/api
+requirement_ids:
+  - US-001
+---
+```
+
+Supported lifecycle states are `DRAFT`, `REVIEW`, `APPROVED`, `SHIPPED`, and `ARCHIVED`. Validation is lifecycle-aware: incomplete material can be reported while drafting, but blocking errors prevent transitions to `REVIEW`, `APPROVED`, or `SHIPPED`. Open questions are warnings in `DRAFT` and `REVIEW`, and block `APPROVED` and `SHIPPED`.
+
+### User workflow
+
+```console
+# Current project
+bck-nd prd init
+bck-nd prd init PRD-AUTH
+bck-nd prd list
+bck-nd prd validate
+bck-nd prd validate PRD-AUTH
+bck-nd prd validate --json
+bck-nd prd status PRD-AUTH REVIEW
+
+# Another project root: --path / -p is available on every prd command
+bck-nd prd list --path ./my-project
+bck-nd prd validate PRD-AUTH --path ./my-project --json
+
+# Product-aware AI context
+bck-nd prompt .
+bck-nd prompt . --max-product-chars 6000
+bck-nd prompt . --no-prd
+```
+
+`bck-nd prd init` without an ID creates `.bck-nd/product/PRD.md`. `prd validate --json` emits deterministic diagnostics suitable for scripts and CI. `prd status` makes a minimal atomic metadata edit after validating the requested transition.
+
+### Scope, budget, and trust
+
+- `applies_to: [.]` targets the full project. Component-aware paths such as `frontend` or `apps/api` select PRDs for overlapping monorepo scopes without unsafe string-prefix matching.
+- All applicable active PRDs share one deterministic character budget. `--max-product-chars` defaults to 6000; values below 256 are rejected.
+- `<product_context>` is emitted before `<requirements_context>`, the project tree, and architecture blocks.
+- `approved=true` is possible only for an `APPROVED` or `SHIPPED` document whose validation is `VALID`.
+- An invalid document retains its declared status as provenance, but is never presented as approved and contributes no trusted narrative.
+- An applicable `DRAFT` may appear, always with a visible non-approved trust notice.
+- `--no-prd` prevents loading and including product context, including in focused prompt modes.
+- Exposed paths are project-relative or the sentinel `<outside-project>`.
+- High-confidence credential shapes in PRD narrative are replaced with `***REDACTED***` before budgeting and serialization. This is output hygiene, not a secret manager or enterprise governance control.
+- Every payload includes a compact `diagnostic_summary`; an applicable error code remains visible even when the 256-character minimum budget cannot include the full diagnostic.
+- PRD sources are limited to 1 MiB. YAML front matter is limited to 128 KiB, 64 levels, and 10,000 composed nodes before Python objects are constructed.
+- When no product directory exists, Backend Helper emits no empty product block and preserves the previous context behavior.
+
+PRD content remains repository data, not instructions to Backend Helper itself. The feature is local and deterministic: it does not call an AI model, cloud service, Jira, or Confluence, and it does not add PRD nodes to the ASG or the offline HTML portal.
 
 ---
 
@@ -235,21 +356,25 @@ Templates include Role, Want, Benefit, Business Rules, Acceptance Criteria, Requ
 
 ### `bck-nd req list`
 
-Renders an interactive terminal table of your project's requirements:
+Renders concise, actionable story briefs for the explicitly selected collection. Every brief includes the story ID, status, title, `Como` / `Quiero` / `Para` summary, and acceptance-criteria/business-rule counts. Complete sections remain available through `req show`:
 
 ```bash
 bck-nd req list
+bck-nd req show US-042
+bck-nd req validate
 ```
 
-**Columns:**
+The terminal groups those fields into `Story` and `Story Brief`; it does not print full rules or criteria in the list view. Run `bck-nd req show <story_id> [project_path]` for Role, Want, Benefit, Business Rules, Acceptance Criteria, Required Data, Validations, Exceptions, and Open Questions.
 
-| Column | Description |
-| --- | --- |
-| Story ID | Unique identifier for the user story |
-| Title | Short description of the story |
-| Status | Color-coded badge: `TODO`, `IN_PROGRESS`, `TESTING`, `DONE`, `BLOCKED` |
-| Acceptance Criteria | Conditions that define "done" |
-| Business Rules | Constraints and domain rules tied to the story |
+### Collection scope and locations
+
+Requirements live under `.bck-nd/requirements/` in the selected project root. `bck-nd req locations [project_path]` discovers root and descendant collections, conflicts, and ignored locations without merging them. Select a nested collection explicitly by passing its own project root to `list`, `show`, `validate`, `discover`, `scan`, or `prompt`.
+
+```bash
+bck-nd req locations "C:\projects\customer portal"
+bck-nd req list "C:\projects\customer portal\apps\api"
+bck-nd req show US-042 "C:\projects\customer portal\apps\api"
+```
 
 ### `bck-nd req status <story_id> <new_status>`
 
@@ -261,6 +386,8 @@ bck-nd req set-status US-042 DONE
 ```
 
 JSON stories may store `status` inside `story` or at the document root. Markdown stories use `# US-042 [IN_PROGRESS] - Title`; all sections below that header remain untouched.
+
+Status writers are serialized with the persistent `.bck-nd/requirements/.bck-nd-status.lock`, then re-read and atomically replaced under that lock. The lock coordinates cooperative Backend Helper writers, while final revalidation detects observable changes made before replacement. A minimal interval necessarily remains between that last check and the atomic replacement syscall, so this is not protection against malicious, privileged, or non-cooperating processes with the same filesystem permissions. It is also not an operating-system sandbox, RBAC system, or secret manager.
 
 ### `bck-nd req discover [story_id]`
 
@@ -293,7 +420,7 @@ Running `bck-nd prompt .` now injects a `<requirements_context>` XML block direc
 
 ### MCP Tool: `get_requirements_summary`
 
-The same requirements data is available live inside Claude Desktop or Cursor via the `get_requirements_summary` MCP tool — no need to re-export or re-paste context after every change.
+The same requirements data is available live inside Claude Desktop, Cursor, or Antigravity via the `get_requirements_summary` MCP tool — no need to re-export or re-paste context after every change.
 
 ### Standard Scan Integration
 
@@ -303,9 +430,13 @@ The same requirements data is available live inside Claude Desktop or Cursor via
 
 ## 🚀 Release History
 
+### v2.5.0 — PRD Intelligence
+
+Added the local-first PRD domain, lifecycle-aware CLI validation, deterministic JSON diagnostics, canonical product context for prompts and MCP, monorepo applicability, trust-aware rendering, and release hardening. This release is prepared in the repository; PyPI publication remains pending.
+
 ### v2.4.3 — Compiled UML, Polyglot Detection & Automation
 
-Added Go and Rust UML extraction, polyglot monorepo detection, requirement status transitions, AI context metrics, machine-readable JSON scans, and a standalone offline documentation portal. See the [current stable release summary](#v243--current-stable-release) or [CHANGELOG.md](CHANGELOG.md).
+Added Go and Rust UML extraction, polyglot monorepo detection, requirement status transitions, AI context metrics, machine-readable JSON scans, and a standalone offline documentation portal. See the [previous stable release summary](#v243--previous-stable-release) or [CHANGELOG.md](CHANGELOG.md).
 
 ### v2.4.2 — Stabilization & Workflow Integration
 
@@ -335,6 +466,8 @@ Major architecture release: decoupled `core/` engine, concurrent `ScannerOrchest
 ---
 
 ## 📦 Installation
+
+Backend Helper v2.5.0 requires Python `>=3.10`. Its declared support classifiers cover Python 3.10–3.13, and the final local release verification used Windows with Python 3.13. Newer Python versions can satisfy `Requires-Python`, but they are not yet part of v2.5.0's verified support matrix. The MCP server targets the official MCP SDK 1.x line through `mcp>=1.28.1,<2`; this keeps new installations on the compatible `FastMCP` API until a separately tested MCP 2.x migration is completed.
 
 ```bash
 # From PyPI
@@ -380,7 +513,11 @@ bck-nd docs . --output docs
 - **Entity-Relationship:** E-R diagrams for ORM models (Entity Framework, SQLAlchemy, Django).
 - **Technical Debt:** Actionable table of TODOs and FIXMEs, including scoped tags such as `TODO(audit)` and `FIXME(security)`.
 - **Requirements:** User stories, statuses, acceptance-criteria counts, and business-rule counts when specifications exist.
-- **Offline diagrams:** Embedded SVG previews remain available from `file://`, air-gapped environments, and restricted CI artifacts—no external fonts or Mermaid CDN required.
+- **Offline diagrams:** The single HTML embeds Mermaid **11.17.2** and its license, rendering real UML, ER, infrastructure and sequence diagrams without a CDN or external fonts. The renderer adds about **953 KiB compressed** to the Python package and about **3.4 MiB** to each HTML portal; it adds no Python/Node/browser runtime dependency to the CLI. Opening the portal requires a JavaScript-enabled browser, including for `file://`. If scripts are disabled or a diagram is invalid, an explicit message accompanies the complete source; invalid edits preserve the last valid drawing.
+
+The embedded renderer uses strict Mermaid security settings. The portal blocks external resource requests and fits large diagrams into scrollable panes; Fit, zoom and 100% controls expose the overview or readable detail. Diagrams are drawn in the browser, not pre-rendered SVGs available without JavaScript.
+
+Maintainers can run the optional real-browser regression with Playwright available in their development environment: `node tests/browser/check_docs.cjs /path/to/generated/index.html /path/to/screenshots`. Set `BCK_ND_BROWSER_CHANNEL=msedge` (or another installed Playwright-supported channel) when necessary. It checks actual diagram geometry under `file://` and HTTP, edits while offline, invalid-source recovery, theme redraw, and the JavaScript-disabled fallback. Playwright is not a package/runtime dependency.
 
 ---
 
@@ -399,7 +536,7 @@ bck-nd prompt .
 # Custom output file
 bck-nd prompt /my/project -o context.txt
 
-# Deeper scan (default depth is 4)
+# Cap recursion when an unlimited prompt scan is unnecessary
 bck-nd prompt . --depth 6
 
 # Copy the generated context directly to the system clipboard
@@ -414,9 +551,11 @@ Every full or focused export ends with a sizing footer such as:
 
 Token counts use a lightweight code/XML estimate of approximately 3.5 characters per token. Raw size includes non-ignored source files in the selected scan depth, so generated files, dependencies, cache content, and `.gitignore` matches do not inflate the comparison.
 
+Prompt depth is unlimited by default. `--output -` writes the context block to standard output; `-o/--output <file>` writes it to a file, and `--copy` copies the same generated context with the platform clipboard command. Product and Requirements have separate budgets: `--max-product-chars` defaults to 6000 and `--max-requirements-chars` defaults to 12000; each rejects values below 256.
+
 #### **Focused Mode (`--uml`, `--er`, `--tree`)**
 
-Export **only** the sections you need into a lightweight file. The default output filename adapts dynamically:
+Focused exports include applicable Product and Requirements context plus the requested technical sections by default. `--no-prd` removes Product and `--no-req` removes Requirements; use both together when you need strictly technical output. Product validation may still resolve linked requirement IDs unless Product itself is disabled, so neither switch should be described as a general guarantee that all requirement sources are unread.
 
 | Flags used          | Default output file          |
 | ------------------- | ----------------------------- |
@@ -428,14 +567,17 @@ Export **only** the sections you need into a lightweight file. The default outpu
 | *(no flags)*        | `ai_context.txt`             |
 
 ```bash
-# UML diagram only
+# Product + Requirements context with UML
 bck-nd prompt . --uml
 
-# ER diagram only
+# Product + Requirements context with ER
 bck-nd prompt . --er
 
-# Project tree only
+# Product + Requirements context with project tree
 bck-nd prompt . --tree
+
+# UML only, with both business-context layers disabled
+bck-nd prompt . --uml --no-prd --no-req
 
 # Combine: UML + ER diagrams
 bck-nd prompt . --uml --er
@@ -448,11 +590,12 @@ bck-nd prompt . --uml -o my_diagrams.txt
 
 | XML Tag                    | Contents                                                        |
 | --------------------------- | ----------------------------------------------------------------- |
+| `<product_context>`       | Applicable PRD provenance, lifecycle trust, linked requirement IDs, and budgeted product narrative |
+| `<requirements_context>`  | User stories, status, acceptance criteria, and business rules    |
 | `<project_tree>`          | Clean ASCII directory tree (no venv/node_modules)                |
 | `<architecture_uml>`      | UML Class Diagram in Mermaid format                               |
 | `<architecture_er>`       | Entity-Relationship Diagram in Mermaid format                     |
-| `<requirements_context>`  | User stories, status, acceptance criteria, and business rules       |
-| `<core_files>`            | Content of the 3-5 most important backend files                  |
+| `<core_files>`            | Prioritized architectural files (default limit: 5 backend, 8 mobile) |
 
 #### **How to use it**
 
@@ -467,6 +610,18 @@ bck-nd prompt . --uml -o my_diagrams.txt
 ````xml
 <!-- bck-nd-hlpr Context Dump -->
 <!-- Paste this file into ChatGPT / Claude for instant AI context -->
+
+<product_context schema_version="1">
+{"truncated":false,"documents":[{"id":"PRD-AUTH","status":"APPROVED","approved":true,"validation":"VALID"}],"diagnostics":[]}
+</product_context>
+
+<requirements_context>
+<story id="US-042" status="IN_PROGRESS">
+  <title>Allow refunds on partial shipments</title>
+  <acceptance_criteria>...</acceptance_criteria>
+  <business_rules>...</business_rules>
+</story>
+</requirements_context>
 
 <project_tree>
 my-project/
@@ -493,14 +648,6 @@ erDiagram
 
 </architecture_er>
 
-<requirements_context>
-<story id="US-042" status="IN_PROGRESS">
-  <title>Allow refunds on partial shipments</title>
-  <acceptance_criteria>...</acceptance_criteria>
-  <business_rules>...</business_rules>
-</story>
-</requirements_context>
-
 <core_files>
 <file path="src/main.py">
 
@@ -511,6 +658,21 @@ erDiagram
 </file>
 </core_files>
 ````
+
+---
+
+### 💬 `chat` - Interactive Architecture and Business Context
+
+`bck-nd chat [path]` loads the detected architecture plus applicable Product and Requirements context before opening the configured AI provider. The exclusions are independent: `--no-prd` removes Product context, `--no-req` removes Requirements context and collection-scope discovery, and both are required for a strictly technical chat. Product validation can resolve linked requirement IDs while Product remains enabled.
+
+```bash
+bck-nd chat .
+bck-nd chat . --style hacker
+bck-nd chat . --provider ollama
+bck-nd chat . --no-prd --no-req
+```
+
+Chat requires a configured provider or local Ollama. It does not run during ordinary `scan` or `prompt` commands.
 
 ---
 
@@ -536,7 +698,34 @@ Creates `.bck-nd/requirements/<STORY_ID>.md` or `.json` with the standard story,
 bck-nd req list
 ```
 
-Renders an interactive table with **Story ID**, **Title**, a color-coded **Status** badge (`TODO`, `IN_PROGRESS`, `TESTING`, `DONE`), **Acceptance Criteria**, and **Business Rules** for every requirement defined in your project.
+Renders concise story briefs with **Story ID**, **Title**, a color-coded **Status** badge (`TODO`, `IN_PROGRESS`, `TESTING`, `DONE`, `BLOCKED`), the **Como / Quiero / Para** summary, and counts for **Acceptance Criteria** and **Business Rules**. Use `show` for the complete story.
+
+#### **`req show <story_id> [project_path]`**
+
+```bash
+bck-nd req show US-001
+bck-nd req show US-001 "C:\projects\customer portal"
+```
+
+Displays Role, Want, Benefit, Business Rules, Acceptance Criteria, Required Data, Validations, Exceptions, and Open Questions for one story.
+
+#### **`req validate [project_path]`**
+
+```bash
+bck-nd req validate
+bck-nd req validate "C:\projects\customer portal"
+```
+
+Validates the selected collection and reports its story, criteria, rule, and open-question counts. A missing, rejected, or empty collection returns a non-zero status.
+
+#### **`req status <story_id> <status>`**
+
+```bash
+bck-nd req status US-001 IN_PROGRESS
+bck-nd req status US-001 DONE --path "C:\projects\customer portal"
+```
+
+Updates Markdown or JSON using one of `TODO`, `IN_PROGRESS`, `TESTING`, `DONE`, or `BLOCKED`; `set-status` is an alias.
 
 #### **`req discover [story_id]`**
 
@@ -546,10 +735,20 @@ bck-nd req discover US-042
 
 Generates a **Stakeholder Interview Guide** for the given story, with discovery questions grouped into **Mandatory Data**, **Business Rules**, **Exceptions**, and **Acceptance Criteria** — ready to use in your next requirements session.
 
+#### **`req locations [project_path]`**
+
+```bash
+bck-nd req locations .
+bck-nd req locations "C:\projects\customer portal"
+```
+
+Discovers root and descendant `.bck-nd/requirements/` collections, reports their relative roots and conflicting IDs, and keeps every collection independent. Commands operate only on the explicitly selected project root: nested collections are never merged automatically. To inspect one, pass its root directly, for example `bck-nd req list "C:\projects\customer portal\apps\api"`.
+
 #### **How it connects to the rest of the toolchain**
 
 - Every `bck-nd prompt .` run injects a `<requirements_context>` block built from the same data (see the [Requirements Intelligence Layer](#-context--requirements-intelligence-layer) section above).
-- The `get_requirements_summary` MCP tool exposes this data live to Claude Desktop and Cursor.
+- The `get_requirements_summary` MCP tool exposes this data live to Claude Desktop, Cursor, and Antigravity.
+- `bck-nd scan .` prints compact Requirements metrics, while `bck-nd scan . --req` displays story briefs. Technical views such as `--uml --er` may be combined.
 
 > See [Advanced Configuration](#advanced-configuration) for the requirements file format and project setup.
 
@@ -595,6 +794,8 @@ bck-nd scan . --depth 5
 
 #### **Modes**
 
+Views are combinable. For example, `bck-nd scan . --uml --er` renders both canonical polyglot diagrams using the same UML and ER aggregators used by `bck-nd prompt` when path and depth are equal. The default scan keeps its depth of 3; prompt remains unlimited unless `--depth` is supplied.
+
 ##### 1. **Full Architecture Overview (Default)**
 
 ```bash
@@ -606,6 +807,7 @@ bck-nd scan .
 - Framework detection (Flask, FastAPI, Django, etc.)
 - Architecture type (MVC, Microservices, etc.)
 - Features (Docker, Auth, Database, etc.)
+- Compact Requirements metrics when a selected collection exists
 - **Infra Map:** Docker Compose services
 - **API Routes:** Endpoints sequence diagram
 - **UML & ER:** Class and Entity-Relationship Mermaid diagrams
@@ -661,6 +863,15 @@ bck-nd scan . --er
 - Bulletproof Mermaid Syntax: Safely handles Generics (e.g. `List<T>`), table brackets, and special characters.
 - Detects database columns, primary keys (`PK`), data annotations, and auto-generates bidirectional relationships (`||--o{`, `}o--||`) with intelligent schema deduplication and merging.
 
+##### **Requirements Briefs (`--req`)**
+
+```bash
+bck-nd scan . --req
+bck-nd scan . --tree --req
+```
+
+The general scan reports compact story/criteria/rule metrics. `--req` requests the human-readable story briefs; use `bck-nd req show <ID>` when complete story sections are needed.
+
 ##### 6. **API Route Map**
 
 ```bash
@@ -712,6 +923,7 @@ bck-nd scan . --audit
 - Scans for hardcoded secrets, keys, and dangerous config
 - Reports "Critical" risks like AWS Keys or Private PEMs
 - Reports "High/Warning" risks like DB passwords or hardcoded IPs
+- Uses the same bounded, high-confidence credential registry as AI-context sanitization; findings preserve file, line, type, severity, and category but never retain the matched credential value
 - Essential for pre-commit checks
 
 ##### 10. **Dependency Heatmap**
@@ -1036,7 +1248,7 @@ Backend Helper automatically detects:
 - API Documentation (Swagger/OpenAPI)
 - CI/CD (GitHub Actions, GitLab CI)
 - Unit Tests
-- **Security**: Auto-redaction of secrets in output (Sanitizer)
+- **Security**: Deterministic redaction of high-confidence credential patterns in sanitized output; this is not exhaustive secret management
 
 ### **Configuration**
 
@@ -1096,18 +1308,46 @@ bck-nd scan . --ai --provider ollama
 
 ---
 
-## 🤖 MCP Integration (Claude Desktop / Cursor)
+## 🤖 MCP Integration (Claude Desktop / Cursor / Antigravity)
 
-Backend Helper includes an MCP server exposing **23 local architecture and requirements tools** directly inside Claude Desktop and Cursor, including:
+Backend Helper includes an MCP server exposing **24 local architecture, product, and requirements tools** directly inside Claude Desktop, Cursor, and Antigravity IDE, including:
 
 ```bash
-bck-nd-mcp
+bck-nd-mcp --install --allowed-root /absolute/path/to/project
 ```
 
-| Tool | Introduced | What it returns |
+The installer requires at least one explicit absolute project root and injects it into Claude Desktop, Cursor, and Antigravity as `BCK_ND_MCP_ALLOWED_ROOTS`. Repeat `--allowed-root` to authorize more than one root. It detects the current `antigravity-ide` launcher and safely merges Backend Helper into Antigravity's global MCP configuration without removing GitHub, Supabase, or any other configured server. Invalid JSON, duplicate keys at any depth, or an invalid `mcpServers` shape is rejected without changing the original bytes. Valid updates serialize Backend Helper writers with a small persistent system lock, use a verified backup, retain atomic replacement and revalidation, and abort if a non-cooperating process changes the file concurrently. Persistent `.lock` files are deliberate; these advisory locks prevent accidental cooperative races, not privileged or adversarial writes.
+
+| Tool | Parameters | Purpose |
 | --- | --- | --- |
-| `get_asg_graph` | v2.4.1 | The Abstract Semantic Graph (Pillar 3) — the full normalized architecture IR, queryable by the AI |
-| `get_requirements_summary` | v2.4.1 | Live user stories, statuses, acceptance criteria, and business rules from the Requirements Intelligence Layer |
+| `scan_project` | `path`, `depth` | Complete human-readable architecture scan |
+| `get_project_tree` | `path`, `depth` | Filtered project tree |
+| `get_uml_diagram` | `path`, `depth` | Canonical polyglot UML |
+| `get_er_diagram` | `path`, `depth` | Canonical polyglot ER |
+| `get_routes_diagram` | `path`, `depth` | HTTP route sequence diagram |
+| `get_infra_diagram` | `path` | Docker Compose topology |
+| `scan_todos` | `path`, `depth` | Technical-debt findings |
+| `audit_security` | `path`, `depth` | Sanitized credential and security findings |
+| `analyze_impact` | `path` | Dependency impact heatmap |
+| `generate_ai_context` | `path`, `depth`, `output` | Writes an approved Backend Helper context artifact |
+| `generate_html_docs` | `path`, `output` | Writes an approved documentation portal artifact |
+| `render_flow_diagram` | `layout` | Pure text-to-ASCII rendering; does not access files |
+| `explain_architecture_with_ai` | `path`, `depth`, `style`, `provider` | Optional provider-backed architecture explanation |
+| `get_traceability_diagram` | `path`, `depth` | Route-to-data traceability |
+| `init_ci` | `path` | Writes the marked CI workflow and minimal ignore rules |
+| `get_project_health` | `root_path`, `depth` | Consolidated health score |
+| `get_guided_onboarding` | `root_path`, `depth` | Dependency-guided reading order |
+| `export_data_dictionary` | `root_path`, `format` | JSON or CSV entity dictionary |
+| `get_impact_radius` | `root_path`, `changed_file`, `depth` | Transitive change impact |
+| `get_api_contract_map` | `root_path`, `depth` | Routes matched with model fields |
+| `get_asg_graph` | `root_path`, `depth` | Normalized Abstract Semantic Graph |
+| `get_architecture_summary` | `root_path`, `depth` | Framework, architecture, features, and provider metadata |
+| `get_product_context` | `project_path`, `target_path`, `max_chars` | Read-only canonical Product context; consult before product scope, users, goals, or release decisions |
+| `get_requirements_summary` | `project_path` | Read-only Requirements detail and collection-scope metadata |
+
+All 23 MCP tools that access the filesystem enforce the same fail-closed local boundary. No project is authorized implicitly: if `BCK_ND_MCP_ALLOWED_ROOTS` is missing, empty, relative, or contains any invalid entry, filesystem access is denied. With exactly one configured root, `.` and other relative project paths are interpreted from that root—not from the MCP process working directory. With multiple roots, the agent must provide an absolute project path contained in one of them. Explicit roots are separated by the platform's path separator (`;` on Windows, `:` on macOS/Linux). Canonical containment checks reject traversal, external absolute paths, UNC/drive escapes, and symlink or junction escapes; rejection messages do not echo the requested path.
+
+Generated artifacts have an additional write boundary. AI context may be created only as project-root `ai_context.txt` or a `.txt` file below `.bck-nd/generated/contexts/`; HTML may be published only to `docs/index.html` or `.bck-nd/generated/docs/index.html`. Existing files are replaced only when they carry Backend Helper's marker. HTML generation is staged outside the project, while HTML, context, CI workflow, and minimal `.gitignore` changes are verified and atomically published. This protects unrelated files but is not an operating-system sandbox.
 
 For MCP client configuration and requirements integration, see [Advanced Configuration](#advanced-configuration).
 
@@ -1212,6 +1452,7 @@ bck-nd scan . --no-cache
 | **API Contract Map** | Heuristic | Matches routes to models by naming/import patterns — not runtime validation |
 | **Security audit** | Pattern-based | Catches common secret patterns; not a substitute for dedicated SAST tools |
 | **Requirements Intelligence** | Manual authoring | Requires user stories to be defined in your project's requirements file(s); no automatic inference from code |
+| **PRD Intelligence** | Local Markdown and deterministic validation | Human authors must supply product intent; high-confidence redaction reduces accidental credential exposure but is not a secret manager; no autonomous PRD generation, cloud sync, visual editor, HTML-portal embedding, or complete code-test traceability |
 
 Parser errors on individual files are collected in `execution_warnings` and do not abort the scan. See [CHANGELOG.md](CHANGELOG.md#200).
 
@@ -1320,91 +1561,141 @@ Backend Helper keeps generated state and user-authored requirements together wit
 .bck-nd/
 ├── cache/
 │   └── delta.json       # Generated; ignored by Git and context output
+├── product/             # Human-authored PRDs; preserved in version control
+│   └── PRD.md
 └── requirements/        # User-authored; preserved in trees and version control
     ├── US-001.md
     └── US-002.json
 ```
 
-The cache directory is created automatically. Requirements remain visible to `bck-nd prompt`, `bck-nd scan`, and MCP clients.
+The cache directory is created on the first successful cache save, not when the cache manager is merely instantiated. Product and requirement sources remain versionable; Product and Requirements context can be excluded independently with `--no-prd` and `--no-req` without deleting their sources.
 
 ---
 
 ## Advanced Configuration
 
-### 🤖 MCP Integration (Claude Desktop / Cursor)
+### 🤖 MCP Integration (Claude Desktop / Cursor / Antigravity)
 
-Backend Helper includes a server compatible with the **Model Context Protocol (MCP)**. This allows any compatible AI client (like **Claude Desktop** or **Cursor**) to interact directly with your codebase using our local reverse engineering and diagramming tools without needing to send all your code to the cloud or consume valuable context tokens by transferring full files.
+Backend Helper includes a local **Model Context Protocol (MCP)** server with 24 architecture, quality, security, product, and requirements tools. Claude Desktop, Cursor, and Antigravity can call those tools on demand without copying the entire repository into every conversation.
 
-The AI will call local tools on demand to analyze the architecture, generate diagrams, search for technical debt, or audit security.
+#### Automatic Installation
 
-#### How to Run the MCP Server (Local Test)
-
-Once you have installed the package locally (`pip install -e .`), you can run the MCP server using the global command:
+Install or update Backend Helper, then run the one-command client installer:
 
 ```bash
-bck-nd-mcp
+pip install -U bck-nd-hlpr
+bck-nd-mcp --install --allowed-root /absolute/path/to/project
 ```
 
-Alternatively, you can run it as a Python module:
+On Windows, for example:
+
+```powershell
+bck-nd-mcp --install --allowed-root C:\projects\my-api
+```
+
+Repeat the option to authorize separate workspaces. CLI roots take priority over an existing environment value, are canonicalized and deduplicated, and are stored using the platform path separator:
+
+```powershell
+bck-nd-mcp --install --allowed-root C:\projects\frontend --allowed-root D:\work\backend
+```
+
+The installer:
+
+- registers Backend Helper with Claude Desktop;
+- updates detected Cursor profiles;
+- detects the current `antigravity-ide` launcher and updates Antigravity IDE/CLI;
+- stores the validated explicit roots in each client's `BCK_ND_MCP_ALLOWED_ROOTS` environment;
+- preserves every unrelated MCP server already present, including GitHub MCP;
+- replaces legacy Backend Helper keys with the canonical `bck-nd-mcp` entry;
+- creates a `.bak` copy from verified original bytes before changing an existing JSON configuration;
+- refuses malformed JSON, duplicate keys at any depth, non-object roots, or non-object `mcpServers` without overwriting the file;
+- holds a bounded persistent system lock across verified read, backup, atomic replacement, and directory sync, while retaining final content revalidation for non-cooperating changes.
+
+Restart the client or use its MCP **Refresh** action after installation.
+
+#### MCP project filesystem boundary
+
+All MCP architecture, product, requirements, quality, and generation tools that access files use one fail-closed local containment policy. The process working directory never grants access or acts as a resolution base. With one configured root, `.` selects that root and relative project paths resolve beneath it. With multiple configured roots, relative paths are ambiguous and rejected, so the client must send an authorized absolute project path. Without a completely valid explicit root list, every filesystem-backed tool denies access. The installer writes the list automatically; for a manual client configuration, set the server environment:
+
+```text
+# Windows
+BCK_ND_MCP_ALLOWED_ROOTS=C:\projects\frontend;D:\work\backend
+
+# macOS/Linux
+BCK_ND_MCP_ALLOWED_ROOTS=/srv/projects/frontend:/work/backend
+```
+
+Every configured root must be absolute, already exist, and be a directory. If any configured entry is invalid, the complete authorization list is rejected rather than partially accepted. Each requested project must remain canonically contained in one configured root. Traversal and link/reparse escapes are rejected with path-neutral errors. Secondary inputs such as `changed_file` must remain inside that authorized project.
+
+Repository-controlled links are also excluded after authorization: the filesystem index, project tree, and final file cache inspect pathnames without following symlinks, junctions, or reparse points. Credential-shaped text in requirements summaries and other AI-facing context is sanitized again at the output boundary. These controls reduce accidental disclosure; they do not replace dedicated secret scanning, rotation, or operating-system isolation.
+
+`.gitignore` loading is incremental and fail-closed. Root and nested policies retain Git-style negation, escaped trailing spaces, ranges, and pathname-aware `*`/`**` behavior. If a policy source is unsafe, unreadable, exceeds 10,000 actionable rules, or contains an actionable pattern over 4,096 characters, Backend Helper excludes that policy's subtree and exposes only a neutral relative-scope diagnostic; it never applies a silently truncated prefix.
+
+MCP-generated files are narrower still: context output is limited to `ai_context.txt` or `.bck-nd/generated/contexts/*.txt`, documentation to `docs/index.html` or `.bck-nd/generated/docs/index.html`, and CI setup to the known Backend Helper workflow plus minimal `.gitignore` rules. Existing context, portal, or workflow files without a recognized Backend Helper marker are preserved. Publications use same-directory temporary files, flush and synchronization where supported, verified atomic replacement, and temporary cleanup. These are application-level local containment and cooperative race protections—not an operating-system sandbox, accounts, RBAC, enterprise authorization, or protection against privileged processes that bypass the checks.
+
+#### Antigravity IDE and Agent
+
+Antigravity's IDE agent and CLI share this global MCP registry:
+
+- **Windows:** `%USERPROFILE%\.gemini\config\mcp_config.json`
+- **macOS/Linux:** `~/.gemini/config/mcp_config.json`
+
+These locations and the `mcpServers` schema follow the [official Antigravity MCP documentation](https://antigravity.google/docs/mcp/).
+
+For a server that should exist only inside one repository, Antigravity also supports:
+
+```text
+<project>/.agents/mcp_config.json
+```
+
+Backend Helper installs globally by default so it is available in every Antigravity project. Existing entries such as GitHub MCP remain unchanged, which means the agent can use repository data from GitHub together with live architecture and requirements context from Backend Helper.
+
+To verify the integration in Antigravity IDE:
+
+1. Open the Agent side panel.
+2. Select **MCP Servers > Manage MCP Servers**.
+3. Refresh the list or restart the IDE.
+4. Confirm that `bck-nd-mcp` is enabled.
+5. Ask the agent to call `get_product_context` before product or release decisions, `get_requirements_summary` for detailed behavior, or `scan_project` for architecture.
+
+If manual configuration is necessary, add this entry under the existing `mcpServers` object without deleting the other entries:
+
+```json
+{
+  "mcpServers": {
+    "bck-nd-mcp": {
+      "command": "bck-nd-mcp",
+      "env": {
+        "BCK_ND_MCP_ALLOWED_ROOTS": "/absolute/path/to/project"
+      }
+    }
+  }
+}
+```
+
+The automatic Antigravity installation uses the absolute path of the active Python interpreter plus `-m bck_nd_hlpr.cli.mcp_server`, which is more reliable when a graphical IDE does not inherit the terminal's `PATH`.
+
+#### Claude Desktop
+
+The automatic installer updates:
+
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+
+#### Cursor
+
+The automatic installer updates detected `.cursor/mcp.json` or Cursor global-storage configurations. For manual setup, go to **Cursor Settings > Features > MCP**, create a command server named `bck-nd-mcp`, and use `bck-nd-mcp` as its command.
+
+#### Running the Server Directly
+
+Normally, do not start `bck-nd-mcp` yourself: the MCP client launches it using the `stdio` transport. Running the command manually displays an explanation and then waits for protocol messages on standard input. Pressing `Ctrl+C` exits cleanly.
+
+For environment troubleshooting, the equivalent module command is:
 
 ```bash
 python -m bck_nd_hlpr.cli.mcp_server
 ```
-
-#### How to Configure Clients
-
-##### 1. Claude Desktop
-
-Add the following configuration block to your `claude_desktop_config.json` file:
-
-- **Windows Path:** `%APPDATA%\Claude\claude_desktop_config.json`
-- **Mac/Linux Path:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-**Using the global executable (Recommended):**
-
-```json
-{
-  "mcpServers": {
-    "backend-helper": {
-      "command": "bck-nd-mcp",
-      "env": {
-        "OPENAI_API_KEY": "your-optional-api-key",
-        "ANTHROPIC_API_KEY": "your-optional-api-key"
-      }
-    }
-  }
-}
-```
-
-**Using the explicit Python module** (Most robust for environment/PATH issues):
-
-```json
-{
-  "mcpServers": {
-    "backend-helper": {
-      "command": "python",
-      "args": [
-        "-m",
-        "bck_nd_hlpr.cli.mcp_server"
-      ],
-      "env": {
-        "OPENAI_API_KEY": "your-optional-api-key",
-        "ANTHROPIC_API_KEY": "your-optional-api-key"
-      }
-    }
-  }
-}
-```
-
-##### 2. Cursor
-
-1. Go to **Cursor Settings > Features > MCP**.
-2. Click on **+ Add New MCP Server**.
-3. Configure the following parameters:
-   - **Name:** `backend-helper`
-   - **Type:** `command`
-   - **Command:** `bck-nd-mcp` (or `python -m bck_nd_hlpr.cli.mcp_server` to lock it to your active python environment).
-4. Save and click on **Refresh**. Done! You now have 20 powerful architecture tools instantly available to your AI assistant.
 
 ---
 
@@ -1430,6 +1721,8 @@ my-project/
 ```
 
 > **Note:** If both `US-001.json` and `US-001.md` exist, only the first encountered (sorted by stem then suffix) is loaded — duplicates by Story ID are deduplicated automatically.
+
+Requirements loading is deliberately bounded and fail-closed: each supported source may be at most **1 MiB**, a collection may contain at most **512** supported sources and **8 MiB** of verified source bytes in total, and JSON is limited to **64 nesting levels** and **10,000 nodes**. The AI and MCP Requirements renderers share a deterministic **12,000-character** budget, sanitize detected credentials before measuring, preserve story provenance first, and include an explicit marker if details must be truncated. A missing requirements directory remains an ordinary empty result; a collection rejected by a safety limit is reported separately without exposing paths or source content.
 
 #### Supported File Formats
 
@@ -1574,19 +1867,48 @@ The parser recognizes these `## ` section headers (English and Spanish):
 
 ##### `bck-nd req list [path]`
 
-Scans `.bck-nd/requirements/` and displays a summary table of all discovered stories:
+Scans the selected `.bck-nd/requirements/` collection and displays concise briefs for its stories. It does not merge descendant collections; use `bck-nd req locations [path]` to discover them and pass a nested project root explicitly. Use `bck-nd req show <story_id> [path]` for all fields of one story.
 
+Representative output, captured from a synthetic two-story collection:
+
+```text
+Requirements scope: .
+Source: .bck-nd/requirements
+
+Project Requirements & User Stories (2 found)
+┌───────────────────────────┬──────────────────────────────────────────────┐
+│ Story                     │ Story Brief                                  │
+├───────────────────────────┼──────────────────────────────────────────────┤
+│ US-CHECKOUT [IN_PROGRESS] │ US-CHECKOUT Guest checkout                   │
+│                           │ Como online shopper,                         │
+│                           │ quiero complete an order without creating    │
+│                           │ an account,                                  │
+│                           │ para finish purchases faster.                │
+│                           │ 2 criterios · 2 reglas                       │
+│ US-REFUND [TODO]          │ US-REFUND Partial refund                     │
+│                           │ Como support agent,                          │
+│                           │ quiero refund selected order items,          │
+│                           │ para resolve customer issues without         │
+│                           │ cancelling an entire order.                  │
+│                           │ 3 criterios · 1 regla                        │
+└───────────────────────────┴──────────────────────────────────────────────┘
+
+View complete story:
+  bck-nd req show US-CHECKOUT "C:\projects\customer portal"
 ```
-┌──────────────────────────────────────────────────────────────┐
-│         Project Requirements & User Stories (3 found)        │
-├──────────┬─────────────┬───────────────────┬────────┬────────┤
-│ Story ID │   Status    │ Title             │ Crit.  │ Rules  │
-├──────────┼─────────────┼───────────────────┼────────┼────────┤
-│  US-001  │ IN_PROGRESS │ User Registration │   2    │   2    │
-│  US-002  │    TODO     │ Password Reset    │   3    │   1    │
-│  HU-003  │    DONE     │ User Profile      │   1    │   0    │
-└──────────┴─────────────┴───────────────────┴────────┴────────┘
+
+The quoted path in the suggested command is intentional. Root and descendant collections remain independent; `req list` never merges them automatically.
+
+##### `bck-nd req show`, `validate`, `status`, and `locations`
+
+```bash
+bck-nd req show US-001 .
+bck-nd req validate .
+bck-nd req status US-001 IN_PROGRESS --path .
+bck-nd req locations .
 ```
+
+`show` displays every section, `validate` checks the selected collection, `status` performs a safe in-place lifecycle update, and `locations` reports independent root/nested collections and ID conflicts. Paths containing spaces must be quoted.
 
 ##### `bck-nd req discover [story_id] [path]`
 
@@ -1602,7 +1924,7 @@ bck-nd req discover US-001
 
 ##### `bck-nd prompt .`
 
-When generating the LLM context dump, `bck-nd prompt .` automatically detects and injects all requirements from `.bck-nd/requirements/` into the output. The context dump includes:
+When generating the LLM context dump, `bck-nd prompt .` injects the explicitly selected collection from `.bck-nd/requirements/` into the output. Descendant collections remain independent and are reported as omitted scope rather than merged automatically. The context dump includes:
 
 - Story metadata (ID, status, role/want/benefit)
 - Business rules
