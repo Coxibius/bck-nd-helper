@@ -5,22 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.5.0] - 2026-08-27
+## [2.5.0] - Pending publication (prepared 2026-09-07)
+
+This release is prepared in the repository but has not been published to PyPI.
 
 ### Added
 
 - **Local-first PRD Intelligence:** Human-authored Markdown product documents with YAML front matter under `.bck-nd/product/`, typed domain models, deterministic parsing, lifecycle-aware validation, and stable structured diagnostics.
 - **PRD CLI workflow:** `bck-nd prd init`, `list`, `validate`, and `status`, including deterministic `prd validate --json` output and project selection through `--path` / `-p`.
-- **Requirements linkage and scope:** Explicit requirement-ID resolution plus component-aware monorepo applicability through safe project-relative `applies_to` paths.
+- **Requirements workflow and scope discovery:** `bck-nd req init`, `list`, `show`, `validate`, `status`, `discover`, and `locations` provide copyable commands, concise briefs, complete story detail, safe lifecycle updates, and explicit discovery of independent root/nested collections without automatic merging.
+- **Requirements linkage and Product scope:** Explicit requirement-ID resolution plus component-aware monorepo applicability through safe project-relative `applies_to` paths.
 - **Canonical product renderer:** Trust-aware, deterministic `<product_context>` output with provenance, shared character budgeting, explicit truncation, and scope-local diagnostic filtering.
-- **Prompt controls:** `--max-product-chars` with a 6000-character default and 256-character minimum, plus `--no-prd` to prevent product-context loading and output.
+- **Prompt controls:** independent `--no-prd` and `--no-req` exclusions, `--max-product-chars` with a 6000-character default, and `--max-requirements-chars` with a 12000-character default; both budgets have a 256-character minimum.
 - **Read-only MCP product context:** `get_product_context(project_path, target_path, max_chars)` for product scope, users, goals, and release decisions.
 - **Compact diagnostic trust summary:** Product context retains the first applicable error code even at the minimum character budget.
 - **Regression coverage:** Product models, parser, validator, service, CLI, renderer, prompt/MCP integration, path safety, serialization, atomic updates, context fidelity, and backward compatibility.
 
 ### Changed
 
-- Focused `bck-nd prompt --uml`, `--er`, and `--tree` exports are product-aware by default; `--no-prd` produces strictly technical focused context.
+- Focused `bck-nd prompt --uml`, `--er`, and `--tree` exports include applicable Product and Requirements context by default; `--no-prd --no-req` together produce strictly technical focused context.
+- `scan` and `prompt` now share the canonical polyglot UML and ER aggregators, so equal project paths and depths use one analysis semantics across both commands.
+- Requirements commands, scan, prompt, chat, and MCP expose the selected collection plus bounded metadata about omitted nested collections instead of silently merging independent scopes.
+- Interactive chat includes applicable Product and Requirements context by default and supports the same independent `--no-prd` and `--no-req` exclusions.
 - `<core_files>` selection now combines dependency impact with architectural and entry-point priorities instead of relying only on filenames.
 - UML, ER, dependency, tree, and core-file discovery now load hierarchical `.gitignore` rules incrementally, prune ignored directories before descent, and apply pathname-aware wildcards with deterministic negation precedence.
 - MCP and client documentation now covers Antigravity IDE/CLI installation and the product-context workflow.
@@ -28,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The offline HTML portal now embeds the pinned Mermaid 11.17.2 browser renderer and MIT license instead of displaying diagram source as SVG text. UML, ER, infrastructure and sequence views produce actual geometry offline; invalid edits preserve the last valid diagram with an explicit warning. JavaScript-disabled viewers retain the complete source and an honest explanation. No CDN or Node/Python rendering dependency is required.
 - Fresh installations no longer resolve the incompatible MCP SDK 2.x API; runtime compatibility is bounded to `mcp>=1.28.1,<2` for v2.5.0.
 - Windows clipboard export now sends UTF-16LE to `clip.exe`, preserving non-ASCII and emoji content.
 - UML/ER parsers no longer leak files excluded by `.gitignore` into diagrams or context.
@@ -37,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP configuration parsing now rejects exact duplicate JSON keys at any nesting depth instead of silently accepting the last value.
 - Gitignore matching no longer lets single-star patterns cross directory separators; recursive matching is reserved for `**`.
 - Gitignore parsing now follows Git semantics for unescaped versus escaped trailing spaces and preserves character-class ranges, negation, literal hyphens, and literal closing brackets without allowing classes to cross directories.
+- Blank or whitespace-only `flow` input now fails with a controlled non-zero result instead of reporting a successful empty diagram.
+- ContextDumper no longer selects one framework-specific UML/ER parser and lose valid entities or classes from another language in a polyglot workspace.
+- Delta-cache recovery is conditional and recoverable: construction alone creates no cache directories, while successful saves use verified writes and preserve unrelated or concurrently changed content.
+- Requirements briefs, detail views, diagnostics, scope guidance, and command suggestions now remain usable for project roots containing spaces.
 
 ### Security
 
@@ -57,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Filesystem indexing, project-tree generation, and cached descriptor reads now reject symlinks, junctions, reparse points, and non-regular entries; verified reads abort without caching when identity, metadata, or content changes concurrently.
 - A shared high-confidence credential registry now drives sanitizer and security-auditor detection for provider tokens, JWTs, private keys, credentialed connection strings, and sensitive assignments. AI context, requirements MCP summaries, and audit reports redact matched values as `***REDACTED***` while retaining useful finding metadata; this remains output hygiene rather than secret management.
 - Root and nested `.gitignore` sources now load incrementally with bounded rules and line storage. Unsafe, unreadable, oversized, or incomplete policies block their governed scope with stable neutral diagnostics rather than applying a partial prefix or continuing without a trusted policy.
+- A unified bounded read boundary supplies scanners, parsers, providers, dependency analysis, and ContextDumper from one verified snapshot; unsafe links, races, oversized reads, and paths outside the selected project fail closed rather than activating alternate traversal paths.
+- Shared atomic writers provide no-clobber creation, verified replacement, temporary cleanup, and controlled failure exits for generated artifacts, cache state, Requirements, PRDs, MCP configuration, documentation, and CI setup.
 
 ## [2.4.3] - 2026-08-22
 

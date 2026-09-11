@@ -249,6 +249,8 @@ def test_context_sanitizer_preserves_quotes_and_bounds_quoted_values():
             "postgresql://app:correct-horse-battery-staple@db.example/app",
             "correct-horse-battery-staple",
         ),
+        ('client secret: "value with spaces"', "value with spaces"),
+        ('{"password": "value with spaces"}', "value with spaces"),
                 (
             "mailchimp=" + ("0123456789abcdef" * 2) + "-us1",
             ("0123456789abcdef" * 2) + "-us1",

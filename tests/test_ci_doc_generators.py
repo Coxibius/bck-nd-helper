@@ -1,4 +1,8 @@
 import os
+import gzip
+import hashlib
+from html.parser import HTMLParser
+from importlib import resources
 from pathlib import Path
 import pytest
 from bck_nd_hlpr.ci_generator import generate_ci_workflow
@@ -8,6 +12,19 @@ from bck_nd_hlpr.core.ci_generator import (
     LEGACY_GITHUB_ACTION_YAML,
 )
 from bck_nd_hlpr.core.utils.secure_write import SecureWriteError
+
+
+class _ExternalResources(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.urls = []
+
+    def handle_starttag(self, tag, attributes):
+        attributes = dict(attributes)
+        if tag in {"script", "img", "iframe", "link"}:
+            url = attributes.get("src", attributes.get("href", ""))
+            if url and not url.startswith("data:"):
+                self.urls.append(url)
 
 def test_generate_ci_workflow(tmp_path):
     # Call generate_ci_workflow with tmp_path
@@ -157,9 +174,16 @@ def test_doc_generator_basic(tmp_path):
     assert "Copy Complete AI Context to Clipboard" in html_content
     assert "&lt;project_tree&gt;" in html_content or "<project_tree>" in html_content
     assert "navigator.clipboard.writeText" in html_content
-    assert 'data-renderer="offline-svg"' in html_content
-    assert "https://cdn.jsdelivr.net" not in html_content
-    assert "fonts.googleapis.com" not in html_content
+    assert 'id="mermaid-runtime" data-version="11.17.2"' in html_content
+    assert 'data-state="pending"' in html_content
+    assert "renderOfflineSvg" not in html_content
+    assert "const mermaid = {" not in html_content
+    assert "window.mermaid.render(" in html_content
+    assert "securityLevel: 'strict'" in html_content
+    assert "connect-src 'none'" in html_content
+    resources_found = _ExternalResources()
+    resources_found.feed(html_content)
+    assert resources_found.urls == []
 
 
 def test_doc_generator_includes_requirements_in_offline_dashboard(tmp_path):
@@ -197,4 +221,36 @@ def test_doc_generator_includes_requirements_in_offline_dashboard(tmp_path):
     assert "US-009" in content
     assert "TESTING" in content
     assert "Offline checkout &lt;script&gt;alert(1)&lt;/script&gt;" in content
-    assert "https://" not in content
+    # Vendor license/source URLs are text, not external runtime dependencies.
+    resources_found = _ExternalResources()
+    resources_found.feed(content)
+    assert resources_found.urls == []
+
+
+def test_offline_renderer_asset_is_pinned_and_missing_asset_preserves_output(tmp_path, monkeypatch):
+    import bck_nd_hlpr.core.doc_generator as module
+
+    asset = resources.files("bck_nd_hlpr").joinpath("assets", "mermaid")
+    runtime = gzip.decompress(asset.joinpath("mermaid.min.js.gz").read_bytes())
+    assert hashlib.sha256(runtime).hexdigest() == (
+        "581ed7d74bd9048d0e3a91363927d72ef22942d7722546b27f7cc29e35390eb8"
+    )
+    assert "Permission is hereby granted" in asset.joinpath("LICENSE").read_text(encoding="utf-8")
+    script = module._mermaid_runtime_script()
+    assert "Permission is hereby granted" in script
+    assert script.lower().count("</script") == 1
+
+    project = tmp_path / "project"
+    project.mkdir()
+    output = tmp_path / "docs"
+    generated = DocGenerator().generate(str(project), str(output))
+    assert generated is not None
+    original = Path(generated).read_bytes()
+
+    def missing_runtime():
+        raise FileNotFoundError("packaged renderer missing")
+
+    monkeypatch.setattr(module, "_mermaid_runtime_script", missing_runtime)
+    assert DocGenerator().generate(str(project), str(output)) is None
+    assert Path(generated).read_bytes() == original
+    assert not list(output.glob(".*.tmp"))

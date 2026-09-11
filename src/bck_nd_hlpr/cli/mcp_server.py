@@ -400,7 +400,9 @@ ROUTING GUIDE — call the right tool for the right question:
 - "product intent / PRD / scope / goals?"       → get_product_context
 - "setup CI / GitHub Actions / auto-documentation workflow?" → init_ci
 
-Default path is always "." (current directory) unless the user specifies a different path.
+Project paths default to ".". With one authorized root this selects that root;
+with multiple roots the caller must provide an authorized absolute project path.
+The server process working directory never grants access.
 """
 )
 
@@ -430,8 +432,9 @@ def scan_project(path: str = ".", depth: int = 3) -> str:
     get_er_diagram, etc.) when the user asks about one specific diagram type.
 
     Args:
-        path: Absolute or relative path to the project root. Use "." for current directory.
-              Example: "/home/user/my-api" or "C:/projects/backend".
+        path: Authorized project root. With one configured root, "." selects it
+              and relative paths resolve beneath it. Multiple roots require an
+              authorized absolute path.
         depth: Directory levels to scan. Default 3 covers most projects.
                Increase to 5-6 for deeply nested monorepos or multi-module Maven/Gradle projects.
     """
@@ -576,7 +579,7 @@ def get_project_tree(path: str = ".", depth: int = 4) -> str:
     This is a READ-ONLY tool — it does not create or modify any files.
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: Directory depth to display. Default 4 covers most project layouts.
                Increase to 6-8 for deeply nested monorepos.
     """
@@ -612,7 +615,7 @@ def get_uml_diagram(path: str = ".", depth: int = 3) -> str:
     Do NOT use this to find API endpoints — use get_routes_diagram for that.
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: Directory scan depth. Use 4-5 for large projects with nested packages.
     """
     try:
@@ -657,7 +660,7 @@ def get_er_diagram(path: str = ".", depth: int = 3) -> str:
     Do NOT use this to find Python/JS classes — use get_uml_diagram for that.
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: Directory depth to search for model files. Increase for nested module structures.
     """
     try:
@@ -695,7 +698,7 @@ def get_routes_diagram(path: str = ".", depth: int = 3) -> str:
               Next.js (pages/api/* file routes).
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: How deep to search for route files. Increase for nested router structures.
     """
     try:
@@ -856,7 +859,7 @@ def analyze_impact(path: str = ".") -> str:
 @mcp.tool()
 @redirect_stdout_to_stderr
 def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_context.txt") -> str:
-    """Generate a single LLM-optimized context file with the full project structure, diagrams, and core source files.
+    """Generate an LLM context artifact with Product, Requirements, architecture, and core files.
 
     Use this tool when:
     - The user says "give me context for this project", "prepare a context file", or "share with another AI".
@@ -866,6 +869,8 @@ def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_conte
 
     Output: Writes a UTF-8 .txt file to disk and returns the file path + a summary.
     The file uses XML-like tags optimized for LLM parsing:
+    - <product_context>:   Applicable product intent, provenance, and trust
+    - <requirements_context>: Selected user stories and business rules
     - <project_tree>:      Clean ASCII directory tree (ignoring venv, node_modules, .git, etc.)
     - <architecture_uml>:  UML Class Diagram in Mermaid format
     - <architecture_er>:   Entity-Relationship Diagram in Mermaid format
@@ -878,7 +883,8 @@ def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_conte
     Args:
         path: Path to the project root to analyze. Default ".".
         depth: Directory scan depth. Default 4 covers most project structures.
-        output: Output file path. Default "ai_context.txt" in the current directory.
+        output: Approved output path relative to the selected project. Default
+                "ai_context.txt" at that project root.
     """
     try:
         from bck_nd_hlpr.core.context_dumper import ContextDumper
@@ -925,16 +931,16 @@ def generate_ai_context(path: str = ".", depth: int = 4, output: str = "ai_conte
 @mcp.tool()
 @redirect_stdout_to_stderr
 def generate_html_docs(path: str = ".", output: str = "docs") -> str:
-    """Generate a self-contained static HTML documentation portal with live interactive Mermaid diagrams.
+    """Generate a self-contained static HTML portal with embedded diagram previews.
 
     Use this tool when:
     - The user asks to "generate documentation", "create a docs site", or "build HTML docs".
     - The user wants to publish architecture docs to GitHub Pages or an internal wiki.
     - After running bck-nd init-ci, to preview the documentation that will be auto-deployed.
 
-    Output: Creates an index.html file in the output directory with all diagrams rendered
-    interactively via MermaidJS CDN. Returns the absolute path to the generated file.
-    The site is fully self-contained — just open index.html in a browser.
+    Output: Creates an approved index.html artifact with an embedded offline Mermaid
+    renderer and returns a project-relative location. Drawing requires JavaScript
+    enabled in the viewer's browser; no external font or Mermaid CDN is required.
 
     Args:
         path: Path to the project root to document. Default ".".
@@ -1133,7 +1139,7 @@ def get_traceability_diagram(path: str = ".", depth: int = 3) -> str:
     Supports: Python (FastAPI/Flask).
 
     Args:
-        path: Path to the project root. Default "." is the current directory.
+        path: Authorized project root. Default "." selects the sole configured root.
         depth: Scan depth. Increase for deeply nested route files.
     """
     try:
@@ -1205,7 +1211,7 @@ def get_project_health(root_path: str = ".", depth: int = 3) -> str:
     - The user asks about the overall health, score, or tech debt metrics of the codebase.
     
     Args:
-        root_path: Path to the project root. Default "." is the current directory.
+        root_path: Authorized project root. Default "." selects the sole configured root.
         depth: Scan depth.
     """
     try:

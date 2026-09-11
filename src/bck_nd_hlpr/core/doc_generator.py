@@ -1,5 +1,8 @@
 import html
+import gzip
 import re
+from functools import lru_cache
+from importlib import resources
 from pathlib import Path
 
 from bck_nd_hlpr.core.infra_parser import parse_infra, parse_docker_compose, generate_mermaid_infra
@@ -39,33 +42,32 @@ def _is_backend_helper_document(content: bytes) -> bool:
     )
 
 
-def _offline_svg_preview(source: str, title: str) -> str:
-    """Render a dependency-free SVG preview that remains visible offline."""
-    lines = [line.rstrip() for line in source.splitlines() if line.strip()]
-    visible_lines = lines[:120] or ["No diagram data detected"]
-    if len(lines) > len(visible_lines):
-        visible_lines.append(f"... {len(lines) - len(visible_lines)} additional lines")
-    width = 1100
-    line_height = 24
-    height = max(180, 70 + (len(visible_lines) * line_height))
-    safe_title = html.escape(title, quote=True)
-    text_rows = []
-    for index, line in enumerate(visible_lines):
-        y = 58 + (index * line_height)
-        safe_line = html.escape(line, quote=False)
-        text_rows.append(
-            f'<text x="24" y="{y}" xml:space="preserve">{safe_line}</text>'
-        )
+MERMAID_VERSION = "11.17.2"
+
+
+@lru_cache(maxsize=1)
+def _mermaid_runtime_script() -> str:
+    """Embed the pinned upstream renderer; no Node, CDN or network at runtime."""
+    assets = resources.files("bck_nd_hlpr").joinpath("assets", "mermaid")
+    runtime = gzip.decompress(assets.joinpath("mermaid.min.js.gz").read_bytes()).decode("utf-8")
+    license_text = assets.joinpath("LICENSE").read_text(encoding="utf-8")
+    # The vendor asset stays byte-for-byte recoverable; escaping only applies
+    # when embedding JavaScript in an HTML raw-text element.
+    runtime = re.sub(r"</script", r"<\\/script", runtime, flags=re.IGNORECASE)
+    license_text = license_text.replace("*/", "* /")
     return (
-        f'<svg class="offline-diagram" data-renderer="offline-svg" '
-        f'viewBox="0 0 {width} {height}" role="img" '
-        f'aria-label="Offline preview: {safe_title}" '
-        f'xmlns="http://www.w3.org/2000/svg">'
-        '<rect width="100%" height="100%" rx="10" fill="#0d0e12"/>'
-        f'<text class="offline-title" x="24" y="30">{safe_title} · Offline SVG</text>'
-        '<g class="offline-source">'
-        + "".join(text_rows)
-        + "</g></svg>"
+        f'<script id="mermaid-runtime" data-version="{MERMAID_VERSION}">\n'
+        f"/* Mermaid {MERMAID_VERSION}\n{license_text}*/\n{runtime}\n</script>"
+    )
+
+
+def _diagram_pending(title: str) -> str:
+    """An honest non-JavaScript fallback, never source text posing as a graph."""
+    return (
+        '<p class="diagram-status" role="status" data-state="pending">'
+        f'{html.escape(title)}: waiting for the embedded Mermaid renderer. '
+        'JavaScript is required to draw the diagram; the complete source remains on the left.'
+        '</p><div class="diagram-canvas"></div>'
     )
 
 
@@ -104,11 +106,12 @@ def _render_template(template: str, replacements: dict[str, str]) -> str:
     pattern = re.compile("|".join(re.escape(key) for key in replacements))
     return pattern.sub(lambda match: replacements[match.group(0)], template)
 
-HTML_TEMPLATE = """<!DOCTYPE html>
+HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Project Documentation</title>
     <style>
         :root {
@@ -280,6 +283,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             justify-content: center; 
             align-items: flex-start; 
             min-height: 300px;
+            max-height: 640px;
+            justify-content: flex-start;
         }
         
         table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
@@ -290,9 +295,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .table-scroll { overflow-x: auto; }
         .status-badge { color: var(--primary); font-weight: 700; white-space: nowrap; }
 
-        .offline-diagram { width: 100%; min-width: 680px; height: auto; }
-        .offline-title { fill: #00ff66; font: 700 16px system-ui, sans-serif; }
-        .offline-source { fill: #e5e9f0; font: 13px ui-monospace, monospace; }
+        .diagram-canvas svg { display: block; max-width: none !important; }
+        .diagram-controls { display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.75rem; }
+        .diagram-controls button { cursor: pointer; border: 1px solid var(--border); border-radius: 4px;
+            background: var(--card-bg); color: var(--text-main); padding: 0.25rem 0.6rem; }
+        .diagram-controls output { color: var(--text-muted); font: 12px system-ui, sans-serif; }
+        .diagram-status { color: var(--text-muted); max-width: 36rem; }
+        .diagram-status[data-state="error"] { color: #ffb86c; }
 
         .badge {
             background: var(--badge-bg);
@@ -438,40 +447,50 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </section>
     </div>
 
-    <script type="module">
-        // Dependency-free Mermaid fallback. It renders the diagram source into
-        // an accessible SVG so the portal remains useful on file://, in
-        // air-gapped networks, and in CI artifacts with scripts restricted.
-        function escapeXml(value) {
-            return String(value)
-                .replaceAll('&', '&amp;')
-                .replaceAll('<', '&lt;')
-                .replaceAll('>', '&gt;')
-                .replaceAll('"', '&quot;')
-                .replaceAll("'", '&apos;');
+    {mermaid_runtime}
+    <script>
+    (function () {
+        const diagramIds = ['infra', 'seq', 'er', 'uml'];
+        let renderSerial = 0;
+        // Rendering is serialized, including rapid edits and theme changes.
+        let renderQueue = Promise.resolve();
+        const revisions = new Map();
+        const zoomLevels = new Map();
+
+        function resizeDiagram(id, requestedZoom) {
+            const view = document.getElementById(id + '-view');
+            const diagram = view.querySelector('svg');
+            if (!diagram) return;
+            const pane = view.closest('.preview-pane');
+            const bounds = diagram.viewBox.baseVal;
+            if (!(bounds.width > 0 && bounds.height > 0)) return;
+            const fittingZoom = Math.min(1, Math.max(120, pane.clientWidth - 70) / bounds.width,
+                Math.max(180, pane.clientHeight - 110) / bounds.height);
+            const zoom = requestedZoom === 'fit' ? fittingZoom : Math.min(4, Math.max(0.001, requestedZoom));
+            zoomLevels.set(id, zoom);
+            diagram.style.width = bounds.width * zoom + 'px';
+            diagram.style.height = bounds.height * zoom + 'px';
+            view.querySelector('.diagram-controls output').textContent = (zoom * 100).toFixed(1) + '%';
+            pane.scrollTop = 0;
+            pane.scrollLeft = 0;
         }
 
-        function renderOfflineSvg(sourceText) {
-            const sourceLines = sourceText.split(/\r?\n/).filter(line => line.trim());
-            const lines = sourceLines.slice(0, 120);
-            if (sourceLines.length > lines.length) {
-                lines.push(`... ${sourceLines.length - lines.length} additional lines`);
+        diagramIds.forEach(id => {
+            const view = document.getElementById(id + '-view');
+            const controls = document.createElement('div');
+            controls.className = 'diagram-controls';
+            for (const [label, action] of [['−', 'out'], ['Fit', 'fit'], ['+', 'in'], ['100%', 'actual']]) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = label;
+                button.setAttribute('aria-label', id + ' diagram: ' + action);
+                button.addEventListener('click', () => resizeDiagram(id, action === 'fit' ? 'fit'
+                    : action === 'actual' ? 1 : (zoomLevels.get(id) || 1) * (action === 'in' ? 1.5 : 1 / 1.5)));
+                controls.appendChild(button);
             }
-            if (!lines.length) lines.push('No diagram data detected');
-            const lineHeight = 24;
-            const height = Math.max(180, 70 + lines.length * lineHeight);
-            const rows = lines.map((line, index) =>
-                `<text x="24" y="${58 + index * lineHeight}" xml:space="preserve">${escapeXml(line)}</text>`
-            ).join('');
-            return `<svg class="offline-diagram" data-renderer="offline-svg" viewBox="0 0 1100 ${height}" role="img" aria-label="Offline Mermaid source preview" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" rx="10" fill="#0d0e12"/><text class="offline-title" x="24" y="30">Offline SVG diagram preview</text><g class="offline-source">${rows}</g></svg>`;
-        }
-
-        const mermaid = {
-            initialize() {},
-            async render(id, sourceText) {
-                return { svg: renderOfflineSvg(sourceText) };
-            }
-        };
+            controls.appendChild(document.createElement('output'));
+            view.prepend(controls);
+        });
 
         const copyAiBtn = document.getElementById('copy-ai-context-btn');
         const aiContextEl = document.getElementById('ai-context-content');
@@ -536,27 +555,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const html = document.documentElement;
 
         function getTheme() {
-            return localStorage.getItem('theme') || 'dark';
+            try { return localStorage.getItem('theme') || 'dark'; }
+            catch { return 'dark'; }
         }
 
         async function setTheme(theme) {
             html.setAttribute('data-theme', theme);
-            localStorage.setItem('theme', theme);
+            try { localStorage.setItem('theme', theme); } catch { /* restricted file:// storage */ }
             themeIcon.textContent = theme === 'dark' ? '☀️' : '🌙';
             themeText.textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
             
-            // Initialize mermaid with new theme (always dark theme for diagrams in Cyber-Dark)
-            mermaid.initialize({ 
-                startOnLoad: false, 
-                theme: 'dark',
-                fontFamily: 'Inter'
-            });
-            
-            // Re-render all diagrams
-            const ids = ['infra', 'seq', 'er', 'uml'];
-            for (const id of ids) {
-                await updateDiagram(id);
-            }
+            return Promise.all(diagramIds.map(id => updateDiagram(id)));
         }
 
         themeToggle.addEventListener('click', () => {
@@ -564,27 +573,70 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             setTheme(newTheme);
         });
 
-        async function updateDiagram(id) {
+        function updateDiagram(id) {
+            const revision = (revisions.get(id) || 0) + 1;
+            revisions.set(id, revision);
             const sourceText = document.getElementById(id + '-source').value;
             const viewElement = document.getElementById(id + '-view');
-            try {
-                viewElement.innerHTML = ''; // Clear previous
-                const { svg } = await mermaid.render('mermaid-' + id + '-' + Date.now(), sourceText);
-                viewElement.innerHTML = svg;
-            } catch (err) {
-                console.error("Mermaid syntax error for " + id + ":", err);
-            }
+            const status = viewElement.querySelector('.diagram-status');
+            const canvas = viewElement.querySelector('.diagram-canvas');
+            status.hidden = false;
+            status.dataset.state = 'pending';
+            status.textContent = 'Rendering diagram locally…';
+            renderQueue = renderQueue.then(async () => {
+                if (revisions.get(id) !== revision) return;
+                try {
+                    if (!window.mermaid || typeof window.mermaid.render !== 'function') {
+                        throw new Error('Renderer unavailable');
+                    }
+                    window.mermaid.initialize({
+                        startOnLoad: false,
+                        securityLevel: 'strict',
+                        suppressErrorRendering: true,
+                        // Preview panes retain their Cyber-Dark background in both
+                        // existing portal themes; keep connectors high-contrast.
+                        theme: 'dark',
+                        fontFamily: 'system-ui, sans-serif',
+                        maxTextSize: 250000,
+                        maxEdges: 2000,
+                        secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize',
+                                 'maxEdges', 'suppressErrorRendering'],
+                    });
+                    const { svg } = await window.mermaid.render('diagram-' + id + '-' + (++renderSerial), sourceText);
+                    if (revisions.get(id) !== revision) return;
+                    canvas.innerHTML = svg;
+                    const diagram = canvas.querySelector('svg');
+                    if (!diagram) throw new Error('No rendered diagram');
+                    diagram.dataset.renderer = 'mermaid';
+                    status.dataset.state = 'ready';
+                    status.hidden = true;
+                    // Show the whole map first; zoom/100% exposes readable detail
+                    // without allocating an enormous page or hiding the graph offscreen.
+                    resizeDiagram(id, 'fit');
+                } catch {
+                    if (revisions.get(id) !== revision) return;
+                    status.dataset.state = 'error';
+                    status.hidden = false;
+                    status.textContent = canvas.querySelector('svg')
+                        ? 'Could not render the current source. Showing the last valid diagram; the source remains on the left.'
+                        : 'Could not render this diagram. Check its syntax or rendering limits; the complete source remains on the left.';
+                }
+            });
+            return renderQueue;
         }
 
         // Initialize everything
         const initialTheme = getTheme();
-        await setTheme(initialTheme);
+        setTheme(initialTheme);
 
-        ['infra', 'seq', 'er', 'uml'].forEach(id => {
+        diagramIds.forEach(id => {
+            let editTimer;
             document.getElementById(id + '-source').addEventListener('input', () => {
-                updateDiagram(id);
+                clearTimeout(editTimer);
+                editTimer = setTimeout(() => updateDiagram(id), 180);
             });
         });
+    })();
     </script>
 </body>
 </html>
@@ -706,12 +758,12 @@ class DocGenerator:
             else ""
         )
 
-        # Static SVG previews remain visible even when JavaScript is disabled.
+        # A missing/disabled runtime leaves an explicit status and full source.
         fallback_svgs = {
-            "infra": _offline_svg_preview(infra_diagram, "Infrastructure Map"),
-            "sequence": _offline_svg_preview(sequence_diagram, "API Routes"),
-            "uml": _offline_svg_preview(uml_diagram, "UML Class Diagram"),
-            "er": _offline_svg_preview(er_diagram, "Entity Relationship Diagram"),
+            "infra": _diagram_pending("Infrastructure Map"),
+            "sequence": _diagram_pending("API Routes"),
+            "uml": _diagram_pending("UML Class Diagram"),
+            "er": _diagram_pending("Entity Relationship Diagram"),
         }
 
         # 6. AI Context dump (LLM-optimized XML) for clipboard copy
@@ -740,6 +792,7 @@ class DocGenerator:
                     "{requirements_section}": requirements_section,
                     "{todos_table}": todos_table,
                     "{ai_context}": ai_context_escaped,
+                    "{mermaid_runtime}": _mermaid_runtime_script(),
                 },
             )
             rendered = DOC_GENERATOR_MARKER + html_content.encode("utf-8")
