@@ -273,18 +273,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         }
         
         .preview-pane { 
-            flex: 2; 
-            overflow: auto; 
+            flex: 2;
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
             background: var(--preview-bg); 
             border: 1px solid var(--border); 
-            padding: 2rem; 
             border-radius: 8px; 
-            display: flex; 
-            justify-content: center; 
-            align-items: flex-start; 
+            height: clamp(300px, 60vh, 640px);
             min-height: 300px;
             max-height: 640px;
-            justify-content: flex-start;
         }
         
         table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
@@ -295,8 +293,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .table-scroll { overflow-x: auto; }
         .status-badge { color: var(--primary); font-weight: 700; white-space: nowrap; }
 
+        .diagram-view { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; }
+        .diagram-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; max-width: 100%; overflow: auto; padding: 2rem; }
+        .diagram-canvas { width: max-content; min-width: 0; }
         .diagram-canvas svg { display: block; max-width: none !important; }
-        .diagram-controls { display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.75rem; }
+        .diagram-controls { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 0.4rem;
+            align-items: center; margin: 0; padding: 0.75rem; border-bottom: 1px solid var(--border);
+            background: var(--preview-bg); }
         .diagram-controls button { cursor: pointer; border: 1px solid var(--border); border-radius: 4px;
             background: var(--card-bg); color: var(--text-main); padding: 0.25rem 0.6rem; }
         .diagram-controls output { color: var(--text-muted); font: 12px system-ui, sans-serif; }
@@ -377,7 +380,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                     <textarea id="infra-source" data-target="infra">{infra_diagram}</textarea>
                 </div>
                 <div class="preview-pane">
-                    <div id="infra-view">{infra_fallback_svg}</div>
+                    <div id="infra-view" class="diagram-view"><div class="diagram-scroll">{infra_fallback_svg}</div></div>
                 </div>
             </div>
         </section>
@@ -394,7 +397,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                     <textarea id="seq-source" data-target="seq">{sequence_diagram}</textarea>
                 </div>
                 <div class="preview-pane">
-                    <div id="seq-view">{sequence_fallback_svg}</div>
+                    <div id="seq-view" class="diagram-view"><div class="diagram-scroll">{sequence_fallback_svg}</div></div>
                 </div>
             </div>
         </section>
@@ -411,7 +414,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                     <textarea id="uml-source" data-target="uml">{uml_diagram}</textarea>
                 </div>
                 <div class="preview-pane">
-                    <div id="uml-view">{uml_fallback_svg}</div>
+                    <div id="uml-view" class="diagram-view"><div class="diagram-scroll">{uml_fallback_svg}</div></div>
                 </div>
             </div>
         </section>
@@ -428,7 +431,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                     <textarea id="er-source" data-target="er">{er_diagram}</textarea>
                 </div>
                 <div class="preview-pane">
-                    <div id="er-view">{er_fallback_svg}</div>
+                    <div id="er-view" class="diagram-view"><div class="diagram-scroll">{er_fallback_svg}</div></div>
                 </div>
             </div>
         </section>
@@ -461,35 +464,58 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             const view = document.getElementById(id + '-view');
             const diagram = view.querySelector('svg');
             if (!diagram) return;
-            const pane = view.closest('.preview-pane');
+            const pane = view.querySelector('.diagram-scroll');
             const bounds = diagram.viewBox.baseVal;
             if (!(bounds.width > 0 && bounds.height > 0)) return;
-            const fittingZoom = Math.min(1, Math.max(120, pane.clientWidth - 70) / bounds.width,
-                Math.max(180, pane.clientHeight - 110) / bounds.height);
+            const paneStyle = getComputedStyle(pane);
+            const availableWidth = Math.max(1, pane.clientWidth
+                - parseFloat(paneStyle.paddingLeft) - parseFloat(paneStyle.paddingRight));
+            const availableHeight = Math.max(1, pane.clientHeight
+                - parseFloat(paneStyle.paddingTop) - parseFloat(paneStyle.paddingBottom));
+            const fittingZoom = Math.min(1, availableWidth / bounds.width, availableHeight / bounds.height);
             const zoom = requestedZoom === 'fit' ? fittingZoom : Math.min(4, Math.max(0.001, requestedZoom));
+            const paneRect = pane.getBoundingClientRect();
+            const diagramRect = diagram.getBoundingClientRect();
+            const previousZoom = diagramRect.width / bounds.width;
+            const centerX = paneRect.left + pane.clientWidth / 2;
+            const centerY = paneRect.top + pane.clientHeight / 2;
+            const diagramPoint = previousZoom > 0 ? {
+                x: (centerX - diagramRect.left) / previousZoom,
+                y: (centerY - diagramRect.top) / previousZoom,
+            } : null;
             zoomLevels.set(id, zoom);
             diagram.style.width = bounds.width * zoom + 'px';
             diagram.style.height = bounds.height * zoom + 'px';
             view.querySelector('.diagram-controls output').textContent = (zoom * 100).toFixed(1) + '%';
-            pane.scrollTop = 0;
-            pane.scrollLeft = 0;
+            if (requestedZoom === 'fit') {
+                pane.scrollTop = 0;
+                pane.scrollLeft = 0;
+            } else if (diagramPoint) {
+                const resizedRect = diagram.getBoundingClientRect();
+                pane.scrollLeft = Math.max(0, pane.scrollLeft
+                    + resizedRect.left + diagramPoint.x * zoom - centerX);
+                pane.scrollTop = Math.max(0, pane.scrollTop
+                    + resizedRect.top + diagramPoint.y * zoom - centerY);
+            }
         }
 
         diagramIds.forEach(id => {
             const view = document.getElementById(id + '-view');
-            const controls = document.createElement('div');
-            controls.className = 'diagram-controls';
-            for (const [label, action] of [['−', 'out'], ['Fit', 'fit'], ['+', 'in'], ['100%', 'actual']]) {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.textContent = label;
-                button.setAttribute('aria-label', id + ' diagram: ' + action);
-                button.addEventListener('click', () => resizeDiagram(id, action === 'fit' ? 'fit'
-                    : action === 'actual' ? 1 : (zoomLevels.get(id) || 1) * (action === 'in' ? 1.5 : 1 / 1.5)));
-                controls.appendChild(button);
+            if (!view.querySelector('.diagram-controls')) {
+                const controls = document.createElement('div');
+                controls.className = 'diagram-controls';
+                for (const [label, action] of [['−', 'out'], ['Fit', 'fit'], ['+', 'in'], ['100%', 'actual']]) {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.textContent = label;
+                    button.setAttribute('aria-label', id + ' diagram: ' + action);
+                    button.addEventListener('click', () => resizeDiagram(id, action === 'fit' ? 'fit'
+                        : action === 'actual' ? 1 : (zoomLevels.get(id) || 1) * (action === 'in' ? 1.5 : 1 / 1.5)));
+                    controls.appendChild(button);
+                }
+                controls.appendChild(document.createElement('output'));
+                view.prepend(controls);
             }
-            controls.appendChild(document.createElement('output'));
-            view.prepend(controls);
         });
 
         const copyAiBtn = document.getElementById('copy-ai-context-btn');
