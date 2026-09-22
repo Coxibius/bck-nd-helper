@@ -47,5 +47,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: qa-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: ${{ runner.temp }}/bck-nd-qa/
+          path: |
+            ${{ runner.temp }}/bck-nd-qa/qa.log
+            ${{ runner.temp }}/bck-nd-qa/junit.xml
+            ${{ runner.temp }}/bck-nd-qa/summary.json
           if-no-files-found: ignore

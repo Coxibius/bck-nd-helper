@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sysconfig
 from pathlib import Path
@@ -39,6 +40,35 @@ def _run(entry: Path, project: Path, *arguments: str) -> str:
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     return result.stdout
+
+
+def _context_block(context: str, tag: str) -> str:
+    opening, closing = f"<{tag}>", f"</{tag}>"
+    assert context.count(opening) == context.count(closing) == 1
+    content = context.split(opening, 1)[1].split(closing, 1)[0]
+    assert content.strip(), f"{tag} block is empty"
+    return content
+
+
+def _assert_catalog_uml(context: str) -> None:
+    uml = _context_block(context, "architecture_uml")
+    assert re.search(r"(?m)^\s*classDiagram\s*$", uml)
+    assert re.search(r"(?m)^\s*class\s+CatalogService\s*\{", uml)
+
+
+def _assert_story_context(context: str, specification: dict) -> None:
+    requirements = _context_block(context, "requirements_context")
+    story = specification["story"]
+    rule = specification["business_rules"][0]
+    criterion = specification["acceptance_criteria"][0]
+    for expected in (
+        story["id"],
+        story["title"],
+        story["role"],
+        rule["description"],
+        criterion["then"],
+    ):
+        assert expected in requirements
 
 
 @pytest.fixture
@@ -101,6 +131,7 @@ def test_entry_points_report_version_and_help_without_starting_mcp(smoke_project
 def test_scan_prompt_and_requirements_agree_on_known_project(smoke_project, tmp_path):
     project, story = smoke_project
     original_story = story.read_bytes()
+    specification = json.loads(original_story)
     cli = _entry_point("bck-nd")
 
     scan = json.loads(_run(cli, project, "scan", str(project), "--json", "--no-cache"))
@@ -111,10 +142,8 @@ def test_scan_prompt_and_requirements_agree_on_known_project(smoke_project, tmp_
     output = tmp_path / "QA context with spaces.txt"
     _run(cli, project, "prompt", str(project), "--output", str(output))
     context = output.read_text(encoding="utf-8")
-    assert "<architecture_uml>" in context
-    assert "CatalogService" in context
-    assert "<requirements_context>" in context
-    assert "US-101" in context
+    _assert_catalog_uml(context)
+    _assert_story_context(context, specification)
     assert "<core_files>" in context
 
     listed = _run(cli, project, "req", "list", str(project))
@@ -132,3 +161,25 @@ def test_scan_prompt_and_requirements_agree_on_known_project(smoke_project, tmp_
     ):
         assert expected in shown
     assert story.read_bytes() == original_story
+
+
+def test_empty_uml_block_rejects_class_name_found_only_in_core_files():
+    context = (
+        "<architecture_uml>\n \n</architecture_uml>\n"
+        "<core_files>class CatalogService: pass</core_files>"
+    )
+    assert "CatalogService" in context
+    with pytest.raises(AssertionError, match="architecture_uml block is empty"):
+        _assert_catalog_uml(context)
+
+
+def test_empty_requirements_block_rejects_story_found_elsewhere(smoke_project):
+    _project, story = smoke_project
+    specification = json.loads(story.read_text(encoding="utf-8"))
+    context = (
+        "<requirements_context>\n \n</requirements_context>\n"
+        "<core_files>US-101 List catalog items</core_files>"
+    )
+    assert specification["story"]["id"] in context
+    with pytest.raises(AssertionError, match="requirements_context block is empty"):
+        _assert_story_context(context, specification)
