@@ -17,7 +17,7 @@ try:
     import tomllib as toml # Python 3.11+
 except ImportError:
     try:
-        import toml as toml # standard for older python
+        import tomli as toml # Python 3.10 compatibility dependency
     except ImportError:
         toml = None # Fallback if installation fails/not present
 

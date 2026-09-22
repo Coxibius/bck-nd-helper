@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from bck_nd_hlpr.cli.cli import app
@@ -93,20 +94,42 @@ def write_requirement(project: Path, story_id: str) -> None:
     )
 
 
-def invoke(*arguments):
-    return runner.invoke(app, ["prd", *map(str, arguments)])
+def invoke(*arguments, **options):
+    return runner.invoke(app, ["prd", *map(str, arguments)], **options)
+
+
+def visible_output(result):
+    return strip_ansi(result.stdout)
 
 
 def test_prd_group_and_init_help_expose_local_workflow():
     group = invoke("--help")
     command = invoke("init", "--help")
+    group_help = visible_output(group)
+    command_help = visible_output(command)
 
     assert group.exit_code == 0
-    assert all(name in group.stdout for name in ("init", "list", "validate", "status"))
+    assert all(name in group_help for name in ("init", "list", "validate", "status"))
     assert command.exit_code == 0
-    assert "--path" in command.stdout
-    assert "-p" in command.stdout
-    assert "Defaults to PRD" in command.stdout
+    assert "--path" in command_help
+    assert "-p" in command_help
+    assert "Defaults to PRD" in command_help
+
+
+def test_prd_help_comparisons_handle_real_ansi(monkeypatch):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("_TYPER_FORCE_DISABLE_TERMINAL", raising=False)
+
+    group = invoke("--help", color=True)
+    command = invoke("init", "--help", color=True)
+
+    assert group.exit_code == command.exit_code == 0
+    assert "\x1b[" in group.stdout and "\x1b[" in command.stdout
+    assert all(name in visible_output(group) for name in ("init", "list", "validate", "status"))
+    assert all(value in visible_output(command) for value in ("--path", "-p", "Defaults to PRD"))
 
 
 @pytest.mark.parametrize("path_flag", ["--path", "-p"])

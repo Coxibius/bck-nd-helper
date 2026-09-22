@@ -5,11 +5,28 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts import run_qa
 
 
 def _junit_path(command):
     return Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml=")))
+
+
+class _StrictConsole:
+    encoding = "cp1252"
+
+    def __init__(self):
+        self.value = ""
+
+    def write(self, value):
+        value.encode(self.encoding, errors="strict")
+        self.value += value
+        return len(value)
+
+    def flush(self):
+        return None
 
 
 def test_qa_runner_uses_its_interpreter_repo_root_and_structured_success(
@@ -127,3 +144,39 @@ def test_qa_runner_never_overwrites_existing_report_directory(tmp_path, monkeypa
 
     assert run_qa.main(["--report-dir", str(report_dir)]) == 2
     assert sentinel.read_text(encoding="utf-8") == "original"
+
+
+@pytest.mark.parametrize("pytest_exit_code", [0, 1])
+def test_qa_runner_preserves_unicode_reports_with_cp1252_console(
+    tmp_path, monkeypatch, pytest_exit_code
+):
+    report_dir = tmp_path / f"qa cp1252 {pytest_exit_code}"
+    console = _StrictConsole()
+    error_console = _StrictConsole()
+    calls = []
+    output = "│ suite\n├── test\n✨ result\n"
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        failures = 1 if pytest_exit_code else 0
+        _junit_path(command).write_text(
+            f'<testsuites><testsuite tests="1" failures="{failures}" '
+            'errors="0" skipped="0"/></testsuites>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, pytest_exit_code, stdout=output)
+
+    monkeypatch.setattr(run_qa.subprocess, "run", fake_run)
+    monkeypatch.setattr(run_qa.sys, "stdout", console)
+    monkeypatch.setattr(run_qa.sys, "stderr", error_console)
+
+    assert run_qa.main(["--report-dir", str(report_dir)]) == pytest_exit_code
+    assert len(calls) == 1
+    assert output in (report_dir / "qa.log").read_text(encoding="utf-8")
+    summary = json.loads((report_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["pytest_exit_code"] == pytest_exit_code
+    assert summary["exit_code"] == pytest_exit_code
+    assert summary["status"] == ("failed" if pytest_exit_code else "passed")
+    assert "\\u2502" in console.value
+    assert "\\u251c\\u2500\\u2500" in console.value
+    assert "\\u2728" in console.value

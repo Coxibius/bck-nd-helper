@@ -1,5 +1,8 @@
 
 import os
+import builtins
+import importlib.util
+import types
 import pytest
 from pathlib import Path
 try:
@@ -70,6 +73,31 @@ services = ["logica"]
     
     assert results['architecture'] == 'MVC + Services (Layered)'
     # Verify that it detected them because if it used default config it would be Monolithic
+
+
+def test_detector_uses_tomli_when_tomllib_is_unavailable(monkeypatch):
+    import bck_nd_hlpr.core.detector as detector_module
+
+    fallback = types.SimpleNamespace(loads=tomllib.loads)
+    original_import = builtins.__import__
+
+    def controlled_import(name, *args, **kwargs):
+        if name == "tomllib":
+            raise ImportError("simulated Python 3.10")
+        if name == "tomli":
+            return fallback
+        if name == "toml":
+            raise AssertionError("the unrelated toml package must not be imported")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", controlled_import)
+    spec = importlib.util.spec_from_file_location(
+        "_bck_nd_detector_python310", detector_module.__file__
+    )
+    isolated = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(isolated)
+
+    assert isolated.toml is fallback
     
 def test_default_config_detection(tmp_path):
     # Setup default directories

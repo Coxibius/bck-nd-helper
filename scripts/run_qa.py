@@ -16,6 +16,19 @@ from typing import Optional, Sequence
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _write_console(stream, text: str, *, end: str = "\n", flush: bool = False) -> None:
+    """Write without letting a limited terminal encoding abort report creation."""
+    payload = text + end
+    try:
+        stream.write(payload)
+    except UnicodeEncodeError:
+        encoding = getattr(stream, "encoding", None) or "ascii"
+        safe_payload = payload.encode(encoding, errors="backslashreplace").decode(encoding)
+        stream.write(safe_payload)
+    if flush:
+        stream.flush()
+
+
 def _outside_project(path: Path) -> bool:
     resolved = path.resolve()
     return resolved != PROJECT_ROOT and PROJECT_ROOT not in resolved.parents
@@ -78,7 +91,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         report_dir = _create_report_dir(args.report_dir)
     except (OSError, ValueError) as exc:
-        print(f"Cannot create QA report directory: {exc}", file=sys.stderr)
+        _write_console(sys.stderr, f"Cannot create QA report directory: {exc}")
         return 2
 
     log_path = report_dir / "qa.log"
@@ -98,7 +111,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
     environment.pop("PYTEST_ADDOPTS", None)
-    print(f"QA results: {report_dir}", flush=True)
+    _write_console(sys.stdout, f"QA results: {report_dir}", flush=True)
 
     pytest_exit_code: Optional[int] = None
     launch_error: Optional[str] = None
@@ -122,7 +135,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             launch_error = f"pytest could not start: {exc}"
             output = launch_error + "\n"
         log.write(output)
-        print(output, end="" if output.endswith("\n") else "\n")
+        _write_console(
+            sys.stdout,
+            output,
+            end="" if output.endswith("\n") else "\n",
+        )
 
     counts: Optional[dict[str, int]] = None
     report_error: Optional[str] = None
@@ -132,7 +149,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         report_error = f"JUnit report unavailable or invalid: {exc}"
         with log_path.open("a", encoding="utf-8", newline="\n") as log:
             log.write(report_error + "\n")
-        print(report_error, file=sys.stderr)
+        _write_console(sys.stderr, report_error)
 
     if pytest_exit_code is None:
         exit_code = 2
@@ -158,7 +175,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"QA {status}; reports: {report_dir}")
+    _write_console(sys.stdout, f"QA {status}; reports: {report_dir}")
     return exit_code
 
 
