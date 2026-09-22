@@ -77,3 +77,34 @@ def test_clipboard_failure_preserves_boolean_contract(monkeypatch, failure):
     )
 
     assert cli_module.copy_to_clipboard(UNICODE_CONTEXT) is False
+
+
+class TestClipboardIntegration:
+    def test_prompt_copy_flag_copies_generated_context(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        import bck_nd_hlpr.cli.cli as cli_module
+
+        (tmp_path / "main.py").write_text("print('hello')", encoding="utf-8")
+        output_file = tmp_path / "context.txt"
+        copied = []
+        monkeypatch.setattr(
+            cli_module,
+            "copy_to_clipboard",
+            lambda text: copied.append(text) is None,
+        )
+
+        result = CliRunner().invoke(
+            cli_module.app,
+            [
+                "prompt",
+                str(tmp_path),
+                "--tree",
+                "--copy",
+                "--output",
+                str(output_file),
+            ],
+        )
+
+        assert result.exit_code == 0, result.exception
+        assert copied == [output_file.read_text(encoding="utf-8")]
+        assert "Context copied to clipboard" in result.stdout

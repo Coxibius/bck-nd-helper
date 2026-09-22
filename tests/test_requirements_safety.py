@@ -1,4 +1,4 @@
-"""Security Closure G regressions for bounded Requirements handling."""
+"""Requirements collection limits, schema validation, and safe rendering."""
 
 import inspect
 import json

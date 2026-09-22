@@ -33,6 +33,8 @@ htmlcov/
 pytest_out/
 test_out.txt
 pytest_out.txt
+/tests/test_project/obj/
+/tests/test_project/bin/
 verify_pre_merge.py    # Opcional (si solo tú usas este script de auditoría)
 PRE_MERGE_REPORT.md
 temp_verification_reports/

@@ -1,0 +1,13 @@
+CHANGELOG.md
+MANIFEST.in
+README.md
+docs/GUIA_DEL_CODIGO.md
+pyproject.toml
+src/bck_nd_hlpr/assets/mermaid/LICENSE
+src/bck_nd_hlpr/assets/mermaid/NOTICE.md
+src/bck_nd_hlpr/assets/mermaid/mermaid.min.js.gz
+src/bck_nd_hlpr/cli/mcp_server.py
+src/bck_nd_hlpr/core/doc_generator.py
+tests/browser/check_docs.cjs
+tests/test_ci_doc_generators.py
+tests/test_security.py
