@@ -181,6 +181,9 @@ def test_doc_generator_basic(tmp_path):
     assert "window.mermaid.render(" in html_content
     assert "securityLevel: 'strict'" in html_content
     assert "connect-src 'none'" in html_content
+    assert html_content.count('class="diagram-scroll"') == 4
+    assert "pane.scrollTop = 0;" in html_content
+    assert "} else if (diagramPoint) {" in html_content
     resources_found = _ExternalResources()
     resources_found.feed(html_content)
     assert resources_found.urls == []

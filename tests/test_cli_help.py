@@ -1,6 +1,7 @@
 """Regression tests for the public CLI help surfaces."""
 
 import pytest
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import bck_nd_hlpr.cli.cli as cli_module
@@ -9,6 +10,14 @@ from bck_nd_hlpr.cli.cli import app
 
 
 runner = CliRunner()
+
+
+def _visible(text: str) -> str:
+    return strip_ansi(text)
+
+
+def _compact(text: str) -> str:
+    return " ".join(_visible(text).replace("│", " ").split())
 
 
 def test_flow_prints_diagram_once_and_fails_without_internal_details(monkeypatch):
@@ -36,10 +45,11 @@ def test_flow_prints_diagram_once_and_fails_without_internal_details(monkeypatch
 
 def test_scan_help_describes_combinable_views_and_examples():
     result = runner.invoke(app, ["scan", "--help"])
-    compact = " ".join(result.stdout.replace("│", " ").split())
+    visible = _visible(result.stdout)
+    compact = _compact(result.stdout)
 
     assert result.exit_code == 0, result.exception
-    assert "Exclusive modes" not in result.stdout
+    assert "Exclusive modes" not in visible
     assert "Views may be requested individually or combined" in compact
     assert "bck-nd scan . --uml --er" in compact
     assert "bck-nd scan . --tree --req" in compact
@@ -47,62 +57,88 @@ def test_scan_help_describes_combinable_views_and_examples():
 
 def test_root_help_lists_current_workflows():
     result = runner.invoke(app, ["--help"])
-    compact_help = " ".join(result.stdout.replace("│", " ").split())
+    visible = _visible(result.stdout)
+    compact_help = _compact(result.stdout)
 
     assert result.exit_code == 0, result.exception
-    assert "Product intent" in result.stdout
-    assert "requirements" in result.stdout
-    assert "architecture" in result.stdout
-    assert "AI context" in result.stdout
-    assert "MCP tooling" in result.stdout
-    assert "scan . --json" in result.stdout
-    assert "prompt . --copy" in result.stdout
-    assert "req init US-001" in result.stdout
-    assert "req list ." in result.stdout
-    assert "req show HU05 ." in result.stdout
-    assert "req validate ." in result.stdout
-    assert "req locations ." in result.stdout
-    assert "prd init PRD-AUTH" in result.stdout
+    assert "Product intent" in visible
+    assert "requirements" in visible
+    assert "architecture" in visible
+    assert "AI context" in visible
+    assert "MCP tooling" in visible
+    assert "scan . --json" in visible
+    assert "prompt . --copy" in visible
+    assert "req init US-001" in visible
+    assert "req list ." in visible
+    assert "req show HU05 ." in visible
+    assert "req validate ." in visible
+    assert "req locations ." in visible
+    assert "prd init PRD-AUTH" in visible
     assert "AI context with product intent, requirements, and metrics" in compact_help
-    assert "bck-nd-mcp --install" in result.stdout
-    assert "Antigravity" in result.stdout
+    assert "bck-nd-mcp --install" in visible
+    assert "Antigravity" in visible
 
 
 def test_prompt_help_describes_requirements_copy_and_metrics():
     result = runner.invoke(app, ["prompt", "--help"])
-    compact_help = " ".join(result.stdout.replace("│", " ").split())
+    visible = _visible(result.stdout)
+    compact_help = _compact(result.stdout)
 
     assert result.exit_code == 0, result.exception
-    assert "requirements, diagrams, core files, and metrics" in result.stdout
-    assert "--copy" in result.stdout
-    assert "--max-core-files" in result.stdout
-    assert "--no-prd" in result.stdout
-    assert "--max-product-chars" in result.stdout
-    assert "--no-req" in result.stdout
-    assert "--max-requirements-chars" in result.stdout
-    assert "estimated tokens" in result.stdout
+    assert "requirements, diagrams, core files, and metrics" in visible
+    assert "--copy" in visible
+    assert "--max-core-files" in visible
+    assert "--no-prd" in visible
+    assert "--max-product-chars" in visible
+    assert "--no-req" in visible
+    assert "--max-requirements-chars" in visible
+    assert "estimated tokens" in visible
     assert "product- and requirements-aware focused context with UML" in compact_help
     assert "product- and requirements-aware focused context with ER" in compact_help
     assert "product- and requirements-aware focused context with project tree" in compact_help
     assert "strictly technical" in compact_help
-    assert "UML-only" not in result.stdout
-    assert "ER-only" not in result.stdout
-    assert "tree-only" not in result.stdout
+    assert "UML-only" not in visible
+    assert "ER-only" not in visible
+    assert "tree-only" not in visible
 
 
 def test_requirements_help_lists_current_workflow_commands():
     result = runner.invoke(app, ["req", "--help"])
+    visible = _visible(result.stdout)
 
     assert result.exit_code == 0, result.exception
-    assert "Scaffold, browse, validate, update, and discover" in result.stdout
-    assert "init" in result.stdout
-    assert "status" in result.stdout
-    assert "set-status" in result.stdout
-    assert "discover" in result.stdout
-    assert "show" in result.stdout
-    assert "validate" in result.stdout
-    assert "locations" in result.stdout
-    assert "collection locations" in result.stdout
+    assert "Scaffold, browse, validate, update, and discover" in visible
+    assert "init" in visible
+    assert "status" in visible
+    assert "set-status" in visible
+    assert "discover" in visible
+    assert "show" in visible
+    assert "validate" in visible
+    assert "locations" in visible
+    assert "collection locations" in visible
+
+
+@pytest.mark.parametrize(
+    ("arguments", "phrases"),
+    [
+        (["--help"], ("Product intent", "scan . --json", "prompt . --copy")),
+        (["scan", "--help"], ("Views may be requested", "scan . --uml --er")),
+        (["prompt", "--help"], ("--max-product-chars", "estimated tokens")),
+    ],
+)
+def test_cli_help_comparisons_handle_real_ansi(monkeypatch, arguments, phrases):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("_TYPER_FORCE_DISABLE_TERMINAL", raising=False)
+
+    result = runner.invoke(app, arguments, color=True)
+
+    assert result.exit_code == 0, result.exception
+    assert "\x1b[" in result.stdout
+    visible = _visible(result.stdout)
+    assert all(phrase in visible for phrase in phrases)
 
 
 @pytest.mark.parametrize("help_flag", ["--help", "-h"])

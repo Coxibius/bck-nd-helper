@@ -16,6 +16,44 @@ const examples = {
   er: 'erDiagram\n  USER ||--o{ ORDER : places\n  USER {\n    int id PK\n  }\n  ORDER {\n    int id PK\n  }',
 };
 
+function largeClassDiagram() {
+  const lines = ['classDiagram', '  direction LR'];
+  for (let index = 0; index < 24; index += 1) {
+    lines.push(`  class LargeClass${index} {`);
+    for (let member = 0; member < 24; member += 1) {
+      lines.push(`    +String field_${index}_${member}`);
+    }
+    lines.push('  }');
+    if (index > 0) lines.push(`  LargeClass${index - 1} --> LargeClass${index}`);
+  }
+  return lines.join('\n');
+}
+
+async function observedDiagramPoint(page, id) {
+  return page.locator('#' + id + '-view').evaluate(view => {
+    const scroll = view.querySelector('.diagram-scroll');
+    const svg = view.querySelector('svg');
+    const scrollRect = scroll.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+    const scale = svgRect.width / svg.viewBox.baseVal.width;
+    return {
+      x: (scrollRect.left + scroll.clientWidth / 2 - svgRect.left) / scale,
+      y: (scrollRect.top + scroll.clientHeight / 2 - svgRect.top) / scale,
+      width: svg.viewBox.baseVal.width,
+      height: svg.viewBox.baseVal.height,
+    };
+  });
+}
+
+function assertPointPreserved(before, after, action) {
+  const toleranceX = Math.max(12, before.width * 0.03);
+  const toleranceY = Math.max(12, before.height * 0.03);
+  assert(Math.abs(before.x - after.x) <= toleranceX,
+    `${action}: horizontal diagram point moved too far`);
+  assert(Math.abs(before.y - after.y) <= toleranceY,
+    `${action}: vertical diagram point moved too far`);
+}
+
 async function checkPage(browser, url, origin, screenshotDir) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -88,6 +126,101 @@ async function checkPage(browser, url, origin, screenshotDir) {
       assert(receipts[id].width > 0 && receipts[id].height > 0, `${id}: empty diagram bounds`);
       assert.equal(receipts[id].renderer, 'mermaid');
     }
+
+    const largeUml = largeClassDiagram();
+    await page.locator('#uml-source').fill(largeUml);
+    await page.waitForFunction(() =>
+      document.querySelector('#uml-view .diagram-status').dataset.state === 'ready'
+      && document.querySelector('#uml-view svg')?.textContent.includes('LargeClass23'));
+    await page.locator('#uml').scrollIntoViewIfNeeded();
+    await page.getByRole('button', { name: 'uml diagram: actual', exact: true }).click();
+
+    const scrollRegion = page.locator('#uml-view .diagram-scroll');
+    const overflow = await scrollRegion.evaluate(scroll => ({
+      horizontal: scroll.scrollWidth - scroll.clientWidth,
+      vertical: scroll.scrollHeight - scroll.clientHeight,
+    }));
+    assert(overflow.horizontal > 100, 'large UML must create real horizontal scrolling');
+    assert(overflow.vertical > 100, 'large UML must create real vertical scrolling');
+    await scrollRegion.evaluate(scroll => {
+      scroll.scrollLeft = (scroll.scrollWidth - scroll.clientWidth) * 0.55;
+      scroll.scrollTop = (scroll.scrollHeight - scroll.clientHeight) * 0.55;
+    });
+
+    // Check the bar before clicking: Playwright must not rescue an inaccessible
+    // control by scrolling it into view for the test.
+    const toolbarState = await page.locator('#uml-view').evaluate(view => {
+      const preview = view.closest('.preview-pane').getBoundingClientRect();
+      const toolbar = view.querySelector('.diagram-controls').getBoundingClientRect();
+      const scroll = view.querySelector('.diagram-scroll');
+      return {
+        scrollLeft: scroll.scrollLeft,
+        scrollTop: scroll.scrollTop,
+        visible: toolbar.top >= preview.top - 1 && toolbar.bottom <= preview.bottom + 1
+          && toolbar.left >= preview.left - 1 && toolbar.right <= preview.right + 1,
+      };
+    });
+    assert(toolbarState.scrollLeft > 0 && toolbarState.scrollTop > 0,
+      'the diagram must be scrolled on both axes before checking the toolbar');
+    assert(toolbarState.visible, 'the toolbar must remain visible inside its viewer while scrolling');
+    assert.equal(await page.locator('.diagram-controls').count(), 4,
+      'each diagram must have exactly one control bar');
+    assert.equal(await page.locator('#uml-view .diagram-controls button').count(), 4);
+
+    if (screenshotDir && url.startsWith('file:')) {
+      await fs.mkdir(screenshotDir, { recursive: true });
+      await page.locator('#uml').screenshot({ path: path.join(screenshotDir, 'uml-controls-scrolled.png') });
+    }
+
+    const beforeZoom = await observedDiagramPoint(page, 'uml');
+    await page.getByRole('button', { name: 'uml diagram: in', exact: true }).click();
+    const afterZoomIn = await observedDiagramPoint(page, 'uml');
+    assertPointPreserved(beforeZoom, afterZoomIn, 'zoom in');
+    await page.getByRole('button', { name: 'uml diagram: out', exact: true }).click();
+    const afterZoomOut = await observedDiagramPoint(page, 'uml');
+    assertPointPreserved(beforeZoom, afterZoomOut, 'zoom out');
+
+    await page.getByRole('button', { name: 'uml diagram: fit', exact: true }).click();
+    const fitted = await page.locator('#uml-view').evaluate(view => {
+      const scroll = view.querySelector('.diagram-scroll');
+      const svg = view.querySelector('svg');
+      const style = getComputedStyle(scroll);
+      const availableWidth = scroll.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const availableHeight = scroll.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      const rect = svg.getBoundingClientRect();
+      return { width: rect.width, height: rect.height, availableWidth, availableHeight,
+        scrollLeft: scroll.scrollLeft, scrollTop: scroll.scrollTop };
+    });
+    assert(fitted.width <= fitted.availableWidth + 1 && fitted.height <= fitted.availableHeight + 1,
+      'Fit must make the complete diagram visible');
+    assert(fitted.scrollLeft <= 1 && fitted.scrollTop <= 1, 'Fit must restore the global view');
+
+    await page.setViewportSize({ width: 480, height: 900 });
+    await page.locator('#uml').scrollIntoViewIfNeeded();
+    await page.getByRole('button', { name: 'uml diagram: fit', exact: true }).click();
+    const narrow = await page.locator('#uml-view').evaluate(view => {
+      const preview = view.closest('.preview-pane').getBoundingClientRect();
+      const toolbar = view.querySelector('.diagram-controls').getBoundingClientRect();
+      const buttons = [...view.querySelectorAll('.diagram-controls button')]
+        .map(button => button.getBoundingClientRect());
+      return {
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        toolbarInside: toolbar.left >= preview.left - 1 && toolbar.right <= preview.right + 1
+          && toolbar.top >= preview.top - 1 && toolbar.bottom <= preview.bottom + 1,
+        buttonsInside: buttons.every(rect => rect.left >= toolbar.left - 1 && rect.right <= toolbar.right + 1
+          && rect.top >= toolbar.top - 1 && rect.bottom <= toolbar.bottom + 1),
+      };
+    });
+    assert(narrow.pageOverflow <= 1, 'the SVG must not widen a narrow page');
+    assert(narrow.toolbarInside && narrow.buttonsInside, 'narrow view must keep all controls accessible');
+    if (screenshotDir && url.startsWith('file:')) {
+      await page.locator('#uml').screenshot({ path: path.join(screenshotDir, 'uml-controls-narrow.png') });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.locator('#uml-source').fill(examples.uml);
+    await page.waitForFunction(() =>
+      document.querySelector('#uml-view .diagram-status').dataset.state === 'ready'
+      && document.querySelector('#uml-view svg')?.textContent.includes('Admin'));
 
     await page.locator('#copy-btn-uml').click();
     await page.waitForFunction(source => window.__docsCopied === source, examples.uml);
