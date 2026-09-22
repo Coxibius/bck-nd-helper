@@ -152,10 +152,7 @@ def test_explicit_output_rejects_reparse_components_without_changes(
     assert not list(parent.glob(".*.tmp"))
 
 
-def test_no_clobber_creation_has_one_winner_and_req_init_rejects_reparse(
-    tmp_path,
-    monkeypatch,
-):
+def test_no_clobber_creation_has_one_winner(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     requirements = project / ".bck-nd" / "requirements"
@@ -192,6 +189,8 @@ def test_no_clobber_creation_has_one_winner_and_req_init_rejects_reparse(
         assert not list(requirements.glob(".*.tmp"))
         assert not list(requirements.glob("*.lock"))
 
+
+def test_req_init_rejects_reparse_requirements_directory(tmp_path, monkeypatch):
     unsafe_project = tmp_path / "unsafe"
     requirements = unsafe_project / ".bck-nd" / "requirements"
     requirements.mkdir(parents=True)
