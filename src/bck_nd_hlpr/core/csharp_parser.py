@@ -58,7 +58,7 @@ class CSharpUMLVisitor(BaseTreeSitterVisitor):
         self._visit_class(node)
 
     def visit_interface_declaration(self, node: Node) -> None:
-        self._visit_class(node)
+        self._visit_class(node, is_interface=True)
 
     def visit_file_scoped_namespace_declaration(self, node: Node) -> None:
         """Handle C# 10 file-scoped namespace declarations (``namespace Foo.Bar;``).
@@ -102,7 +102,7 @@ class CSharpUMLVisitor(BaseTreeSitterVisitor):
         self.classes.append(program_info)
         self.generic_visit(node)
 
-    def _visit_class(self, node: Node) -> None:
+    def _visit_class(self, node: Node, *, is_interface: bool = False) -> None:
         name_node = self.child(node, "identifier")
         if not name_node:
             return
@@ -117,6 +117,7 @@ class CSharpUMLVisitor(BaseTreeSitterVisitor):
                     bases.append(self.text(child))
 
         cls_info = UMLClassInfo(name, bases, self.module_name)
+        cls_info.is_interface = is_interface
         self.classes.append(cls_info)
 
         if node.type == "record_declaration" or node.type == "class_declaration":
@@ -167,7 +168,7 @@ class CSharpUMLVisitor(BaseTreeSitterVisitor):
         if not self.current_class:
             return
 
-        name_node = self.child(node, "identifier")
+        name_node = node.child_by_field_name("name")
         params_node = self.child(node, "parameter_list")
 
         if name_node and params_node:

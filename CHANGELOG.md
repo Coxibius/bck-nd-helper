@@ -5,9 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.5.0] - Pending publication (prepared 2026-09-07)
+## [2.5.1]
 
-This release is prepared in the repository but has not been published to PyPI.
+### Added
+
+- **Reproducible QA evidence:** A single-run QA driver produces UTF-8 console logs, JUnit XML, and a structured JSON summary in an isolated external directory; the CI matrix exercises supported Python versions and operating systems with installed CLI smoke tests.
+- **C# UML regressions:** Real Tree-sitter and Mermaid coverage now protects semantic method names and interface classification without introducing a new signature model.
+
+### Changed
+
+- **Resizable offline diagrams:** UML, ER, infrastructure, and sequence viewers can be resized vertically. Controls remain outside the scrollable diagram surface, Fit adapts to the live viewport, and Manual mode preserves its scale and observed diagram point across resize events.
+- **Responsive viewer behavior:** Narrow column layouts honor the user-selected viewer height while retaining minimum height, responsive width, usable controls, and horizontal page containment.
+- **QA maintainability:** Large Requirements and MCP suites are organized by responsibility, generated .NET fixtures are no longer versioned, and browser checks exercise real geometry through both offline `file://` and local HTTP delivery.
+- **CI compatibility:** Help assertions handle ANSI output, Python 3.10 configuration loading uses the declared `tomli` fallback, and the QA runner preserves Unicode reports even when the host console has a limited encoding.
+
+### Fixed
+
+- **C# method names:** Methods whose return type is a generic or user-defined identifier now use the AST's semantic `name` field instead of misidentifying the return type as the method name.
+- **C# interface metadata:** Parsed interface declarations now set the existing `is_interface` flag while classes and records retain their previous classification.
+- **Diagram resize fidelity:** Fit and Manual zoom state no longer drift when a viewer changes size, and responsive flex sizing no longer overrides native vertical resizing in narrow windows.
+
+The legacy Mermaid consumer does not yet display an interface stereotype, even though the extracted model now classifies interfaces correctly. This release also does not claim fixes for duplicated ASG parentheses, generic relationship resolution, missing classes, or C# `core_files` selection.
+
+## [2.5.0] - 2026-09-22
+
+Published to PyPI on 2026-09-22.
 
 ### Added
 
@@ -136,3 +158,4 @@ This release is prepared in the repository but has not been published to PyPI.
 [2.4.2]: https://github.com/Coxibius/bck-nd-helper/releases/tag/v2.4.2
 [2.4.3]: https://github.com/Coxibius/bck-nd-helper/releases/tag/v2.4.3
 [2.5.0]: https://github.com/Coxibius/bck-nd-helper/releases/tag/v2.5.0
+[2.5.1]: https://github.com/Coxibius/bck-nd-helper/releases/tag/v2.5.1
