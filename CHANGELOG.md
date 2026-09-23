@@ -5,9 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.5.1] - Pending publication (prepared 2026-09-23)
-
-This maintenance release is prepared in the repository but has not been published to PyPI.
+## [2.5.1]
 
 ### Added
 
@@ -31,7 +29,7 @@ The legacy Mermaid consumer does not yet display an interface stereotype, even t
 
 ## [2.5.0] - 2026-09-22
 
-Published to PyPI on 2026-09-22. It remains the current public release while v2.5.1 awaits explicit publication authorization.
+Published to PyPI on 2026-09-22.
 
 ### Added
 

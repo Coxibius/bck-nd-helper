@@ -10,24 +10,22 @@
 
 ---
 
-## 🚦 Release Status
+## 🚦 Release Notes
 
-### v2.5.1 — Prepared Release Candidate
-
-v2.5.1 is prepared in this checkout and remains pending explicit publication authorization. It is not yet available from PyPI. The current public PyPI release is v2.5.0, published on 2026-09-22.
+### v2.5.1 — C# UML Fidelity, Resizable Docs & QA Compatibility
 
 This maintenance release contains no new product workflow. It focuses on verified fidelity, viewer usability, and release QA:
 
 - **C# UML fidelity:** method declarations use the AST's semantic name even when the return type is a generic or user-defined identifier; interface declarations populate the existing `is_interface` metadata while classes and records remain unchanged.
 - **Resizable offline viewers:** UML, ER, infrastructure, and sequence panes resize vertically, keep controls separate from scrolled content, recalculate Fit against the live viewport, and preserve Manual scale plus the observed diagram point.
 - **Narrow-layout resizing:** responsive column layouts honor the selected height without page-wide horizontal overflow and retain the existing minimum height and controls.
-- **Reproducible QA:** the post-2.5.0 test organization, isolated QA reports, installed-entry-point smoke coverage, CI matrix, ANSI-safe help assertions, Unicode-safe reporting, and Python 3.10 TOML fallback are retained in the candidate.
+- **Reproducible QA:** the post-2.5.0 test organization, isolated QA reports, installed-entry-point smoke coverage, CI matrix, ANSI-safe help assertions, Unicode-safe reporting, and Python 3.10 TOML fallback are retained in the release.
 
 The extracted C# model now identifies interfaces, but the legacy Mermaid renderer does not yet display an interface stereotype. v2.5.1 does not claim to resolve duplicated ASG parentheses, generic relationship resolution, missing classes, or C# `core_files` selection.
 
-### v2.5.0 — Current Published Release
+### v2.5.0 — PRD Intelligence
 
-v2.5.0 was published to PyPI on 2026-09-22 and remains the current public stable release until v2.5.1 is explicitly published.
+v2.5.0 was published to PyPI on 2026-09-22.
 
 The release adds a local-first PRD Intelligence layer that keeps human-authored product intent separate from detailed requirements and the technical architecture discovered by the scanner:
 
@@ -116,7 +114,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
 
 ## ⚡ Quick Start
 
-PyPI currently installs v2.5.0. The v2.5.1 candidate in this checkout is not published; maintainers must use the locally built candidate wheel when validating it before release.
+Install Backend Helper from PyPI for normal use. Maintainers validating an unpublished release artifact should install the locally built wheel explicitly instead.
 
 ```bash
 pip install -U bck-nd-hlpr
@@ -445,7 +443,7 @@ The same requirements data is available live inside Claude Desktop, Cursor, or A
 
 ### v2.5.1 — C# UML Fidelity, Resizable Docs & QA Compatibility
 
-Prepared but not yet published. Corrects C# method-name extraction and interface metadata, adds stable vertical resizing to offline diagram viewers including narrow layouts, and carries the reproducible QA and CI compatibility maintenance completed after v2.5.0. Interface metadata is available to consumers, but the legacy Mermaid renderer does not yet visualize an interface stereotype.
+Corrects C# method-name extraction and interface metadata, adds stable vertical resizing to offline diagram viewers including narrow layouts, and carries the reproducible QA and CI compatibility maintenance completed after v2.5.0. Interface metadata is available to consumers, but the legacy Mermaid renderer does not yet visualize an interface stereotype.
 
 ### v2.5.0 — PRD Intelligence
 
@@ -484,7 +482,7 @@ Major architecture release: decoupled `core/` engine, concurrent `ScannerOrchest
 
 ## 📦 Installation
 
-Backend Helper v2.5.0 and the prepared v2.5.1 candidate require Python `>=3.10`. Their declared support classifiers cover Python 3.10–3.13. The MCP server targets the official MCP SDK 1.x line through `mcp>=1.28.1,<2`; this keeps new installations on the compatible `FastMCP` API until a separately tested MCP 2.x migration is completed.
+Backend Helper 2.5.x requires Python `>=3.10`. Its declared support classifiers cover Python 3.10–3.13. The MCP server targets the official MCP SDK 1.x line through `mcp>=1.28.1,<2`; this keeps new installations on the compatible `FastMCP` API until a separately tested MCP 2.x migration is completed.
 
 ```bash
 # From PyPI
@@ -786,11 +784,12 @@ bck-nd init-ci
 - Creates `.github/workflows/bck-nd-docs.yml`.
 - Adds `.bck-nd/cache/` to `.gitignore` while keeping `.bck-nd/requirements/` versionable.
 - Configures an automatic trigger on `push` to the `main` branch.
-- Checks out the pushed `main` revision and installs `bck-nd-hlpr` from that checkout; documentation generation does not wait for a PyPI publication.
-- Generates the full HTML portal (UML, ER, Infra, Routes).
+- Checks out the project revision that will be documented.
+- When used in the Backend Helper repository, builds and installs the tool from its own checkout. In other projects, the generated workflow installs Backend Helper from PyPI.
+- Analyzes the checked-out project and generates its full HTML portal (UML, ER, Infra, Routes).
 - Deploys the result automatically to **GitHub Pages**.
 
-A direct push or a merged pull request reaching `main` triggers the tracked Pages workflow; deployment occurs only if its build and verification steps succeed. Feature branches can be compared by generating HTML locally with `bck-nd docs . --output docs`. This repository does not provide automatic per-branch previews.
+In the Backend Helper repository, a direct push or a merged pull request reaching `main` triggers its tracked Pages workflow; deployment occurs only if the build and verification steps succeed. The documentation is generated from that checkout rather than waiting for a PyPI publication. Feature branches can be compared by generating HTML locally with `bck-nd docs . --output docs`; this repository does not provide automatic per-branch previews.
 
 ---
 
