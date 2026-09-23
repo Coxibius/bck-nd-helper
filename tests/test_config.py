@@ -36,7 +36,7 @@ def test_release_version_sources_are_synchronized():
         or dependency.startswith("mcp!")
     ]
 
-    assert project_version == "2.5.0"
+    assert project_version == "2.5.1"
     assert bck_nd_hlpr.__version__ == project_version
     assert VERSION == project_version
     assert project["requires-python"] == ">=3.10"
