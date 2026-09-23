@@ -282,7 +282,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             border-radius: 8px; 
             height: clamp(300px, 60vh, 640px);
             min-height: 300px;
-            max-height: 640px;
+            resize: vertical;
         }
         
         table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
@@ -324,7 +324,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
         @media (max-width: 1024px) {
             .editor-container { flex-direction: column; }
-            .preview-pane { width: 100%; }
+            .preview-pane { flex: none; width: 100%; }
         }
         @media (max-width: 640px) {
             header { position: static; align-items: flex-start; flex-direction: column; gap: 1rem; padding: 1rem; }
@@ -459,8 +459,43 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         let renderQueue = Promise.resolve();
         const revisions = new Map();
         const zoomLevels = new Map();
+        const zoomModes = new Map();
+        const manualCenters = new Map();
+        const observedViewportSizes = new Map();
+        const resizeFrames = new Map();
 
-        function resizeDiagram(id, requestedZoom) {
+        function diagramCenter(id) {
+            const view = document.getElementById(id + '-view');
+            const pane = view.querySelector('.diagram-scroll');
+            const diagram = view.querySelector('svg');
+            if (!diagram) return null;
+            const bounds = diagram.viewBox.baseVal;
+            const diagramRect = diagram.getBoundingClientRect();
+            const scale = diagramRect.width / bounds.width;
+            if (!(scale > 0)) return null;
+            const paneRect = pane.getBoundingClientRect();
+            return {
+                x: (paneRect.left + pane.clientWidth / 2 - diagramRect.left) / scale,
+                y: (paneRect.top + pane.clientHeight / 2 - diagramRect.top) / scale,
+            };
+        }
+
+        function restoreDiagramCenter(id, point, scale) {
+            if (!point) return;
+            const view = document.getElementById(id + '-view');
+            const pane = view.querySelector('.diagram-scroll');
+            const diagram = view.querySelector('svg');
+            const paneRect = pane.getBoundingClientRect();
+            const diagramRect = diagram.getBoundingClientRect();
+            const centerX = paneRect.left + pane.clientWidth / 2;
+            const centerY = paneRect.top + pane.clientHeight / 2;
+            pane.scrollLeft = Math.max(0, pane.scrollLeft
+                + diagramRect.left + point.x * scale - centerX);
+            pane.scrollTop = Math.max(0, pane.scrollTop
+                + diagramRect.top + point.y * scale - centerY);
+        }
+
+        function resizeDiagram(id, requestedZoom, preservedPoint = null) {
             const view = document.getElementById(id + '-view');
             const diagram = view.querySelector('svg');
             if (!diagram) return;
@@ -473,34 +508,30 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             const availableHeight = Math.max(1, pane.clientHeight
                 - parseFloat(paneStyle.paddingTop) - parseFloat(paneStyle.paddingBottom));
             const fittingZoom = Math.min(1, availableWidth / bounds.width, availableHeight / bounds.height);
-            const zoom = requestedZoom === 'fit' ? fittingZoom : Math.min(4, Math.max(0.001, requestedZoom));
-            const paneRect = pane.getBoundingClientRect();
-            const diagramRect = diagram.getBoundingClientRect();
-            const previousZoom = diagramRect.width / bounds.width;
-            const centerX = paneRect.left + pane.clientWidth / 2;
-            const centerY = paneRect.top + pane.clientHeight / 2;
-            const diagramPoint = previousZoom > 0 ? {
-                x: (centerX - diagramRect.left) / previousZoom,
-                y: (centerY - diagramRect.top) / previousZoom,
-            } : null;
+            const mode = requestedZoom === 'fit' ? 'fit' : 'manual';
+            const zoom = mode === 'fit' ? fittingZoom : Math.min(4, Math.max(0.001, requestedZoom));
+            const diagramPoint = mode === 'manual' ? (preservedPoint || diagramCenter(id)) : null;
+            zoomModes.set(id, mode);
+            view.dataset.zoomMode = mode;
             zoomLevels.set(id, zoom);
             diagram.style.width = bounds.width * zoom + 'px';
             diagram.style.height = bounds.height * zoom + 'px';
-            view.querySelector('.diagram-controls output').textContent = (zoom * 100).toFixed(1) + '%';
-            if (requestedZoom === 'fit') {
+            const actualZoom = diagram.getBoundingClientRect().width / bounds.width;
+            view.querySelector('.diagram-controls output').textContent =
+                (mode === 'fit' ? 'Fit' : 'Manual') + ' · ' + (actualZoom * 100).toFixed(1) + '%';
+            if (mode === 'fit') {
                 pane.scrollTop = 0;
                 pane.scrollLeft = 0;
             } else if (diagramPoint) {
-                const resizedRect = diagram.getBoundingClientRect();
-                pane.scrollLeft = Math.max(0, pane.scrollLeft
-                    + resizedRect.left + diagramPoint.x * zoom - centerX);
-                pane.scrollTop = Math.max(0, pane.scrollTop
-                    + resizedRect.top + diagramPoint.y * zoom - centerY);
+                restoreDiagramCenter(id, diagramPoint, actualZoom);
+                manualCenters.set(id, diagramCenter(id));
             }
         }
 
         diagramIds.forEach(id => {
             const view = document.getElementById(id + '-view');
+            zoomModes.set(id, 'fit');
+            view.dataset.zoomMode = 'fit';
             if (!view.querySelector('.diagram-controls')) {
                 const controls = document.createElement('div');
                 controls.className = 'diagram-controls';
@@ -516,7 +547,40 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                 controls.appendChild(document.createElement('output'));
                 view.prepend(controls);
             }
+            const pane = view.querySelector('.diagram-scroll');
+            pane.dataset.diagramId = id;
+            pane.addEventListener('scroll', () => {
+                if (zoomModes.get(id) === 'manual') {
+                    manualCenters.set(id, diagramCenter(id));
+                }
+            }, { passive: true });
         });
+
+        const viewportObserver = new ResizeObserver(entries => {
+            for (const entry of entries) {
+                const pane = entry.target;
+                const id = pane.dataset.diagramId;
+                const view = document.getElementById(id + '-view');
+                const size = pane.clientWidth + 'x' + pane.clientHeight;
+                const previousSize = observedViewportSizes.get(id);
+                observedViewportSizes.set(id, size);
+                view.dataset.viewportSize = size;
+                if (!previousSize || previousSize === size || !view.querySelector('svg')) continue;
+                if (resizeFrames.has(id)) cancelAnimationFrame(resizeFrames.get(id));
+                resizeFrames.set(id, requestAnimationFrame(() => {
+                    resizeFrames.delete(id);
+                    if (zoomModes.get(id) === 'fit') {
+                        resizeDiagram(id, 'fit');
+                    } else {
+                        resizeDiagram(id, zoomLevels.get(id) || 1, manualCenters.get(id));
+                    }
+                    view.dataset.viewportSize = pane.clientWidth + 'x' + pane.clientHeight;
+                }));
+            }
+        });
+        diagramIds.forEach(id => viewportObserver.observe(
+            document.querySelector('#' + id + '-view .diagram-scroll')
+        ));
 
         const copyAiBtn = document.getElementById('copy-ai-context-btn');
         const aiContextEl = document.getElementById('ai-context-content');

@@ -20,13 +20,72 @@ function largeClassDiagram() {
   const lines = ['classDiagram', '  direction LR'];
   for (let index = 0; index < 24; index += 1) {
     lines.push(`  class LargeClass${index} {`);
-    for (let member = 0; member < 24; member += 1) {
+    for (let member = 0; member < 40; member += 1) {
       lines.push(`    +String field_${index}_${member}`);
     }
     lines.push('  }');
     if (index > 0) lines.push(`  LargeClass${index - 1} --> LargeClass${index}`);
   }
   return lines.join('\n');
+}
+
+function tallClassDiagram() {
+  const lines = ['classDiagram', '  class TallService {'];
+  for (let member = 0; member < 60; member += 1) {
+    lines.push(`    +String field_${member}`);
+  }
+  lines.push('  }');
+  return lines.join('\n');
+}
+
+async function diagramViewState(page, id) {
+  return page.locator('#' + id + '-view').evaluate(view => {
+    const scroll = view.querySelector('.diagram-scroll');
+    const svg = view.querySelector('svg');
+    const style = getComputedStyle(scroll);
+    const rect = svg.getBoundingClientRect();
+    const bounds = svg.viewBox.baseVal;
+    const availableWidth = scroll.clientWidth
+      - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const availableHeight = scroll.clientHeight
+      - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    return {
+      mode: view.dataset.zoomMode,
+      label: view.querySelector('.diagram-controls output').textContent,
+      scale: rect.width / bounds.width,
+      fittingScale: Math.min(1, availableWidth / bounds.width, availableHeight / bounds.height),
+      widthScale: availableWidth / bounds.width,
+      heightScale: availableHeight / bounds.height,
+      svgId: svg.id,
+      viewerHeight: view.closest('.preview-pane').getBoundingClientRect().height,
+    };
+  });
+}
+
+async function dragViewerHeight(page, id, deltaY) {
+  const pane = page.locator('#' + id + ' .preview-pane');
+  await pane.evaluate(element => element.scrollIntoView({ block: 'end', inline: 'nearest' }));
+  const before = await pane.boundingBox();
+  assert(before, `${id}: viewer has no bounding box`);
+  await page.mouse.move(before.x + before.width - 3, before.y + before.height - 3);
+  await page.mouse.down();
+  await page.mouse.move(
+    before.x + before.width - 3,
+    before.y + before.height - 3 + deltaY,
+    { steps: 12 },
+  );
+  await page.mouse.up();
+  await page.waitForFunction(({ id, beforeHeight, deltaY }) => {
+    const current = document.querySelector('#' + id + ' .preview-pane')?.getBoundingClientRect().height;
+    return current && Math.abs(current - beforeHeight) >= Math.min(40, Math.abs(deltaY) * 0.5);
+  }, { id, beforeHeight: before.height, deltaY });
+  await page.waitForFunction(id => {
+    const view = document.getElementById(id + '-view');
+    const scroll = view.querySelector('.diagram-scroll');
+    return view.dataset.viewportSize === scroll.clientWidth + 'x' + scroll.clientHeight;
+  }, id);
+  const after = await pane.boundingBox();
+  return { before: before.height, after: after.height };
 }
 
 async function observedDiagramPoint(page, id) {
@@ -127,6 +186,48 @@ async function checkPage(browser, url, origin, screenshotDir) {
       assert.equal(receipts[id].renderer, 'mermaid');
     }
 
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.locator('#uml-source').fill(tallClassDiagram());
+    await page.waitForFunction(() =>
+      document.querySelector('#uml-view .diagram-status').dataset.state === 'ready'
+      && document.querySelector('#uml-view svg')?.textContent.includes('TallService'));
+    await page.locator('#uml').scrollIntoViewIfNeeded();
+    const erHeight = await page.locator('#er .preview-pane').evaluate(pane => pane.getBoundingClientRect().height);
+    const fitBeforeResize = await diagramViewState(page, 'uml');
+    assert.equal(fitBeforeResize.mode, 'fit');
+    assert.match(fitBeforeResize.label, /^Fit · /);
+    assert(fitBeforeResize.heightScale < fitBeforeResize.widthScale,
+      'the tall fixture must make Fit height-limited');
+    const expanded = await dragViewerHeight(page, 'uml', 240);
+    assert(expanded.after > expanded.before + 100 && expanded.after > 640,
+      'native drag must expand the viewer beyond the old 640px ceiling');
+    await page.waitForFunction(beforeScale => {
+      const view = document.getElementById('uml-view');
+      const svg = view.querySelector('svg');
+      return view.dataset.zoomMode === 'fit'
+        && svg.getBoundingClientRect().width / svg.viewBox.baseVal.width > beforeScale + 0.01;
+    }, fitBeforeResize.scale);
+    const fitAfterExpand = await diagramViewState(page, 'uml');
+    assert.equal(fitAfterExpand.svgId, fitBeforeResize.svgId,
+      'resizing must not regenerate Mermaid');
+    assert(Math.abs(fitAfterExpand.scale - fitAfterExpand.fittingScale) <= 0.01,
+      'Fit must track the expanded viewport');
+    assert.equal(
+      Math.round(await page.locator('#er .preview-pane').evaluate(pane => pane.getBoundingClientRect().height)),
+      Math.round(erHeight),
+      'resizing UML must not resize ER',
+    );
+    if (screenshotDir && url.startsWith('file:')) {
+      await fs.mkdir(screenshotDir, { recursive: true });
+      await page.locator('#uml').screenshot({ path: path.join(screenshotDir, 'uml-viewer-expanded.png') });
+    }
+    const reduced = await dragViewerHeight(page, 'uml', -140);
+    assert(reduced.after < reduced.before - 60, 'native drag must also reduce viewer height');
+    await page.waitForFunction(previousScale => {
+      const svg = document.querySelector('#uml-view svg');
+      return svg.getBoundingClientRect().width / svg.viewBox.baseVal.width < previousScale - 0.005;
+    }, fitAfterExpand.scale);
+
     const largeUml = largeClassDiagram();
     await page.locator('#uml-source').fill(largeUml);
     await page.waitForFunction(() =>
@@ -134,6 +235,9 @@ async function checkPage(browser, url, origin, screenshotDir) {
       && document.querySelector('#uml-view svg')?.textContent.includes('LargeClass23'));
     await page.locator('#uml').scrollIntoViewIfNeeded();
     await page.getByRole('button', { name: 'uml diagram: actual', exact: true }).click();
+    const manualState = await diagramViewState(page, 'uml');
+    assert.equal(manualState.mode, 'manual');
+    assert.match(manualState.label, /^Manual · 100\.0%$/);
 
     const scrollRegion = page.locator('#uml-view .diagram-scroll');
     const overflow = await scrollRegion.evaluate(scroll => ({
@@ -180,6 +284,20 @@ async function checkPage(browser, url, origin, screenshotDir) {
     const afterZoomOut = await observedDiagramPoint(page, 'uml');
     assertPointPreserved(beforeZoom, afterZoomOut, 'zoom out');
 
+    const manualBeforeResize = await diagramViewState(page, 'uml');
+    const pointBeforeResize = await observedDiagramPoint(page, 'uml');
+    const manualResize = await dragViewerHeight(page, 'uml', 120);
+    assert(manualResize.after > manualResize.before + 50);
+    await page.waitForFunction(previousHeight =>
+      document.querySelector('#uml-view .diagram-scroll').clientHeight > previousHeight,
+    manualResize.before - await page.locator('#uml-view .diagram-controls').evaluate(el => el.getBoundingClientRect().height));
+    const manualAfterResize = await diagramViewState(page, 'uml');
+    const pointAfterResize = await observedDiagramPoint(page, 'uml');
+    assert.equal(manualAfterResize.mode, 'manual');
+    assert(Math.abs(manualAfterResize.scale - manualBeforeResize.scale) <= 0.001,
+      'manual resize must preserve the selected scale');
+    assertPointPreserved(pointBeforeResize, pointAfterResize, 'manual viewer resize');
+
     await page.getByRole('button', { name: 'uml diagram: fit', exact: true }).click();
     const fitted = await page.locator('#uml-view').evaluate(view => {
       const scroll = view.querySelector('.diagram-scroll');
@@ -194,9 +312,11 @@ async function checkPage(browser, url, origin, screenshotDir) {
     assert(fitted.width <= fitted.availableWidth + 1 && fitted.height <= fitted.availableHeight + 1,
       'Fit must make the complete diagram visible');
     assert(fitted.scrollLeft <= 1 && fitted.scrollTop <= 1, 'Fit must restore the global view');
+    assert.equal((await diagramViewState(page, 'uml')).mode, 'fit');
 
     await page.setViewportSize({ width: 480, height: 900 });
     await page.locator('#uml').scrollIntoViewIfNeeded();
+    await page.locator('#uml .preview-pane').evaluate(pane => { pane.style.height = ''; });
     await page.getByRole('button', { name: 'uml diagram: fit', exact: true }).click();
     const narrow = await page.locator('#uml-view').evaluate(view => {
       const preview = view.closest('.preview-pane').getBoundingClientRect();
@@ -213,6 +333,39 @@ async function checkPage(browser, url, origin, screenshotDir) {
     });
     assert(narrow.pageOverflow <= 1, 'the SVG must not widen a narrow page');
     assert(narrow.toolbarInside && narrow.buttonsInside, 'narrow view must keep all controls accessible');
+    const narrowExpanded = await dragViewerHeight(page, 'uml', 160);
+    assert(narrowExpanded.after > narrowExpanded.before + 80,
+      'native drag must expand the visible viewer in the narrow column layout');
+    await page.getByRole('button', { name: 'uml diagram: in', exact: true }).click();
+    assert.equal((await diagramViewState(page, 'uml')).mode, 'manual');
+    await page.getByRole('button', { name: 'uml diagram: fit', exact: true }).click();
+    assert.equal((await diagramViewState(page, 'uml')).mode, 'fit');
+    const narrowAfterExpand = await page.locator('#uml-view').evaluate(view => {
+      const preview = view.closest('.preview-pane').getBoundingClientRect();
+      const toolbar = view.querySelector('.diagram-controls').getBoundingClientRect();
+      const buttons = [...view.querySelectorAll('.diagram-controls button')]
+        .map(button => button.getBoundingClientRect());
+      return {
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        toolbarInside: toolbar.left >= preview.left - 1 && toolbar.right <= preview.right + 1
+          && toolbar.top >= preview.top - 1 && toolbar.bottom <= preview.bottom + 1,
+        buttonsInside: buttons.every(rect => rect.left >= toolbar.left - 1 && rect.right <= toolbar.right + 1
+          && rect.top >= toolbar.top - 1 && rect.bottom <= toolbar.bottom + 1),
+      };
+    });
+    assert(narrowAfterExpand.pageOverflow <= 1,
+      'resizing the narrow viewer must not create horizontal page overflow');
+    assert(narrowAfterExpand.toolbarInside && narrowAfterExpand.buttonsInside,
+      'narrow controls must remain usable after resizing');
+    if (screenshotDir && url.startsWith('file:')) {
+      await page.locator('#uml').screenshot({
+        path: path.join(screenshotDir, 'uml-viewer-narrow-resized.png'),
+      });
+    }
+    const narrowReduced = await dragViewerHeight(page, 'uml', -120);
+    assert(narrowReduced.after < narrowReduced.before - 60,
+      'native drag must reduce a previously expanded narrow viewer');
+    assert(narrowReduced.after >= 300, 'narrow viewer must preserve its minimum height');
     if (screenshotDir && url.startsWith('file:')) {
       await page.locator('#uml').screenshot({ path: path.join(screenshotDir, 'uml-controls-narrow.png') });
     }
@@ -256,6 +409,7 @@ async function checkPage(browser, url, origin, screenshotDir) {
     assert.deepEqual(externalRequests, [], 'The standalone portal must not request external resources');
     assert.deepEqual(pageErrors, [], 'Unexpected browser script errors');
     console.log(JSON.stringify({ mode: url.startsWith('file:') ? 'file-offline' : 'http-offline', diagrams: receipts,
+      narrowResize: { expanded: narrowExpanded, reduced: narrowReduced },
       malformedSource: 'preserved', theme: 'redrawn', externalRequests: 0, pageErrors: 0 }));
   } finally {
     await context.close();
